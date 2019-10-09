@@ -1,6 +1,6 @@
-import dicom, os, copy
+import os, copy, pydicom
 import numpy as np
-from dicom.tag import Tag
+from pydicom.tag import Tag
 from skimage import draw
 import matplotlib.pyplot as plt
 
@@ -154,11 +154,12 @@ class DicomImagestoData:
             break
         if not self.get_images_mask:
             RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
+            print(RT_fileList)
             if RT_fileList:
                 fileList = RT_fileList
         for filename in fileList:
             try:
-                ds = dicom.read_file(os.path.join(dirName,filename))
+                ds = pydicom.read_file(os.path.join(dirName,filename))
                 if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
                     self.lstFilesDCM.append(os.path.join(dirName, filename))
                     self.Dicom_info.append(ds)
@@ -170,14 +171,14 @@ class DicomImagestoData:
                 #     os.remove(PathDicom+filename)
                 continue
         if self.lstFilesDCM:
-            self.RefDs = dicom.read_file(self.lstFilesDCM[0])
+            self.RefDs = pydicom.read_file(self.lstFilesDCM[0])
         self.mask_exist = False
         self.rois_in_case = []
         if self.lstRSFile:
             self.get_rois_from_RT()
 
     def get_rois_from_RT(self):
-        self.RS_struct = dicom.read_file(self.lstRSFile)
+        self.RS_struct = pydicom.read_file(self.lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
             self.ROI_Structure = self.RS_struct.StructureSetROISequence
         else:
@@ -188,7 +189,7 @@ class DicomImagestoData:
 
     def rewrite_RT(self, lstRSFile=None):
         if lstRSFile is not None:
-            self.RS_struct = dicom.read_file(lstRSFile)
+            self.RS_struct = pydicom.read_file(lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
             self.ROI_Structure = self.RS_struct.StructureSetROISequence
         else:
@@ -214,7 +215,7 @@ class DicomImagestoData:
         # The array is sized based on 'ConstPixelDims'
         # ArrayDicom = np.zeros(ConstPixelDims, dtype=RefDs.pixel_array.dtype)
         if self.lstRSFile:
-            checking_mult = dicom.read_file(self.lstRSFile)
+            checking_mult = pydicom.read_file(self.lstRSFile)
             checking_mult = round(checking_mult.ROIContourSequence[0].ContourSequence[0].ContourData[2],2)
         self.image_size_1 = self.Dicom_info[0].pixel_array.shape[0]
         self.image_size_2 = self.Dicom_info[0].pixel_array.shape[1]
