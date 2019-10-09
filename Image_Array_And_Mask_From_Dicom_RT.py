@@ -255,6 +255,7 @@ class DicomImagestoData:
                 return None
         self.ArrayDicom = (self.ArrayDicom+RescaleIntercept)/RescaleSlope
         indexes = [i[0] for i in sorted(enumerate(self.slice_locations), key=lambda x: x[1])]
+        self.lstFilesDCM = list(np.asarray(self.lstFilesDCM)[indexes])
         self.ArrayDicom = self.ArrayDicom[:, :, indexes]
         self.ArrayDicom = np.transpose(self.ArrayDicom,[-1,0,1])
         self.slice_info = self.slice_info[indexes]
