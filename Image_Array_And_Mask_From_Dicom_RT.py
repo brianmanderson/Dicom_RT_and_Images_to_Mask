@@ -152,7 +152,10 @@ class DicomImagestoData:
         fileList = []
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
-        # fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0] #
+        if not self.get_images_mask:
+            RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
+            if RT_fileList:
+                fileList = RT_fileList
         for filename in fileList:
             try:
                 ds = dicom.read_file(os.path.join(dirName,filename))
