@@ -140,8 +140,6 @@ class DicomImagestoData:
             self.get_images_and_mask()
         for roi in self.rois_in_case:
             if roi not in self.all_rois:
-                if roi in self.associations:
-                    roi = self.associations[roi]
                 self.all_rois.append(roi)
         return None
 
