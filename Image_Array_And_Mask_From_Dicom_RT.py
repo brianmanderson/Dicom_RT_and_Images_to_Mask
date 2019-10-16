@@ -290,9 +290,6 @@ class DicomImagestoData:
         mult1 = mult2 = 1
         if ShiftCols > 0:
             mult1 = -1
-        if ShiftRows > 0:
-            print('take a look at this one...')
-        #    mult2 = -1
 
         for i in range(len(Contour_data)):
             slice_val = round(Contour_data[i].ContourData[2],2)
