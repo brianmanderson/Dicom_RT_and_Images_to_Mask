@@ -154,7 +154,6 @@ class DicomImagestoData:
             break
         if not self.get_images_mask:
             RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
-            print(RT_fileList)
             if RT_fileList:
                 fileList = RT_fileList
         for filename in fileList:
