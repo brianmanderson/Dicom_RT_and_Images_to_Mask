@@ -1,6 +1,7 @@
 import os, copy, pydicom
 import numpy as np
 from pydicom.tag import Tag
+import SimpleITK as sitk
 from skimage import draw
 import matplotlib.pyplot as plt
 
@@ -59,6 +60,9 @@ class IndexTracker(object):
 
 class DicomImagestoData:
     def __init__(self,path='',rewrite_RT_file=False,get_images_mask=True, associations={}):
+        self.reader = sitk.ImageSeriesReader()
+        self.reader.MetaDataDictionaryArrayUpdateOn()
+        self.reader.LoadPrivateTagsOn()
         self.associations = associations
         self.hierarchy = {}
         self.all_rois = []
@@ -91,8 +95,7 @@ class DicomImagestoData:
         self.Contour_Names = Contour_Names
 
         # And this is making a mask file
-        self.mask = np.zeros([self.image_size_1, self.image_size_2, len(self.lstFilesDCM), len(self.Contour_Names)],
-                             dtype='float32')
+        self.mask = np.zeros([self.image_size_1, self.image_size_2, len(self.dicom_names),len(self.Contour_Names)+1], dtype='int8')
 
         self.structure_references = {}
         for contour_number in range(len(self.RS_struct.ROIContourSequence)):
@@ -122,7 +125,7 @@ class DicomImagestoData:
                                 found_rois[true_name]['Roi_Number'] = Structures.ROINumber
                 else:
                     found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': Structures.ROINumber}
-        i = 0
+        i = 1 # For background
         for ROI_Name in found_rois.keys():
             if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
                 index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
@@ -130,6 +133,11 @@ class DicomImagestoData:
                 self.mask[..., i][mask == 1] = 1
                 i += 1
         self.mask = np.transpose(self.mask, axes=(2, 0, 1, 3))
+        self.mask = np.argmax(self.mask,axis=-1).astype('int8')
+        self.mask_handle = sitk.GetImageFromArray(self.mask)
+        self.mask_handle.SetSpacing(self.dicom_handle.GetSpacing())
+        self.mask_handle.SetDirection(self.dicom_handle.GetDirection())
+        self.mask_handle.SetOrigin(self.dicom_handle.GetOrigin())
         return None
 
     def Make_Contour_From_directory(self,PathDicom):
@@ -152,26 +160,15 @@ class DicomImagestoData:
         fileList = []
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
-        if not self.get_images_mask:
-            RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
-            print(RT_fileList)
-            if RT_fileList:
-                fileList = RT_fileList
-        for filename in fileList:
-            try:
-                ds = pydicom.read_file(os.path.join(dirName,filename))
-                if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
-                    self.lstFilesDCM.append(os.path.join(dirName, filename))
-                    self.Dicom_info.append(ds)
-                elif ds.Modality == 'RTSTRUCT':
-                    self.lstRSFile = os.path.join(dirName, filename)
-                    self.all_RTs.append(self.lstRSFile)
-            except:
-                # if filename.find('Iteration_') == 0:
-                #     os.remove(PathDicom+filename)
-                continue
-        if self.lstFilesDCM:
-            self.RefDs = pydicom.read_file(self.lstFilesDCM[0])
+        fileList = [i for i in fileList if i.find('.dcm') != -1]
+        if len(fileList) < 10: # If there are no files, break out
+            return None
+        self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
+        self.RefDs = pydicom.read_file(self.dicom_names[0])
+        self.ds = pydicom.read_file(self.dicom_names[0])
+        self.reader.SetFileNames(self.dicom_names)
+        image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
+        self.lstRSFile = [os.path.join(PathDicom,file) for file in fileList if file not in image_files][0]
         self.mask_exist = False
         self.rois_in_case = []
         if self.lstRSFile:
@@ -214,96 +211,45 @@ class DicomImagestoData:
         # Working on the RS structure now
         # The array is sized based on 'ConstPixelDims'
         # ArrayDicom = np.zeros(ConstPixelDims, dtype=RefDs.pixel_array.dtype)
-        if self.lstRSFile:
-            checking_mult = pydicom.read_file(self.lstRSFile)
-            checking_mult = round(checking_mult.ROIContourSequence[0].ContourSequence[0].ContourData[2],2)
-        self.image_size_1 = self.Dicom_info[0].pixel_array.shape[0]
-        self.image_size_2 = self.Dicom_info[0].pixel_array.shape[1]
-        self.ArrayDicom = np.zeros([self.image_size_1, self.image_size_2, len(self.lstFilesDCM)], dtype='float32')
+        self.dicom_handle = self.reader.Execute()
+        # slice_location_key = "0020|1041"
+        sop_instance_UID_key = "0008|0018"
+        self.SOPInstanceUIDs = [self.reader.GetMetaData(i,sop_instance_UID_key) for i in range(self.dicom_handle.GetDepth())]
+        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
+        self.image_size_1, self.image_size_2, _ = self.dicom_handle.GetSize()
 
-        # loop through all the DICOM files
-        self.slice_locations = []
-        self.slice_info = np.zeros([len(self.lstFilesDCM)])
-        self.SOPClassUID_temp = {}
-        self.mult = 1
-        # This makes the dicom array of 'real' images
-        for filenameDCM in self.lstFilesDCM:
-            # read the file
-            self.ds = self.Dicom_info[self.lstFilesDCM.index(filenameDCM)]
-            # store the raw image data
-            if self.ds.pixel_array.shape[0] != self.image_size_1:
-                print('Size issue')
-            else:
-                im = self.ds.pixel_array
-            # im[im<200] = 200 #Don't know what the hell these units are, but the min (air) is 0
-            self.ArrayDicom[:, :, self.lstFilesDCM.index(filenameDCM)] = im
-            # Get slice locations
-            slice_location = round(self.ds.ImagePositionPatient[2],2)
-            self.slice_locations.append(slice_location)
-            self.slice_info[self.lstFilesDCM.index(filenameDCM)] = round(self.ds.ImagePositionPatient[2],3)
-            self.SOPClassUID_temp[self.lstFilesDCM.index(filenameDCM)] = self.ds.SOPInstanceUID
-        try:
-            RescaleIntercept = self.ds.RescaleIntercept
-            RescaleSlope = self.ds.RescaleSlope
-        except:
-            RescaleIntercept = 1
-            RescaleSlope = 1
-        if self.lstRSFile:
-            if min([abs(i - checking_mult) for i in self.slice_locations]) < 0.01:
-                self.mult = 1
-            elif min([abs(i - checking_mult) for i in self.slice_locations]) < 0.01:
-                self.mult = -1
-            else:
-                print('Slice values are off..')
-                self.skip_val = True
-                return None
-        self.ArrayDicom = (self.ArrayDicom+RescaleIntercept)/RescaleSlope
-        indexes = [i[0] for i in sorted(enumerate(self.slice_locations), key=lambda x: x[1])]
-        self.lstFilesDCM = list(np.asarray(self.lstFilesDCM)[indexes])
-        self.ArrayDicom = self.ArrayDicom[:, :, indexes]
-        self.ArrayDicom = np.transpose(self.ArrayDicom,[-1,0,1])
-        self.slice_info = self.slice_info[indexes]
-        self.SeriesInstanceUID = self.ds.SeriesInstanceUID
-        self.slice_locations.sort()
-        self.SOPClassUID = {}
-        i = 0
-        for index in indexes:
-            self.SOPClassUID[i] = self.SOPClassUID_temp[index]
-            i += 1
 
     def get_mask_for_contour(self,i):
         self.Liver_Locations = self.RS_struct.ROIContourSequence[i].ContourSequence
-        self.Liver_Slices = []
-        for contours in self.Liver_Locations:
-            data_point = contours.ContourData[2]
-            if data_point not in self.Liver_Slices:
-                self.Liver_Slices.append(contours.ContourData[2])
         return self.Contours_to_mask()
 
     def Contours_to_mask(self):
-        mask = np.zeros([self.image_size_1, self.image_size_2, len(self.lstFilesDCM)], dtype='float32')
+        mask = np.zeros([self.image_size_1, self.image_size_2, len(self.dicom_names)], dtype='int8')
         Contour_data = self.Liver_Locations
-        ShiftCols = self.RefDs.ImagePositionPatient[0]
-        ShiftRows = self.RefDs.ImagePositionPatient[1]
-        PixelSize = self.RefDs.PixelSpacing[0]
+        ShiftCols, ShiftRows, _ = [float(i) for i in self.reader.GetMetaData(0,"0020|0032").split('\\')]
+        # ShiftCols = self.ds.ImagePositionPatient[0]
+        # ShiftRows = self.ds.ImagePositionPatient[1]
+        PixelSize = self.dicom_handle.GetSpacing()[0]
         Mag = 1 / PixelSize
         mult1 = mult2 = 1
         if ShiftCols > 0:
             mult1 = -1
+        if ShiftRows > 0:
+            print('take a look at this one...')
+        #    mult2 = -1
 
         for i in range(len(Contour_data)):
-            slice_val = round(Contour_data[i].ContourData[2],2)
-            dif = [abs(i * self.mult - slice_val) for i in self.slice_locations]
-            try:
-                slice_index = dif.index(min(dif))  # Now we know which slice to alter in the mask file
-            except:
-                print('might have had an issue here..')
-                continue
+            referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
+            if referenced_sop_instance_uid not in self.SOPInstanceUIDs:
+                print('Error here with instance UID')
+                return None
+            else:
+                slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
             cols = Contour_data[i].ContourData[1::3]
             rows = Contour_data[i].ContourData[0::3]
-            self.col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
-            self.row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
-            temp_mask = self.poly2mask(self.col_val, self.row_val, [self.image_size_1, self.image_size_2])
+            col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
+            row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
+            temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
             mask[:,:,slice_index][temp_mask > 0] = 1
             #scm.imsave('C:\\Users\\bmanderson\\desktop\\images\\mask_'+str(i)+'.png',mask_slice)
 
