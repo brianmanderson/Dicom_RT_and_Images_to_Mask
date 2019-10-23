@@ -166,7 +166,6 @@ class DicomImagestoData:
         self.lstFilesDCM = []
         self.lstRSFile = []
         self.Dicom_info = []
-        self.dicom_names = []
         fileList = []
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
@@ -182,7 +181,6 @@ class DicomImagestoData:
                     if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
                         self.lstFilesDCM.append(os.path.join(dirName, filename))
                         self.Dicom_info.append(ds)
-                        self.dicom_names.append(os.path.join(dirName,filename))
                     elif ds.Modality == 'RTSTRUCT':
                         self.lstRSFile = os.path.join(dirName, filename)
                         self.all_RTs.append(self.lstRSFile)
