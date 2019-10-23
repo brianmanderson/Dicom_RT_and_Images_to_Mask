@@ -59,7 +59,8 @@ class IndexTracker(object):
 
 
 class DicomImagestoData:
-    def __init__(self,path='',rewrite_RT_file=False,get_images_mask=True, associations={}):
+    def __init__(self,path='',rewrite_RT_file=False,get_images_mask=True, associations={}, wanted_rois=[]):
+        self.wanted_rois = wanted_rois
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
@@ -146,9 +147,18 @@ class DicomImagestoData:
             self.rewrite_RT()
         if self.get_images_mask:
             self.get_images_and_mask()
+        true_rois = []
         for roi in self.rois_in_case:
             if roi not in self.all_rois:
                 self.all_rois.append(roi)
+            if self.wanted_rois:
+                    if roi in self.associations:
+                        true_rois.append(self.associations[roi])
+                    elif roi in self.wanted_rois:
+                        true_rois.append(roi)
+            for roi in self.wanted_rois:
+                if roi not in true_rois:
+                    print('Lacking {} in {}'.format(roi, PathDicom))
         return None
 
     def prep_data(self,PathDicom):
