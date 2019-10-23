@@ -166,19 +166,39 @@ class DicomImagestoData:
         self.lstFilesDCM = []
         self.lstRSFile = []
         self.Dicom_info = []
-
+        self.dicom_names = []
         fileList = []
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
-        if len(fileList) < 10: # If there are no files, break out
-            return None
-        self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
-        self.RefDs = pydicom.read_file(self.dicom_names[0])
-        self.ds = pydicom.read_file(self.dicom_names[0])
-        self.reader.SetFileNames(self.dicom_names)
-        image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
-        self.lstRSFile = [os.path.join(PathDicom,file) for file in fileList if file not in image_files][0]
+        if not self.get_images_mask:
+            RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
+            print(RT_fileList)
+            if RT_fileList:
+                fileList = RT_fileList
+            for filename in fileList:
+                try:
+                    ds = pydicom.read_file(os.path.join(dirName,filename))
+                    if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
+                        self.lstFilesDCM.append(os.path.join(dirName, filename))
+                        self.Dicom_info.append(ds)
+                        self.dicom_names.append(os.path.join(dirName,filename))
+                    elif ds.Modality == 'RTSTRUCT':
+                        self.lstRSFile = os.path.join(dirName, filename)
+                        self.all_RTs.append(self.lstRSFile)
+                except:
+                    # if filename.find('Iteration_') == 0:
+                    #     os.remove(PathDicom+filename)
+                    continue
+            if self.lstFilesDCM:
+                self.RefDs = pydicom.read_file(self.lstFilesDCM[0])
+        else:
+            self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
+            self.reader.SetFileNames(self.dicom_names)
+            image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
+            self.lstRSFile = [os.path.join(PathDicom, file) for file in fileList if file not in image_files][0]
+            self.RefDs = pydicom.read_file(self.dicom_names[0])
+            self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
         self.rois_in_case = []
         if self.lstRSFile:
