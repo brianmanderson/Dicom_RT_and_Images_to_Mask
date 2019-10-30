@@ -194,7 +194,9 @@ class DicomImagestoData:
             self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
             self.reader.SetFileNames(self.dicom_names)
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
-            self.lstRSFile = [os.path.join(PathDicom, file) for file in fileList if file not in image_files][0]
+            lstRSFiles = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
+            if lstRSFiles:
+                self.lstRSFile = lstRSFiles[0]
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
