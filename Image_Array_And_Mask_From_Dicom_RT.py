@@ -90,13 +90,15 @@ class DicomImagestoData:
         return None
 
     def get_mask(self, Contour_Names):
+        if type(Contour_Names) is not list:
+            Contour_Names = [Contour_Names]
         for roi in Contour_Names:
             if roi not in self.associations:
                 self.associations[roi] = roi
         self.Contour_Names = Contour_Names
 
         # And this is making a mask file
-        self.mask = np.zeros([self.image_size_1, self.image_size_2, len(self.dicom_names),len(self.Contour_Names)+1], dtype='int8')
+        self.mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2,len(self.Contour_Names)+1], dtype='int8')
 
         self.structure_references = {}
         for contour_number in range(len(self.RS_struct.ROIContourSequence)):
@@ -131,9 +133,8 @@ class DicomImagestoData:
             if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
                 index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
                 mask = self.get_mask_for_contour(index)
-                self.mask[..., i][mask == 1] = 1
+                self.mask[...,i][mask == 1] = 1
                 i += 1
-        self.mask = np.transpose(self.mask, axes=(2, 0, 1, 3))
         self.mask = np.argmax(self.mask,axis=-1).astype('int8')
         self.mask_handle = sitk.GetImageFromArray(self.mask)
         self.mask_handle.SetSpacing(self.dicom_handle.GetSpacing())
@@ -254,7 +255,7 @@ class DicomImagestoData:
         return self.Contours_to_mask()
 
     def Contours_to_mask(self):
-        mask = np.zeros([self.image_size_1, self.image_size_2, len(self.dicom_names)], dtype='int8')
+        mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2], dtype='int8')
         Contour_data = self.Liver_Locations
         ShiftCols, ShiftRows, _ = [float(i) for i in self.reader.GetMetaData(0,"0020|0032").split('\\')]
         # ShiftCols = self.ds.ImagePositionPatient[0]
@@ -280,7 +281,7 @@ class DicomImagestoData:
             col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
-            mask[:,:,slice_index][temp_mask > 0] = 1
+            mask[slice_index,...][temp_mask > 0] = 1
             #scm.imsave('C:\\Users\\bmanderson\\desktop\\images\\mask_'+str(i)+'.png',mask_slice)
 
         return mask
