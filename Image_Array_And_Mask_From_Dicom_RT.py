@@ -27,7 +27,6 @@ def plot_scroll_Image(x):
     tracker = IndexTracker(ax, x)
     fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
     return fig,tracker
-    #Image is input in the form of [#images,512,512,#channels]
 
 
 class IndexTracker(object):
