@@ -10,7 +10,7 @@ This code is designed to receive an input path to a folder which contains both d
 
 For example, assume a folder exists with dicom files and an RT structure located at 'C:\users\brianmanderson\Patient_1\CT1\' with the roi 'Liver'
 
-The performed action would be Dicom_Image = DicomImagestoData(path='C:\users\brianmanderson\Patient_1\CT1\')
+The performed action would be Dicom_Image = DicomImagestoData()
 
 Assume there are 100 images, the generated data will be:
 Dicom_Image.ArrayDicom is the image numpy array in the format [# images, rows, cols]
@@ -19,22 +19,28 @@ You can then call it to return a mask based on contour names called DicomImage.g
 
 You can see the available contour names with
 
-    for roi in DicomImage.rois_in_case:
-
-        print(roi)
-    
-
 Example:
 
-    from Image_Array_And_Mask_From_Dicom import DicomImagestoData
-
-    Path = 'C:\users\brianmanderson\Patient_1\CT1\'
-
-    Contour_Names = ['Liver']
-
-    DicomImage = DicomImagestoData(path=Path)
-    for roi in DicomImage.rois_in_case:
+    from Image_Array_And_Mask_From_Dicom_RT import DicomImagestoData
+    Dicom_reader = DicomImagestoData(get_images_mask=False)
+    path = 'C:\users\brianmanderson\Patients\'
+    Dicom_reader.down_folder(path)
+    # See all rois in the folders
+    for roi in Dicom_reader.all_rois:
         print(roi)
-    DicomImage.get_mask(Contour_Names)
-
+    
+    
+    Contour_Names = ['Liver']
+    associations = {'Liver_BMA_Program4':'Liver','Liver':'Liver'}
+    path = 'C:\users\brianmanderson\Patients\Patient_1\CT_1\'
+    Dicom_reader = DicomImagestoData(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
+    
+    Dicom_reader.Make_Contour_From_directory(path)
+    image = DicomImage.ArrayDicom
     mask = DicomImage.mask
+    
+    pred = np.zeros([mask.shape[0],mask.shape[1],mask.shape[2],2]) # prediction needs to be [# images, rows, cols, # classes]
+    pred[:,200:300,200:300,1] = 1
+    
+    output_path= os.path.join('.','Output')
+    Dicom_reader.with_annotations(pred,output_path,ROI_Names=['test'])
