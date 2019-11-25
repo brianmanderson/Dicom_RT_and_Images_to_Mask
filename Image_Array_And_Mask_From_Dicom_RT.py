@@ -60,14 +60,13 @@ class IndexTracker(object):
 
 
 class Dicom_to_Imagestack:
-    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, threshold=0.5, Contour_Names=None,
+    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.template_dir = template_dir
         self.delete_previous_rois = delete_previous_rois
-        self.threshold = threshold
         self.Contour_Names = Contour_Names
         self.channels = channels
         self.get_images_mask = get_images_mask
