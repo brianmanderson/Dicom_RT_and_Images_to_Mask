@@ -225,8 +225,6 @@ class Dicom_to_Imagestack:
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
             mask[slice_index, :, :][temp_mask > 0] = 1
-            # scm.imsave('C:\\Users\\bmanderson\\desktop\\images\\mask_'+str(i)+'.png',mask_slice)
-
         return mask
 
     def use_template(self):
