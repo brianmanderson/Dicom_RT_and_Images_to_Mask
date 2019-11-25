@@ -60,7 +60,7 @@ class IndexTracker(object):
         self.im.axes.figure.canvas.draw()
 
 
-class DicomImagestoData:
+class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, threshold=0.5, Contour_Names=None,
                  template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
