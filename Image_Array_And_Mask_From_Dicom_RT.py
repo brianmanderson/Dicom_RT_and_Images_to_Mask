@@ -62,7 +62,7 @@ class IndexTracker(object):
 
 class DicomImagestoData:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, threshold=0.5, Contour_Names=None,
-                 template_dir=None, channels=3, get_images_mask=True, arg_max=True,
+                 template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
@@ -447,7 +447,7 @@ class DicomImagestoData:
         self.make_array(PathDicom)
         if self.rewrite_RT_file:
             self.rewrite_RT()
-        if self.get_images_mask:
+        if not self.template and self.get_images_mask:
             self.get_mask()
         true_rois = []
         for roi in self.rois_in_case:
