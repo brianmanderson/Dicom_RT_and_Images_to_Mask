@@ -10,8 +10,6 @@ This code is designed to receive an input path to a folder which contains both d
 
 For example, assume a folder exists with dicom files and an RT structure located at 'C:\users\brianmanderson\Patient_1\CT1\' with the roi 'Liver'
 
-The performed action would be Dicom_Image = DicomImagestoData()
-
 Assume there are 100 images, the generated data will be:
 Dicom_Image.ArrayDicom is the image numpy array in the format [# images, rows, cols]
 
@@ -21,8 +19,8 @@ You can see the available contour names with
 
 Example:
 
-    from Image_Array_And_Mask_From_Dicom_RT import DicomImagestoData
-    Dicom_reader = DicomImagestoData(get_images_mask=False)
+    from Image_Array_And_Mask_From_Dicom_RT import Dicom_to_Imagestack
+    Dicom_reader = Dicom_to_Imagestack(get_images_mask=False)
     path = 'C:\users\brianmanderson\Patients\'
     Dicom_reader.down_folder(path)
     # See all rois in the folders
@@ -33,7 +31,7 @@ Example:
     Contour_Names = ['Liver']
     associations = {'Liver_BMA_Program4':'Liver','Liver':'Liver'}
     path = 'C:\users\brianmanderson\Patients\Patient_1\CT_1\'
-    Dicom_reader = DicomImagestoData(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
+    Dicom_reader = Dicom_to_Imagestack(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
     
     Dicom_reader.Make_Contour_From_directory(path)
     image = DicomImage.ArrayDicom
