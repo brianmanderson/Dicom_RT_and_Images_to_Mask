@@ -66,6 +66,7 @@ class Dicom_to_Imagestack:
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.template_dir = template_dir
+        self.template = True
         self.delete_previous_rois = delete_previous_rois
         self.Contour_Names = Contour_Names
         self.channels = channels
@@ -142,6 +143,7 @@ class Dicom_to_Imagestack:
         self.mask_exist = False
         self.rois_in_case = []
         if self.lstRSFile is not None:
+            self.template = False
             self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
