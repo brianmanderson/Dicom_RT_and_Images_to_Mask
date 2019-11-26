@@ -100,8 +100,7 @@ class Dicom_to_Imagestack:
             self.down_folder(new_directory)
         return None
 
-    def make_array(self, PathDicom, single_structure=True):
-        self.single_structure = single_structure
+    def make_array(self, PathDicom):
         self.PathDicom = PathDicom
         self.lstFilesDCM = []
         self.lstRSFile = None
