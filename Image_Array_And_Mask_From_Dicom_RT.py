@@ -82,7 +82,7 @@ class Dicom_to_Imagestack:
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
-        self.all_RTs = []
+        self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
 
@@ -128,7 +128,7 @@ class Dicom_to_Imagestack:
                         self.ds = ds
                     elif ds.Modality == 'RTSTRUCT':
                         self.lstRSFile = os.path.join(dirName, filename)
-                        self.all_RTs.append(self.lstRSFile)
+                        self.all_RTs[self.lstRSFile] = []
                 except:
                     continue
             if self.lstFilesDCM:
@@ -138,20 +138,23 @@ class Dicom_to_Imagestack:
             self.reader.SetFileNames(self.dicom_names)
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
-            lstRSFiles = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
-            if lstRSFiles:
-                self.lstRSFile = lstRSFiles[0]
+            RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
+            for RT_File in RT_Files:
+                self.all_RTs[RT_File] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
         self.rois_in_case = []
         if self.lstRSFile is not None:
             self.template = False
-            self.get_rois_from_RT()
+            for RT in self.all_RTs:
+                self.lstRSFile = RT
+                self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
 
     def get_rois_from_RT(self):
+        rois_in_structure = []
         self.RS_struct = pydicom.read_file(self.lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
             self.ROI_Structure = self.RS_struct.StructureSetROISequence
@@ -160,6 +163,8 @@ class Dicom_to_Imagestack:
         for Structures in self.ROI_Structure:
             if Structures.ROIName not in self.rois_in_case:
                 self.rois_in_case.append(Structures.ROIName)
+                rois_in_structure.append(Structures.ROIName)
+        self.all_RTs[self.lstRSFile.self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2, len(self.Contour_Names) + 1],
@@ -224,7 +229,11 @@ class Dicom_to_Imagestack:
             col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
-            mask[slice_index, :, :][temp_mask > 0] = 1
+            if row_val[1] < row_val[0]:
+                mult = 1
+            else:
+                mult = -1
+            mask[slice_index, :, :][temp_mask > 0] += mult
         return mask
 
     def use_template(self):
@@ -334,7 +343,7 @@ class Dicom_to_Imagestack:
                 for point, i in enumerate(indexes):
                     print(str(int(point / len(indexes) * 100)) + '% done with ' + Name)
                     annotation = self.annotations[i, :, :]
-                    regions = regionprops(label(annotation), coordinates='xy')
+                    regions = regionprops(label(annotation))
                     for ii in range(len(regions)):
                         temp_image = np.zeros([self.image_size_0, self.image_size_1])
                         data = regions[ii].coords
