@@ -3,6 +3,7 @@ import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
+from scipy.ndimage.morphology import binary_fill_holes
 import matplotlib.pyplot as plt
 from skimage.measure import label,regionprops,find_contours
 
@@ -341,6 +342,39 @@ class Dicom_to_Imagestack:
                     print(str(int(point / len(indexes) * 100)) + '% done with ' + Name)
                     annotation = self.annotations[i, :, :]
                     regions = regionprops(label(annotation))
+                    for ii in range(len(regions)):
+                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                        data = regions[ii].coords
+                        rows = []
+                        cols = []
+                        for iii in range(len(data)):
+                            rows.append(data[iii][0])
+                            cols.append(data[iii][1])
+                        temp_image[rows, cols] = 1
+                        points = find_contours(temp_image, 0)[0]
+                        output = []
+                        for point in points:
+                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                            output.append(float(self.slice_info[i]))
+                        if output:
+                            if contour_num > 0:
+                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
+                                    copy.deepcopy(
+                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourNumber = str(contour_num)
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourData = output
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].NumberofContourPoints = round(len(output) / 3)
+                            contour_num += 1
+                    hole_annotation = 1 - annotation
+                    filled_annotation = binary_fill_holes(annotation)
+                    hole_annotation[filled_annotation == 0] = 0
+                    regions = regionprops(label(hole_annotation))
                     for ii in range(len(regions)):
                         temp_image = np.zeros([self.image_size_0, self.image_size_1])
                         data = regions[ii].coords
