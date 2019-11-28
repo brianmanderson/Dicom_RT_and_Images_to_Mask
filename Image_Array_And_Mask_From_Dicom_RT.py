@@ -64,9 +64,10 @@ class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
-        for name in Contour_Names:
-            if name not in associations:
-                associations[name] = name
+        if Contour_Names is not None:
+            for name in Contour_Names:
+                if name not in associations:
+                    associations[name] = name
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.template_dir = template_dir
