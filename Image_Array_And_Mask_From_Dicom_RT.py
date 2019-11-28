@@ -139,8 +139,8 @@ class Dicom_to_Imagestack:
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
-            for RT_File in RT_Files:
-                self.all_RTs[RT_File] = []
+            for self.lstRSFile in RT_Files:
+                self.all_RTs[self.lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
@@ -164,7 +164,7 @@ class Dicom_to_Imagestack:
             if Structures.ROIName not in self.rois_in_case:
                 self.rois_in_case.append(Structures.ROIName)
                 rois_in_structure.append(Structures.ROIName)
-        self.all_RTs[self.lstRSFile.self.lstRSFile] = rois_in_structure
+        self.all_RTs[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2, len(self.Contour_Names) + 1],
