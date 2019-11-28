@@ -229,11 +229,8 @@ class Dicom_to_Imagestack:
             col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
-            if row_val[1] < row_val[0]:
-                mult = 1
-            else:
-                mult = -1
-            mask[slice_index, :, :][temp_mask > 0] += mult
+            mask[slice_index, :, :][temp_mask > 0] += 1
+        mask[mask>1] = 0
         return mask
 
     def use_template(self):
