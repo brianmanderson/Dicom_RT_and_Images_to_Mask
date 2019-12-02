@@ -63,7 +63,7 @@ class IndexTracker(object):
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
-                 associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
+                 associations={}, **kwargs):
         if Contour_Names is not None:
             for name in Contour_Names:
                 if name not in associations:
