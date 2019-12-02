@@ -112,6 +112,7 @@ class Dicom_to_Imagestack:
         self.lstRSFile = None
         self.Dicom_info = []
         fileList = []
+        self.RTs_in_case = {}
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
@@ -130,7 +131,7 @@ class Dicom_to_Imagestack:
                         self.ds = ds
                     elif ds.Modality == 'RTSTRUCT':
                         self.lstRSFile = os.path.join(dirName, filename)
-                        self.all_RTs[self.lstRSFile] = []
+                        self.RTs_in_case[self.lstRSFile] = []
                 except:
                     continue
             if self.lstFilesDCM:
@@ -142,14 +143,15 @@ class Dicom_to_Imagestack:
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
             for self.lstRSFile in RT_Files:
-                self.all_RTs[self.lstRSFile] = []
+                self.RTs_in_case[self.lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
         self.rois_in_case = []
+        self.all_RTs.update(self.RTs_in_case)
         if self.lstRSFile is not None:
             self.template = False
-            for RT in self.all_RTs:
+            for RT in self.RTs_in_case:
                 self.lstRSFile = RT
                 self.get_rois_from_RT()
         elif self.get_images_mask:
