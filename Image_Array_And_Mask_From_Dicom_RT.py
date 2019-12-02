@@ -408,20 +408,38 @@ class Dicom_to_Imagestack:
                                 contour_num].NumberofContourPoints = round(len(output) / 3)
                             contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
-        if self.template and self.delete_previous_rois:
-            for i in range(len(self.RS_struct.StructureSetROISequence) - len(self.ROI_Names)):
-                del self.RS_struct.StructureSetROISequence[-1]
-            for i in range(len(self.RS_struct.RTROIObservationsSequence) - len(self.ROI_Names)):
-                # if self.RS_struct.RTROIObservationsSequence[i].ROIObservationLabel not in self.ROI_Names:
-                del self.RS_struct.RTROIObservationsSequence[-1]
-                # if self.RS_struct.RTROIObservationsSequence[i].ROIObservationLabel not in self.ROI_Names:
-            for i in range(len(self.RS_struct.ROIContourSequence) - len(self.ROI_Names)):
-                del self.RS_struct.ROIContourSequence[-1]
         for i in range(len(self.RS_struct.StructureSetROISequence)):
             self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
             self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
             self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
-
+        if self.template or self.delete_previous_rois:
+            del_ROI_Numbers = []
+            for i in range(len(self.RS_struct.StructureSetROISequence)):
+                if self.RS_struct.StructureSetROISequence[i].ROIName not in self.ROI_Names:
+                    del_ROI_Numbers.append(self.RS_struct.StructureSetROISequence[i].ROINumber)
+            if del_ROI_Numbers:
+                del_indexes = []
+                for i in range(len(self.RS_struct.StructureSetROISequence)):
+                    if self.RS_struct.StructureSetROISequence[i].ROINumber in del_ROI_Numbers:
+                        del_indexes.append(i)
+                for index in sorted(del_indexes,reverse=True):
+                    del self.RS_struct.StructureSetROISequence[index]
+                del_indexes = []
+                for i in range(len(self.RS_struct.RTROIObservationsSequence)):
+                    if self.RS_struct.RTROIObservationsSequence[i].ObservationNumber in del_ROI_Numbers:
+                        del_indexes.append(i)
+                for index in sorted(del_indexes,reverse=True):
+                    del self.RS_struct.RTROIObservationsSequence[index]
+                del_indexes = []
+                for i in range(len(self.RS_struct.ROIContourSequence)):
+                    if self.RS_struct.ROIContourSequence[i].ReferencedROINumber in del_ROI_Numbers:
+                        del_indexes.append(i)
+                for index in sorted(del_indexes,reverse=True):
+                    del self.RS_struct.ROIContourSequence[index]
+                for i in range(len(self.RS_struct.StructureSetROISequence)):
+                    self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
+                    self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
+                    self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
