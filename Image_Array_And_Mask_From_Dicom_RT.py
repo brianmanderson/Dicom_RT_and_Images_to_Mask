@@ -3,6 +3,7 @@ import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
+from scipy.ndimage.morphology import binary_fill_holes
 import matplotlib.pyplot as plt
 from skimage.measure import label,regionprops,find_contours
 
@@ -63,9 +64,10 @@ class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
-        for name in Contour_Names:
-            if name not in associations:
-                associations[name] = name
+        if Contour_Names is not None:
+            for name in Contour_Names:
+                if name not in associations:
+                    associations[name] = name
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.template_dir = template_dir
@@ -82,7 +84,7 @@ class Dicom_to_Imagestack:
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
-        self.all_RTs = []
+        self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
 
@@ -110,6 +112,7 @@ class Dicom_to_Imagestack:
         self.lstRSFile = None
         self.Dicom_info = []
         fileList = []
+        self.RTs_in_case = {}
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
@@ -128,7 +131,7 @@ class Dicom_to_Imagestack:
                         self.ds = ds
                     elif ds.Modality == 'RTSTRUCT':
                         self.lstRSFile = os.path.join(dirName, filename)
-                        self.all_RTs.append(self.lstRSFile)
+                        self.RTs_in_case[self.lstRSFile] = []
                 except:
                     continue
             if self.lstFilesDCM:
@@ -138,20 +141,24 @@ class Dicom_to_Imagestack:
             self.reader.SetFileNames(self.dicom_names)
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
-            lstRSFiles = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
-            if lstRSFiles:
-                self.lstRSFile = lstRSFiles[0]
+            RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
+            for self.lstRSFile in RT_Files:
+                self.RTs_in_case[self.lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.mask_exist = False
         self.rois_in_case = []
+        self.all_RTs.update(self.RTs_in_case)
         if self.lstRSFile is not None:
             self.template = False
-            self.get_rois_from_RT()
+            for RT in self.RTs_in_case:
+                self.lstRSFile = RT
+                self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
 
     def get_rois_from_RT(self):
+        rois_in_structure = []
         self.RS_struct = pydicom.read_file(self.lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
             self.ROI_Structure = self.RS_struct.StructureSetROISequence
@@ -160,6 +167,8 @@ class Dicom_to_Imagestack:
         for Structures in self.ROI_Structure:
             if Structures.ROIName not in self.rois_in_case:
                 self.rois_in_case.append(Structures.ROIName)
+                rois_in_structure.append(Structures.ROIName)
+        self.all_RTs[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2, len(self.Contour_Names) + 1],
@@ -224,7 +233,8 @@ class Dicom_to_Imagestack:
             col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
-            mask[slice_index, :, :][temp_mask > 0] = 1
+            mask[slice_index, :, :][temp_mask > 0] += 1
+        mask[mask>1] = 0
         return mask
 
     def use_template(self):
@@ -334,7 +344,40 @@ class Dicom_to_Imagestack:
                 for point, i in enumerate(indexes):
                     print(str(int(point / len(indexes) * 100)) + '% done with ' + Name)
                     annotation = self.annotations[i, :, :]
-                    regions = regionprops(label(annotation), coordinates='xy')
+                    regions = regionprops(label(annotation))
+                    for ii in range(len(regions)):
+                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                        data = regions[ii].coords
+                        rows = []
+                        cols = []
+                        for iii in range(len(data)):
+                            rows.append(data[iii][0])
+                            cols.append(data[iii][1])
+                        temp_image[rows, cols] = 1
+                        points = find_contours(temp_image, 0)[0]
+                        output = []
+                        for point in points:
+                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                            output.append(float(self.slice_info[i]))
+                        if output:
+                            if contour_num > 0:
+                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
+                                    copy.deepcopy(
+                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourNumber = str(contour_num)
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].ContourData = output
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                                contour_num].NumberofContourPoints = round(len(output) / 3)
+                            contour_num += 1
+                    hole_annotation = 1 - annotation
+                    filled_annotation = binary_fill_holes(annotation)
+                    hole_annotation[filled_annotation == 0] = 0
+                    regions = regionprops(label(hole_annotation))
                     for ii in range(len(regions)):
                         temp_image = np.zeros([self.image_size_0, self.image_size_1])
                         data = regions[ii].coords
