@@ -62,7 +62,7 @@ class IndexTracker(object):
 
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
-                 template_dir=os.path.join('.','template_RS.dcm'), channels=3, get_images_mask=True, arg_max=True,
+                 template_dir=None, channels=3, get_images_mask=True, arg_max=True,
                  associations={'Liver_BMA_Program_4': 'Liver', 'Liver': 'Liver'}, **kwargs):
         if Contour_Names is not None:
             for name in Contour_Names:
@@ -70,6 +70,8 @@ class Dicom_to_Imagestack:
                     associations[name] = name
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
+        if template_dir is None:
+            template_dir = os.path.join(__file__[:__file__.index(__package__)], __package__, 'template_RS.dcm')
         self.template_dir = template_dir
         self.template = True
         self.delete_previous_rois = delete_previous_rois
