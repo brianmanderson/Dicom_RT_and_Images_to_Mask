@@ -68,6 +68,8 @@ class Dicom_to_Imagestack:
             for name in Contour_Names:
                 if name not in associations:
                     associations[name] = name
+        else:
+            Contour_Names = []
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         if template_dir is None:
@@ -120,7 +122,6 @@ class Dicom_to_Imagestack:
         fileList = [i for i in fileList if i.find('.dcm') != -1]
         if not self.get_images_mask:
             RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
-            print(RT_fileList)
             if RT_fileList:
                 fileList = RT_fileList
             for filename in fileList:
@@ -506,6 +507,8 @@ class Dicom_to_Imagestack:
         for roi in self.Contour_Names:
             if roi not in true_rois:
                 print('Lacking {} in {}'.format(roi, PathDicom))
+                print('Found {}'.format(self.rois_in_case))
+                break
         return None
 
     def rewrite_RT(self, lstRSFile=None):
