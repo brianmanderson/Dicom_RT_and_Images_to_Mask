@@ -427,6 +427,9 @@ class Dicom_to_Imagestack:
                 self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
                 self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
                 self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
+        for i in range(len(self.RS_struct.RTROIObservationsSequence)):
+            if 'MaterialID' in self.RS_struct.RTROIObservationsSequence[i]:
+                del self.RS_struct.RTROIObservationsSequence[i].MaterialID
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
