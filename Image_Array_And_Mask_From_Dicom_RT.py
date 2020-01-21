@@ -4,60 +4,7 @@ from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
 from scipy.ndimage.morphology import binary_fill_holes
-import matplotlib.pyplot as plt
 from skimage.measure import label,regionprops,find_contours
-
-
-def plot_scroll_Image(x):
-    '''
-    :param x: input to view of form [rows, columns, # images]
-    :return:
-    '''
-    if x.dtype not in ['float32','float64']:
-        x = copy.deepcopy(x).astype('float32')
-    if len(x.shape) > 3:
-        x = np.squeeze(x)
-    if len(x.shape) == 3:
-        if x.shape[0] != x.shape[1]:
-            x = np.transpose(x,[1,2,0])
-        elif x.shape[0] == x.shape[2]:
-            x = np.transpose(x, [1, 2, 0])
-    fig, ax = plt.subplots(1, 1)
-    if len(x.shape) == 2:
-        x = np.expand_dims(x,axis=0)
-    tracker = IndexTracker(ax, x)
-    fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
-    return fig,tracker
-
-
-class IndexTracker(object):
-    def __init__(self, ax, X):
-        self.ax = ax
-        ax.set_title('use scroll wheel to navigate images')
-
-        self.X = X
-        rows, cols, self.slices = X.shape
-        self.ind = np.where(self.X != 0)[-1]
-        if len(self.ind) > 0:
-            self.ind = self.ind[len(self.ind)//2]
-        else:
-            self.ind = self.slices//2
-
-        self.im = ax.imshow(self.X[:, :, self.ind],cmap='gray')
-        self.update()
-
-    def onscroll(self, event):
-        print("%s %s" % (event.button, event.step))
-        if event.button == 'up':
-            self.ind = (self.ind + 1) % self.slices
-        else:
-            self.ind = (self.ind - 1) % self.slices
-        self.update()
-
-    def update(self):
-        self.im.set_data(self.X[:, :, self.ind])
-        self.ax.set_ylabel('slice %s' % self.ind)
-        self.im.axes.figure.canvas.draw()
 
 
 class Dicom_to_Imagestack:
@@ -68,6 +15,8 @@ class Dicom_to_Imagestack:
             for name in Contour_Names:
                 if name not in associations:
                     associations[name] = name
+        else:
+            Contour_Names = []
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         if template_dir is None:
@@ -120,7 +69,6 @@ class Dicom_to_Imagestack:
         fileList = [i for i in fileList if i.find('.dcm') != -1]
         if not self.get_images_mask:
             RT_fileList = [i for i in fileList if i.find('RT') == 0 or i.find('RS') == 0]
-            print(RT_fileList)
             if RT_fileList:
                 fileList = RT_fileList
             for filename in fileList:
@@ -310,7 +258,7 @@ class Dicom_to_Imagestack:
 
             make_new = 1
             allow_slip_in = True
-            if Name not in current_names and allow_slip_in:
+            if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
                 self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
                 # if not self.template:
                 #     self.struct_index = len(self.RS_struct.StructureSetROISequence) - 1
@@ -509,6 +457,8 @@ class Dicom_to_Imagestack:
         for roi in self.Contour_Names:
             if roi not in true_rois:
                 print('Lacking {} in {}'.format(roi, PathDicom))
+                print('Found {}'.format(self.rois_in_case))
+                break
         return None
 
     def rewrite_RT(self, lstRSFile=None):
