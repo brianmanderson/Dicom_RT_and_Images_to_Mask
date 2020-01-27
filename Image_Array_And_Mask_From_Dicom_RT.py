@@ -10,10 +10,13 @@ from skimage.measure import label,regionprops,find_contours
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
-                 associations={}, **kwargs):
+                 associations={},desc='',iteration=0, **kwargs):
+        self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
         self.set_get_images_and_mask(get_images_mask)
+        self.set_description(desc)
+        self.set_iteration(iteration)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         if template_dir is None:
@@ -34,9 +37,10 @@ class Dicom_to_Imagestack:
         keys = list(associations.keys())
         for key in keys:
             associations[key.lower()] = associations[key].lower()
-        for name in self.Contour_Names:
-            if name not in associations:
-                associations[name] = name
+        if self.Contour_Names is not None:
+            for name in self.Contour_Names:
+                if name not in associations:
+                    associations[name] = name
         self.associations, self.hierarchy = associations, {}
 
     def set_get_images_and_mask(self, get_images_mask=True):
@@ -45,7 +49,16 @@ class Dicom_to_Imagestack:
     def set_contour_names(self, Contour_Names=None):
         if Contour_Names is None:
             Contour_Names = []
+        else:
+            Contour_Names = [i.lower() for i in Contour_Names]
         self.Contour_Names = Contour_Names
+        self.set_associations(self.associations)
+
+    def set_description(self, description):
+        self.desciption = description
+
+    def set_iteration(self, iteration=0):
+        self.iteration = str(iteration)
 
     def down_folder(self, input_path):
         files = []
@@ -217,6 +230,26 @@ class Dicom_to_Imagestack:
                            range(self.dicom_handle.GetDepth())]
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_1, self.image_size_2, _ = self.dicom_handle.GetSize()
+
+    def write_images_annotations(self, out_path):
+        image_path = os.path.join(out_path, 'Overall_Data_' + self.desciption + '_' + self.iteration + '.nii.gz')
+        annotation_path = os.path.join(out_path, 'Overall_mask_' + self.desciption + '_y' + self.iteration + '.nii.gz')
+        if os.path.exists(image_path):
+            return None
+        pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
+        if pixel_id.find('32-bit signed integer') != 0:
+            self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
+        sitk.WriteImage(self.dicom_handle,image_path)
+
+        self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
+        self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
+        self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
+        pixel_id = self.annotation_handle.GetPixelIDTypeAsString()
+        if pixel_id.find('int') == -1:
+            self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
+        sitk.WriteImage(self.annotation_handle,annotation_path)
+        fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
+        fid.close()
 
     def poly2mask(self, vertex_row_coords, vertex_col_coords, shape):
         fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
@@ -443,10 +476,10 @@ class Dicom_to_Imagestack:
             if roi not in self.all_rois:
                 self.all_rois.append(roi)
             if self.Contour_Names:
-                if roi in self.associations:
-                    true_rois.append(self.associations[roi])
-                elif roi in self.Contour_Names:
-                    true_rois.append(roi)
+                if roi.lower() in self.associations:
+                    true_rois.append(self.associations[roi.lower()])
+                elif roi.lower() in self.Contour_Names:
+                    true_rois.append(roi.lower())
         for roi in self.Contour_Names:
             if roi not in true_rois:
                 print('Lacking {} in {}'.format(roi, PathDicom))
