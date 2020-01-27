@@ -83,7 +83,7 @@ class Dicom_to_Imagestack:
                 try:
                     ds = pydicom.read_file(os.path.join(dirName, filename))
                     self.ds = ds
-                    if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
+                    if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':
                         self.lstFilesDCM.append(os.path.join(dirName, filename))
                         self.Dicom_info.append(ds)
                         self.ds = ds
@@ -268,14 +268,9 @@ class Dicom_to_Imagestack:
             allow_slip_in = True
             if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
                 self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
-                # if not self.template:
-                #     self.struct_index = len(self.RS_struct.StructureSetROISequence) - 1
-                # else:
-                #     self.struct_index += 1
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
-            #     self.struct_index = current_names.index(Name) - 1
             self.RS_struct.StructureSetROISequence[self.struct_index].ROINumber = new_ROINumber
             self.RS_struct.StructureSetROISequence[self.struct_index].ReferencedFrameOfReferenceUID = \
                 self.ds.FrameOfReferenceUID
@@ -370,10 +365,6 @@ class Dicom_to_Imagestack:
                                 contour_num].NumberofContourPoints = round(len(output) / 3)
                             contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
-        # for i in range(len(self.RS_struct.StructureSetROISequence)):
-        #     self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
-        #     self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
-        #     self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
         if self.template or self.delete_previous_rois:
             for i in range(len(self.RS_struct.StructureSetROISequence),len(self.ROI_Names),-1):
                 del self.RS_struct.StructureSetROISequence[-1]
@@ -398,11 +389,6 @@ class Dicom_to_Imagestack:
         fid = open(os.path.join(self.output_dir, 'Completed.txt'), 'w+')
         fid.close()
         print('Finished!')
-        # Raystation_dir = self.output_dir.split('Output_MRN')[0]+'Output_MRN_RayStation\\'+self.RS_struct.PatientID+'\\'
-        # if not os.path.exists(Raystation_dir):
-        # dicom.write_file(Raystation_dir + 'RS_MRN' + self.RS_struct.PatientID + '_' + self.ds.SeriesInstanceUID + '.dcm', self.RS_struct)
-        # fid = open(Raystation_dir+'Completed.txt','w+')
-        # fid.close()
         return None
 
     def changetemplate(self):
