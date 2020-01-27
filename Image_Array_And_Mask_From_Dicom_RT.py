@@ -11,12 +11,9 @@ class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
                  associations={}, **kwargs):
-        if Contour_Names is not None:
-            for name in Contour_Names:
-                if name not in associations:
-                    associations[name] = name
-        else:
-            Contour_Names = []
+        self.set_contour_names(Contour_Names)
+        self.set_associations(associations)
+        self.set_get_images_and_mask(get_images_mask)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         if template_dir is None:
@@ -24,13 +21,7 @@ class Dicom_to_Imagestack:
         self.template_dir = template_dir
         self.template = True
         self.delete_previous_rois = delete_previous_rois
-        self.Contour_Names = Contour_Names
         self.channels = channels
-        self.get_images_mask = get_images_mask
-        keys = list(associations.keys())
-        for key in keys:
-            associations[key.lower()] = associations[key].lower()
-        self.associations, self.hierarchy = associations, {}
         self.get_images_mask = get_images_mask
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
@@ -38,6 +29,23 @@ class Dicom_to_Imagestack:
         self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
+
+    def set_associations(self, associations={}):
+        keys = list(associations.keys())
+        for key in keys:
+            associations[key.lower()] = associations[key].lower()
+        for name in self.Contour_Names:
+            if name not in associations:
+                associations[name] = name
+        self.associations, self.hierarchy = associations, {}
+
+    def set_get_images_and_mask(self, get_images_mask=True):
+        self.get_images_mask = get_images_mask
+
+    def set_contour_names(self, Contour_Names=None):
+        if Contour_Names is None:
+            Contour_Names = []
+        self.Contour_Names = Contour_Names
 
     def down_folder(self, input_path):
         files = []
