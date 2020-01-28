@@ -155,7 +155,7 @@ class Dicom_to_Imagestack:
                 continue
             true_name = None
             if ROI_Name in self.associations:
-                true_name = self.associations[ROI_Name]
+                true_name = self.associations[ROI_Name].lower()
             elif ROI_Name.lower() in self.associations:
                 true_name = self.associations[ROI_Name.lower()]
             if true_name and true_name in self.Contour_Names:
