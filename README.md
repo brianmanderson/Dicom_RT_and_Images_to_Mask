@@ -1,6 +1,8 @@
+# This code provides functionality for turning dicom images and RT structures into nifti files as well as turning prediction masks bask into RT structures
 ## If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
 ### Please consider using https://github.com/brianmanderson/Dicom_Data_to_Numpy_Arrays if you are wanting a more parallel approach
 # Dicom_Utilities
+## Highly recommend to go through the jupyter notebook Data_Curation
 
 Various utilities created to help with the interpretation of dicom images/RT Structures
 
