@@ -1,8 +1,12 @@
 # This code provides functionality for turning dicom images and RT structures into nifti files as well as turning prediction masks back into RT structures
-## Highly recommend to go through the jupyter notebook Data_Curation
-### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
-#### Please consider using https://github.com/brianmanderson/Dicom_Data_to_Numpy_Arrays if you are wanting a more parallel approach
-#### Ring update allows for multiple rings to be represented correctly
+## Highly recommend to go through the jupyter notebook Data_Curation_and_Predictions_to_RT
+## Data_Curation_and_Predictions_to_RT has three main parts
+### 1) Identify RT structures and names in multiple patients
+### 2) Creating associations file and turning dicom into nifti/numpy files
+### 3) Turning predictions into RT structures
+#### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
+##### Please consider using https://github.com/brianmanderson/Dicom_Data_to_Numpy_Arrays if you are wanting a more parallel approach
+##### Ring update allows for multiple rings to be represented correctly
 ![multiple_rings.png](./Images/multiple_rings.png)
 
 Various utilities created to help with the interpretation of dicom images/RT Structures
