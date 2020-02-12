@@ -10,13 +10,13 @@ from skimage.measure import label,regionprops,find_contours
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
-                 associations={}, **kwargs):
-        if Contour_Names is not None:
-            for name in Contour_Names:
-                if name not in associations:
-                    associations[name] = name
-        else:
-            Contour_Names = []
+                 associations={},desc='',iteration=0, **kwargs):
+        self.associations = associations
+        self.set_contour_names(Contour_Names)
+        self.set_associations(associations)
+        self.set_get_images_and_mask(get_images_mask)
+        self.set_description(desc)
+        self.set_iteration(iteration)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         if template_dir is None:
@@ -24,13 +24,7 @@ class Dicom_to_Imagestack:
         self.template_dir = template_dir
         self.template = True
         self.delete_previous_rois = delete_previous_rois
-        self.Contour_Names = Contour_Names
         self.channels = channels
-        self.get_images_mask = get_images_mask
-        keys = list(associations.keys())
-        for key in keys:
-            associations[key.lower()] = associations[key].lower()
-        self.associations, self.hierarchy = associations, {}
         self.get_images_mask = get_images_mask
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
@@ -38,6 +32,33 @@ class Dicom_to_Imagestack:
         self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
+
+    def set_associations(self, associations={}):
+        keys = list(associations.keys())
+        for key in keys:
+            associations[key.lower()] = associations[key].lower()
+        if self.Contour_Names is not None:
+            for name in self.Contour_Names:
+                if name not in associations:
+                    associations[name] = name
+        self.associations, self.hierarchy = associations, {}
+
+    def set_get_images_and_mask(self, get_images_mask=True):
+        self.get_images_mask = get_images_mask
+
+    def set_contour_names(self, Contour_Names=None):
+        if Contour_Names is None:
+            Contour_Names = []
+        else:
+            Contour_Names = [i.lower() for i in Contour_Names]
+        self.Contour_Names = Contour_Names
+        self.set_associations(self.associations)
+
+    def set_description(self, description):
+        self.desciption = description
+
+    def set_iteration(self, iteration=0):
+        self.iteration = str(iteration)
 
     def down_folder(self, input_path):
         files = []
@@ -75,7 +96,7 @@ class Dicom_to_Imagestack:
                 try:
                     ds = pydicom.read_file(os.path.join(dirName, filename))
                     self.ds = ds
-                    if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':  # check whether the file's DICOM
+                    if ds.Modality == 'CT' or ds.Modality == 'MR' or ds.Modality == 'PT':
                         self.lstFilesDCM.append(os.path.join(dirName, filename))
                         self.Dicom_info.append(ds)
                         self.ds = ds
@@ -134,7 +155,7 @@ class Dicom_to_Imagestack:
                 continue
             true_name = None
             if ROI_Name in self.associations:
-                true_name = self.associations[ROI_Name]
+                true_name = self.associations[ROI_Name].lower()
             elif ROI_Name.lower() in self.associations:
                 true_name = self.associations[ROI_Name.lower()]
             if true_name and true_name in self.Contour_Names:
@@ -184,7 +205,7 @@ class Dicom_to_Imagestack:
             row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
             mask[slice_index, :, :][temp_mask > 0] += 1
-        mask[mask>1] = 0
+        mask = mask % 2
         return mask
 
     def use_template(self):
@@ -209,6 +230,26 @@ class Dicom_to_Imagestack:
                            range(self.dicom_handle.GetDepth())]
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_1, self.image_size_2, _ = self.dicom_handle.GetSize()
+
+    def write_images_annotations(self, out_path):
+        image_path = os.path.join(out_path, 'Overall_Data_' + self.desciption + '_' + self.iteration + '.nii.gz')
+        annotation_path = os.path.join(out_path, 'Overall_mask_' + self.desciption + '_y' + self.iteration + '.nii.gz')
+        if os.path.exists(image_path):
+            return None
+        pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
+        if pixel_id.find('32-bit signed integer') != 0:
+            self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
+        sitk.WriteImage(self.dicom_handle,image_path)
+
+        self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
+        self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
+        self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
+        pixel_id = self.annotation_handle.GetPixelIDTypeAsString()
+        if pixel_id.find('int') == -1:
+            self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
+        sitk.WriteImage(self.annotation_handle,annotation_path)
+        fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
+        fid.close()
 
     def poly2mask(self, vertex_row_coords, vertex_col_coords, shape):
         fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
@@ -260,14 +301,9 @@ class Dicom_to_Imagestack:
             allow_slip_in = True
             if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
                 self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
-                # if not self.template:
-                #     self.struct_index = len(self.RS_struct.StructureSetROISequence) - 1
-                # else:
-                #     self.struct_index += 1
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
-            #     self.struct_index = current_names.index(Name) - 1
             self.RS_struct.StructureSetROISequence[self.struct_index].ROINumber = new_ROINumber
             self.RS_struct.StructureSetROISequence[self.struct_index].ReferencedFrameOfReferenceUID = \
                 self.ds.FrameOfReferenceUID
@@ -362,10 +398,6 @@ class Dicom_to_Imagestack:
                                 contour_num].NumberofContourPoints = round(len(output) / 3)
                             contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
-        # for i in range(len(self.RS_struct.StructureSetROISequence)):
-        #     self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
-        #     self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
-        #     self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
         if self.template or self.delete_previous_rois:
             for i in range(len(self.RS_struct.StructureSetROISequence),len(self.ROI_Names),-1):
                 del self.RS_struct.StructureSetROISequence[-1]
@@ -390,11 +422,6 @@ class Dicom_to_Imagestack:
         fid = open(os.path.join(self.output_dir, 'Completed.txt'), 'w+')
         fid.close()
         print('Finished!')
-        # Raystation_dir = self.output_dir.split('Output_MRN')[0]+'Output_MRN_RayStation\\'+self.RS_struct.PatientID+'\\'
-        # if not os.path.exists(Raystation_dir):
-        # dicom.write_file(Raystation_dir + 'RS_MRN' + self.RS_struct.PatientID + '_' + self.ds.SeriesInstanceUID + '.dcm', self.RS_struct)
-        # fid = open(Raystation_dir+'Completed.txt','w+')
-        # fid.close()
         return None
 
     def changetemplate(self):
@@ -449,10 +476,10 @@ class Dicom_to_Imagestack:
             if roi not in self.all_rois:
                 self.all_rois.append(roi)
             if self.Contour_Names:
-                if roi in self.associations:
-                    true_rois.append(self.associations[roi])
-                elif roi in self.Contour_Names:
-                    true_rois.append(roi)
+                if roi.lower() in self.associations:
+                    true_rois.append(self.associations[roi.lower()])
+                elif roi.lower() in self.Contour_Names:
+                    true_rois.append(roi.lower())
         for roi in self.Contour_Names:
             if roi not in true_rois:
                 print('Lacking {} in {}'.format(roi, PathDicom))
