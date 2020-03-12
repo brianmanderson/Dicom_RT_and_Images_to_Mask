@@ -229,7 +229,7 @@ class Dicom_to_Imagestack:
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
-        self.image_size_1, self.image_size_2, _ = self.dicom_handle.GetSize()
+        self.image_size_2, self.image_size_1, _ = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_' + self.desciption + '_' + self.iteration + '.nii.gz')
