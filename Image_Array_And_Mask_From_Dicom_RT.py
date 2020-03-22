@@ -119,7 +119,7 @@ class Dicom_to_Imagestack:
                 self.RTs_in_case[self.lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
-        self.mask_exist = False
+        self.all_contours_exist = False
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
         if self.lstRSFile is not None:
@@ -482,10 +482,12 @@ class Dicom_to_Imagestack:
                     true_rois.append(self.associations[roi.lower()])
                 elif roi.lower() in self.Contour_Names:
                     true_rois.append(roi.lower())
+        self.all_contours_exist = True
         for roi in self.Contour_Names:
             if roi not in true_rois:
                 print('Lacking {} in {}'.format(roi, PathDicom))
                 print('Found {}'.format(self.rois_in_case))
+                self.all_contours_exist = False
                 break
         return None
 
