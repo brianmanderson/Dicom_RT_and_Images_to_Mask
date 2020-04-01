@@ -5,7 +5,7 @@ import SimpleITK as sitk
 from skimage import draw
 from scipy.ndimage.morphology import binary_fill_holes
 from skimage.measure import label,regionprops,find_contours
-from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
+from Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
 
 
 class Dicom_to_Imagestack:
