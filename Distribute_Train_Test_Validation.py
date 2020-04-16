@@ -6,7 +6,7 @@ import os
 import pandas as pd
 
 
-def Distribute(description,niftii_path,excel_file):
+def distribute(description,niftii_path,excel_file):
     final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
     if os.path.exists(excel_file):
         data = pd.read_excel(excel_file)
@@ -45,20 +45,38 @@ def Distribute(description,niftii_path,excel_file):
     patient_image_keys = list(np.asarray(patient_image_keys)[perm])
     split_train = int(len(patient_image_keys)/6)
     for xxx in range(split_train):
-        for iteration in patient_image_keys[xxx]:
+        for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(test_path,image_file))
             label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
             os.rename(os.path.join(niftii_path, label_file), os.path.join(test_path, label_file))
     for xxx in range(split_train,int(split_train*2)):
-        for iteration in patient_image_keys[xxx]:
+        for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(validation_path,image_file))
             label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
             os.rename(os.path.join(niftii_path, label_file), os.path.join(validation_path, label_file))
     for xxx in range(int(split_train*2),len(perm)):
-        for iteration in patient_image_keys[xxx]:
+        for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(train_path,image_file))
             label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
             os.rename(os.path.join(niftii_path, label_file), os.path.join(train_path, label_file))
+    output_dict = {'MRN':[],'Path':[],'Iteration':[],'Folder':[]}
+    keys = ['MRN','Path','Iteration']
+    for title, folder in zip(['Train','Validation','Test'],[train_path, validation_path, test_path]):
+        file_list = [i for i in os.listdir(folder) if i.find('Overall_Data') == 0]
+        for file in file_list:
+            iteration = file.split('_')[-1].split('.')[0]
+            index = final_out_dict['Iteration'].index(iteration)
+            for key in keys:
+                output_dict[key].append(final_out_dict[key][index])
+            output_dict['Folder'].append(title)
+    output_dict['Iteration'] = [int(i) for i in output_dict['Iteration']]
+    df = pd.DataFrame(output_dict)
+    df.to_excel(excel_file,index=0)
+    return None
+
+
+if __name__ == '__main__':
+    pass
