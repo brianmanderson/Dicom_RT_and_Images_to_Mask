@@ -5,7 +5,7 @@
 ### 2) Creating associations file and turning dicom into nifti/numpy files
 ### 3) Turning predictions into RT structures
 #### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
-##### Please consider using https://github.com/brianmanderson/Dicom_Data_to_Numpy_Arrays if you are wanting a more parallel approach
+##### Please consider using the .write_parallel if you have many patients
 ##### Ring update allows for multiple rings to be represented correctly
 ![multiple_rings.png](./Images/multiple_rings.png)
 
