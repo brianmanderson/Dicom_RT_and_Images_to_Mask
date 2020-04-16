@@ -43,9 +43,15 @@ Example:
     Dicom_reader.Make_Contour_From_directory(path)
     image = DicomImage.ArrayDicom
     mask = DicomImage.mask
-    
+
     pred = np.zeros([mask.shape[0],mask.shape[1],mask.shape[2],2]) # prediction needs to be [# images, rows, cols, # classes]
     pred[:,200:300,200:300,1] = 1
     
     output_path= os.path.join('.','Output')
     Dicom_reader.with_annotations(pred,output_path,ROI_Names=['test'])
+    
+    '''
+    Write the images and annotations as niftii files in parallel!
+    '''
+    Dicom_Reader.write_parallel(out_path=export_path,excel_file=os.path.join('.','MRN_Path_To_Iteration.xlsx'))
+    

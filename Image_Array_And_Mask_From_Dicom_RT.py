@@ -23,26 +23,19 @@ def worker_def(A):
         else:
             path, iteration, out_path = item
             print(path)
-            if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(desc, iteration))):
-                continue
-            base_class.Make_Contour_From_directory(PathDicom=path)
-            base_class.set_iteration(iteration)
-            base_class.write_images_annotations(out_path)
-            final_out_dict['MRN'].append(base_class.ds.PatientID)
-            final_out_dict['Iteration'].append(iteration)
-            final_out_dict['Path'].append(path)
-            # try:
-            #     print(path)
-            #     if os.path.exists(os.path.join(out_path, 'Overall_Data_' + desc + '_' + iteration + '.nii.gz')):
-            #         continue
-            #     base_class.Make_Contour_From_directory(PathDicom=path)
-            #     base_class.set_iteration(iteration)
-            #     base_class.write_images_annotations(out_path)
-            #     final_out_dict['MRN'].append(base_class.ds.PatientID)
-            #     final_out_dict['Iteration'].append(iteration)
-            #     final_out_dict['Path'].append(path)
-            # except:
-            #     print('failed on {}'.format(path))
+            try:
+                print(path)
+                if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(desc, iteration))):
+                    continue
+                base_class.Make_Contour_From_directory(PathDicom=path)
+                base_class.set_iteration(iteration)
+                base_class.write_images_annotations(out_path)
+                final_out_dict['MRN'].append(base_class.ds.PatientID)
+                final_out_dict['Iteration'].append(iteration)
+                final_out_dict['Path'].append(path)
+                final_out_dict['Folder'].append('')
+            except:
+                print('failed on {}'.format(path))
             q.task_done()
 
 
@@ -169,13 +162,17 @@ class Dicom_to_Imagestack:
         elif self.get_images_mask:
             self.use_template()
 
-    def write_parallel(self, out_path, out_excel_path, thread_count=int(cpu_count()*0.9-1)):
+    def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        if not os.path.exists(out_excel_path):
-            os.makedirs(out_excel_path)
         q = Queue(maxsize=thread_count)
-        final_out_dict = {'MRN':[],'Path':[],'Iteration':[]}
+        final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
+        if os.path.exists(excel_file):
+            data = pd.read_excel(excel_file)
+            data = data.to_dict()
+            for key in final_out_dict.keys():
+                for index in data[key]:
+                    final_out_dict[key].append(data[key][index])
         A = [q, self.Contour_Names, self.associations, self.desciption, final_out_dict]
         threads = []
         for worker in range(thread_count):
@@ -183,7 +180,7 @@ class Dicom_to_Imagestack:
             t.start()
             threads.append(t)
         out_dict = {'Path':[], 'Iteration':[]}
-        iterations = []
+        iterations = copy.deepcopy(final_out_dict['Iteration'])
         for path in self.paths_with_contours:
             iteration_files = [i for i in os.listdir(path) if i.find('Iteration') == 0]
             iteration = 0
@@ -203,13 +200,15 @@ class Dicom_to_Imagestack:
             path = out_dict['Path'][index]
             iteration = out_dict['Iteration'][index]
             item = [path, iteration, out_path]
+            if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))):
+                continue
             q.put(item)
         for i in range(thread_count):
             q.put(None)
         for t in threads:
             t.join()
         df = pd.DataFrame(final_out_dict)
-        df.to_excel(os.path.join(out_excel_path,'MRN_Path_To_Iteration.xlsx'),index=0)
+        df.to_excel(excel_file,index=0)
 
 
     def get_rois_from_RT(self):
