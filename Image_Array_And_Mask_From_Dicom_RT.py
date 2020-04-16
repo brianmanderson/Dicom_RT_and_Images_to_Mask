@@ -5,7 +5,45 @@ import SimpleITK as sitk
 from skimage import draw
 from scipy.ndimage.morphology import binary_fill_holes
 from skimage.measure import label,regionprops,find_contours
+from threading import Thread
+from multiprocessing import cpu_count
+from queue import *
+import pandas as pd
 from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
+
+
+def worker_def(A):
+    q, Contour_Names, associations, desc, final_out_dict = A
+    base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
+                                     Contour_Names=Contour_Names, desc=desc)
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        else:
+            path, iteration, out_path = item
+            print(path)
+            if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(desc, iteration))):
+                continue
+            base_class.Make_Contour_From_directory(PathDicom=path)
+            base_class.set_iteration(iteration)
+            base_class.write_images_annotations(out_path)
+            final_out_dict['MRN'].append(base_class.ds.PatientID)
+            final_out_dict['Iteration'].append(iteration)
+            final_out_dict['Path'].append(path)
+            # try:
+            #     print(path)
+            #     if os.path.exists(os.path.join(out_path, 'Overall_Data_' + desc + '_' + iteration + '.nii.gz')):
+            #         continue
+            #     base_class.Make_Contour_From_directory(PathDicom=path)
+            #     base_class.set_iteration(iteration)
+            #     base_class.write_images_annotations(out_path)
+            #     final_out_dict['MRN'].append(base_class.ds.PatientID)
+            #     final_out_dict['Iteration'].append(iteration)
+            #     final_out_dict['Path'].append(path)
+            # except:
+            #     print('failed on {}'.format(path))
+            q.task_done()
 
 
 class Dicom_to_Imagestack:
@@ -34,6 +72,7 @@ class Dicom_to_Imagestack:
         self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
+        self.paths_with_contours = []
 
     def set_associations(self, associations={}):
         keys = list(associations.keys())
@@ -129,6 +168,49 @@ class Dicom_to_Imagestack:
                 self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
+
+    def write_parallel(self, out_path, out_excel_path, thread_count=int(cpu_count()*0.9-1)):
+        if not os.path.exists(out_path):
+            os.makedirs(out_path)
+        if not os.path.exists(out_excel_path):
+            os.makedirs(out_excel_path)
+        q = Queue(maxsize=thread_count)
+        final_out_dict = {'MRN':[],'Path':[],'Iteration':[]}
+        A = [q, self.Contour_Names, self.associations, self.desciption, final_out_dict]
+        threads = []
+        for worker in range(thread_count):
+            t = Thread(target=worker_def, args=(A,))
+            t.start()
+            threads.append(t)
+        out_dict = {'Path':[], 'Iteration':[]}
+        iterations = []
+        for path in self.paths_with_contours:
+            iteration_files = [i for i in os.listdir(path) if i.find('Iteration') == 0]
+            iteration = 0
+            if iteration_files:
+                file = iteration_files[0]
+                iteration = int(file.split('_')[1].split('.')[0])
+                iterations.append(iteration)
+            else:
+                while iteration in iterations:
+                    iteration += 1
+                iterations.append(iteration)
+                fid = open(os.path.join(path,'Iteration_{}.txt'.format(iteration)),'w+')
+                fid.close()
+            out_dict['Path'].append(path)
+            out_dict['Iteration'].append(iteration)
+        for index in range(len(out_dict['Path'])):
+            path = out_dict['Path'][index]
+            iteration = out_dict['Iteration'][index]
+            item = [path, iteration, out_path]
+            q.put(item)
+        for i in range(thread_count):
+            q.put(None)
+        for t in threads:
+            t.join()
+        df = pd.DataFrame(final_out_dict)
+        df.to_excel(os.path.join(out_excel_path,'MRN_Path_To_Iteration.xlsx'),index=0)
+
 
     def get_rois_from_RT(self):
         rois_in_structure = []
@@ -234,8 +316,8 @@ class Dicom_to_Imagestack:
         self.image_size_2, self.image_size_1, _ = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
-        image_path = os.path.join(out_path, 'Overall_Data_' + self.desciption + '_' + self.iteration + '.nii.gz')
-        annotation_path = os.path.join(out_path, 'Overall_mask_' + self.desciption + '_y' + self.iteration + '.nii.gz')
+        image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
+        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption,self.iteration))
         if os.path.exists(image_path):
             return None
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
@@ -489,6 +571,7 @@ class Dicom_to_Imagestack:
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
                 break
+        self.paths_with_contours.append(PathDicom) # Add the path that has the contours
         return None
 
     def rewrite_RT(self, lstRSFile=None):
