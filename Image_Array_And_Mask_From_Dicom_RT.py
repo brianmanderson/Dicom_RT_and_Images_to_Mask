@@ -24,9 +24,6 @@ def worker_def(A):
             path, iteration, out_path = item
             print(path)
             try:
-                print(path)
-                if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(desc, iteration))):
-                    continue
                 base_class.Make_Contour_From_directory(PathDicom=path)
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
@@ -182,18 +179,18 @@ class Dicom_to_Imagestack:
         out_dict = {'Path':[], 'Iteration':[]}
         iterations = copy.deepcopy(final_out_dict['Iteration'])
         for path in self.paths_with_contours:
-            iteration_files = [i for i in os.listdir(path) if i.find('Iteration') == 0]
+            iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
             iteration = 0
             if iteration_files:
                 file = iteration_files[0]
-                iteration = int(file.split('_')[1].split('.')[0])
+                iteration = int(file.split('_')[-1].split('.')[0])
                 iterations.append(iteration)
+            elif path in final_out_dict['Path']:
+                iteration = final_out_dict['Iteration'][final_out_dict['Path'].index(path)]
             else:
                 while iteration in iterations:
                     iteration += 1
                 iterations.append(iteration)
-                fid = open(os.path.join(path,'Iteration_{}.txt'.format(iteration)),'w+')
-                fid.close()
             out_dict['Path'].append(path)
             out_dict['Iteration'].append(iteration)
         for index in range(len(out_dict['Path'])):
@@ -202,6 +199,9 @@ class Dicom_to_Imagestack:
             item = [path, iteration, out_path]
             if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))):
                 continue
+            if iteration in final_out_dict['Iteration']:
+                if final_out_dict['Folder'][final_out_dict['Iteration'].index(iteration)] in ['Train','Test','Validation']:
+                    continue
             q.put(item)
         for i in range(thread_count):
             q.put(None)
