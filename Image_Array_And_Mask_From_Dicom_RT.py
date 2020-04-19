@@ -12,6 +12,9 @@ import pandas as pd
 from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
 
 
+def contour_worker(A):
+    q, contour_dict = A
+
 def worker_def(A):
     q, Contour_Names, associations, desc, final_out_dict = A
     base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
@@ -414,8 +417,8 @@ class Dicom_to_Imagestack:
             if np.max(self.annotations) > 0:  # If we have an annotation, write it
                 image_locations = np.max(self.annotations, axis=(1, 2))
                 indexes = np.where(image_locations > 0)[0]
-                for point, i in enumerate(indexes):
-                    print(str(int(point / len(indexes) * 100)) + '% done with ' + Name)
+                for point_index, i in enumerate(indexes):
+                    print(str(int(point_index / len(indexes) * 100)) + '% done with ' + Name)
                     annotation = self.annotations[i, :, :]
                     regions = regionprops(label(annotation))
                     for ii in range(len(regions)):
