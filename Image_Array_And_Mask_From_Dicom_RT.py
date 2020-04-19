@@ -93,6 +93,7 @@ class point_output_maker(object):
             if output:
                 self.out_dict[i].append(output)
 
+
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
