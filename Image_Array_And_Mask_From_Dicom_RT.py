@@ -15,6 +15,7 @@ from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
 def contour_worker(A):
     q, contour_dict = A
 
+
 def worker_def(A):
     q, Contour_Names, associations, desc, final_out_dict = A
     base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
@@ -38,6 +39,59 @@ def worker_def(A):
                 print('failed on {}'.format(path))
             q.task_done()
 
+
+class point_output_maker(object):
+    def __init__(self, image_size_0, image_size_1, annotations, slice_info, PixelSize, mult1, mult2,
+                 ShiftRows, ShiftCols, out_dict=dict()):
+        self.image_size_0, self.image_size_1 = image_size_0, image_size_1
+        self.annotations = annotations
+        self.slice_info = slice_info
+        self.PixelSize = PixelSize
+        self.ShiftRows, self.ShiftCols = ShiftRows, ShiftCols
+        self.mult1, self.mult2 = mult1, mult2
+        self.out_dict = out_dict
+
+    def make_output(self, i):
+        annotation = self.annotations[i, :, :]
+        regions = regionprops(label(annotation))
+        for ii in range(len(regions)):
+            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            data = regions[ii].coords
+            rows = []
+            cols = []
+            for iii in range(len(data)):
+                rows.append(data[iii][0])
+                cols.append(data[iii][1])
+            temp_image[rows, cols] = 1
+            points = find_contours(temp_image, 0)[0]
+            output = []
+            for point in points:
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(float(self.slice_info[i]))
+            if output:
+                self.out_dict[i].append(output)
+            hole_annotation = 1 - annotation
+            filled_annotation = binary_fill_holes(annotation)
+            hole_annotation[filled_annotation == 0] = 0
+            regions = regionprops(label(hole_annotation))
+            for ii in range(len(regions)):
+                temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                data = regions[ii].coords
+                rows = []
+                cols = []
+                for iii in range(len(data)):
+                    rows.append(data[iii][0])
+                    cols.append(data[iii][1])
+                temp_image[rows, cols] = 1
+                points = find_contours(temp_image, 0)[0]
+                output = []
+                for point in points:
+                    output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                    output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                    output.append(float(self.slice_info[i]))
+            if output:
+                self.out_dict[i].append(output)
 
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
