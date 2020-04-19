@@ -406,7 +406,7 @@ class Dicom_to_Imagestack:
             if make_new == 1:
                 self.RS_struct.ROIContourSequence.insert(0,copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
             self.RS_struct.ROIContourSequence[self.struct_index].ReferencedROINumber = new_ROINumber
-            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:] = []
+            del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
 
