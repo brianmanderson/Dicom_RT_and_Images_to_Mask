@@ -5,7 +5,98 @@ import SimpleITK as sitk
 from skimage import draw
 from scipy.ndimage.morphology import binary_fill_holes
 from skimage.measure import label,regionprops,find_contours
-from Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
+from threading import Thread
+from multiprocessing import cpu_count
+from queue import *
+import pandas as pd
+from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
+
+
+def contour_worker(A):
+    q, kwargs = A
+    point_maker = Point_Output_Maker_Class(**kwargs)
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        else:
+            point_maker.make_output(*item)
+        q.task_done()
+
+
+def worker_def(A):
+    q, Contour_Names, associations, desc, final_out_dict = A
+    base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
+                                     Contour_Names=Contour_Names, desc=desc)
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        else:
+            path, iteration, out_path = item
+            print(path)
+            try:
+                base_class.Make_Contour_From_directory(PathDicom=path)
+                base_class.set_iteration(iteration)
+                base_class.write_images_annotations(out_path)
+                final_out_dict['MRN'].append(base_class.ds.PatientID)
+                final_out_dict['Iteration'].append(iteration)
+                final_out_dict['Path'].append(path)
+                final_out_dict['Folder'].append('')
+            except:
+                print('failed on {}'.format(path))
+            q.task_done()
+
+
+class Point_Output_Maker_Class(object):
+    def __init__(self, image_size_0, image_size_1, slice_info, PixelSize, mult1, mult2,
+                 ShiftRows, ShiftCols, contour_dict):
+        self.image_size_0, self.image_size_1 = image_size_0, image_size_1
+        self.slice_info = slice_info
+        self.PixelSize = PixelSize
+        self.ShiftRows, self.ShiftCols = ShiftRows, ShiftCols
+        self.mult1, self.mult2 = mult1, mult2
+        self.contour_dict = contour_dict
+
+    def make_output(self, annotation, i):
+        self.contour_dict[i] = []
+        regions = regionprops(label(annotation))
+        for ii in range(len(regions)):
+            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            data = regions[ii].coords
+            rows = []
+            cols = []
+            for iii in range(len(data)):
+                rows.append(data[iii][0])
+                cols.append(data[iii][1])
+            temp_image[rows, cols] = 1
+            points = find_contours(temp_image, 0)[0]
+            output = []
+            for point in points:
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(float(self.slice_info[i]))
+            self.contour_dict[i].append(output)
+        hole_annotation = 1 - annotation
+        filled_annotation = binary_fill_holes(annotation)
+        hole_annotation[filled_annotation == 0] = 0
+        regions = regionprops(label(hole_annotation))
+        for ii in range(len(regions)):
+            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            data = regions[ii].coords
+            rows = []
+            cols = []
+            for iii in range(len(data)):
+                rows.append(data[iii][0])
+                cols.append(data[iii][1])
+            temp_image[rows, cols] = 1
+            points = find_contours(temp_image, 0)[0]
+            output = []
+            for point in points:
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(float(self.slice_info[i]))
+            self.contour_dict[i].append(output)
 
 
 class Dicom_to_Imagestack:
@@ -34,6 +125,7 @@ class Dicom_to_Imagestack:
         self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
+        self.paths_with_contours = []
 
     def set_associations(self, associations={}):
         keys = list(associations.keys())
@@ -129,6 +221,58 @@ class Dicom_to_Imagestack:
                 self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
+
+    def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
+        if not os.path.exists(out_path):
+            os.makedirs(out_path)
+        q = Queue(maxsize=thread_count)
+        final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
+        if os.path.exists(excel_file):
+            data = pd.read_excel(excel_file)
+            data = data.to_dict()
+            for key in final_out_dict.keys():
+                for index in data[key]:
+                    final_out_dict[key].append(data[key][index])
+        A = [q, self.Contour_Names, self.associations, self.desciption, final_out_dict]
+        threads = []
+        for worker in range(thread_count):
+            t = Thread(target=worker_def, args=(A,))
+            t.start()
+            threads.append(t)
+        out_dict = {'Path':[], 'Iteration':[]}
+        iterations = copy.deepcopy(final_out_dict['Iteration'])
+        for path in self.paths_with_contours:
+            iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
+            iteration = 0
+            if iteration_files:
+                file = iteration_files[0]
+                iteration = int(file.split('_')[-1].split('.')[0])
+                iterations.append(iteration)
+            elif path in final_out_dict['Path']:
+                iteration = final_out_dict['Iteration'][final_out_dict['Path'].index(path)]
+            else:
+                while iteration in iterations:
+                    iteration += 1
+                iterations.append(iteration)
+            out_dict['Path'].append(path)
+            out_dict['Iteration'].append(iteration)
+        for index in range(len(out_dict['Path'])):
+            path = out_dict['Path'][index]
+            iteration = out_dict['Iteration'][index]
+            item = [path, iteration, out_path]
+            if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))):
+                continue
+            if iteration in final_out_dict['Iteration']:
+                if final_out_dict['Folder'][final_out_dict['Iteration'].index(iteration)] in ['Train','Test','Validation']:
+                    continue
+            q.put(item)
+        for i in range(thread_count):
+            q.put(None)
+        for t in threads:
+            t.join()
+        df = pd.DataFrame(final_out_dict)
+        df.to_excel(excel_file,index=0)
+
 
     def get_rois_from_RT(self):
         rois_in_structure = []
@@ -234,8 +378,8 @@ class Dicom_to_Imagestack:
         self.image_size_2, self.image_size_1, _ = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
-        image_path = os.path.join(out_path, 'Overall_Data_' + self.desciption + '_' + self.iteration + '.nii.gz')
-        annotation_path = os.path.join(out_path, 'Overall_mask_' + self.desciption + '_y' + self.iteration + '.nii.gz')
+        image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
+        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption,self.iteration))
         if os.path.exists(image_path):
             return None
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
@@ -260,6 +404,7 @@ class Dicom_to_Imagestack:
         return mask
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
+        assert ROI_Names is not None, 'You need to provide ROI_Names'
         annotations = np.squeeze(annotations)
         self.image_size_0, self.image_size_1 = annotations.shape[1], annotations.shape[2]
         self.ROI_Names = ROI_Names
@@ -325,80 +470,92 @@ class Dicom_to_Imagestack:
             if make_new == 1:
                 self.RS_struct.ROIContourSequence.insert(0,copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
             self.RS_struct.ROIContourSequence[self.struct_index].ReferencedROINumber = new_ROINumber
-            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:] = []
+            del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
+            thread_count = int(cpu_count()*0.9-1)
+            # thread_count = 1
+            contour_dict = {}
+            q = Queue(maxsize=thread_count)
+            threads = []
+            kwargs = {'image_size_0': self.image_size_0, 'image_size_1': self.image_size_1,
+                      'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
+                      'mult2': self.mult2,
+                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict}
+
+            A = [q,kwargs]
+            for worker in range(thread_count):
+                t = Thread(target=contour_worker, args=(A,))
+                t.start()
+                threads.append(t)
 
             contour_num = 0
             if np.max(self.annotations) > 0:  # If we have an annotation, write it
                 image_locations = np.max(self.annotations, axis=(1, 2))
                 indexes = np.where(image_locations > 0)[0]
-                for point, i in enumerate(indexes):
-                    print(str(int(point / len(indexes) * 100)) + '% done with ' + Name)
-                    annotation = self.annotations[i, :, :]
-                    regions = regionprops(label(annotation))
-                    for ii in range(len(regions)):
-                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                        data = regions[ii].coords
-                        rows = []
-                        cols = []
-                        for iii in range(len(data)):
-                            rows.append(data[iii][0])
-                            cols.append(data[iii][1])
-                        temp_image[rows, cols] = 1
-                        points = find_contours(temp_image, 0)[0]
-                        output = []
-                        for point in points:
-                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                            output.append(float(self.slice_info[i]))
-                        if output:
-                            if contour_num > 0:
-                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
-                                    copy.deepcopy(
-                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourNumber = str(contour_num)
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourData = output
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].NumberofContourPoints = round(len(output) / 3)
-                            contour_num += 1
-                    hole_annotation = 1 - annotation
-                    filled_annotation = binary_fill_holes(annotation)
-                    hole_annotation[filled_annotation == 0] = 0
-                    regions = regionprops(label(hole_annotation))
-                    for ii in range(len(regions)):
-                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                        data = regions[ii].coords
-                        rows = []
-                        cols = []
-                        for iii in range(len(data)):
-                            rows.append(data[iii][0])
-                            cols.append(data[iii][1])
-                        temp_image[rows, cols] = 1
-                        points = find_contours(temp_image, 0)[0]
-                        output = []
-                        for point in points:
-                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                            output.append(float(self.slice_info[i]))
-                        if output:
-                            if contour_num > 0:
-                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
-                                    copy.deepcopy(
-                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourNumber = str(contour_num)
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourData = output
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].NumberofContourPoints = round(len(output) / 3)
-                            contour_num += 1
+                for index in indexes:
+                    item = [self.annotations[index, ...], index]
+                    q.put(item)
+                for i in range(thread_count):
+                    q.put(None)
+                for t in threads:
+                    t.join()
+                # for point_index, i in enumerate(indexes):
+                #     contour_dict[i] = []
+                #     print(str(int(point_index / len(indexes) * 100)) + '% done with ' + Name)
+                #     annotation = self.annotations[i, :, :]
+                #     regions = regionprops(label(annotation))
+                #     for ii in range(len(regions)):
+                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                #         data = regions[ii].coords
+                #         rows = []
+                #         cols = []
+                #         for iii in range(len(data)):
+                #             rows.append(data[iii][0])
+                #             cols.append(data[iii][1])
+                #         temp_image[rows, cols] = 1
+                #         points = find_contours(temp_image, 0)[0]
+                #         output = []
+                #         for point in points:
+                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                #             output.append(float(self.slice_info[i]))
+                #         contour_dict[i].append(output)
+                #     hole_annotation = 1 - annotation
+                #     filled_annotation = binary_fill_holes(annotation)
+                #     hole_annotation[filled_annotation == 0] = 0
+                #     regions = regionprops(label(hole_annotation))
+                #     for ii in range(len(regions)):
+                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                #         data = regions[ii].coords
+                #         rows = []
+                #         cols = []
+                #         for iii in range(len(data)):
+                #             rows.append(data[iii][0])
+                #             cols.append(data[iii][1])
+                #         temp_image[rows, cols] = 1
+                #         points = find_contours(temp_image, 0)[0]
+                #         output = []
+                #         for point in points:
+                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                #             output.append(float(self.slice_info[i]))
+                #         contour_dict[i].append(output)
+                for i in contour_dict.keys():
+                    for output in contour_dict[i]:
+                        if contour_num > 0:
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
+                                copy.deepcopy(
+                                    self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourNumber = str(contour_num)
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourData = output
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].NumberofContourPoints = round(len(output) / 3)
+                        contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
         if self.template or self.delete_previous_rois:
             for i in range(len(self.RS_struct.StructureSetROISequence),len(self.ROI_Names),-1):
@@ -489,6 +646,7 @@ class Dicom_to_Imagestack:
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
                 break
+        self.paths_with_contours.append(PathDicom) # Add the path that has the contours
         return None
 
     def rewrite_RT(self, lstRSFile=None):
