@@ -13,7 +13,15 @@ from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
 
 
 def contour_worker(A):
-    q, contour_dict = A
+    q, kwargs = A
+    point_maker = Point_Output_Maker_Class(**kwargs)
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        else:
+            point_maker.make_output(*item)
+        q.task_done()
 
 
 def worker_def(A):
@@ -40,19 +48,18 @@ def worker_def(A):
             q.task_done()
 
 
-class point_output_maker(object):
-    def __init__(self, image_size_0, image_size_1, annotations, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, out_dict=dict()):
+class Point_Output_Maker_Class(object):
+    def __init__(self, image_size_0, image_size_1, slice_info, PixelSize, mult1, mult2,
+                 ShiftRows, ShiftCols, contour_dict):
         self.image_size_0, self.image_size_1 = image_size_0, image_size_1
-        self.annotations = annotations
         self.slice_info = slice_info
         self.PixelSize = PixelSize
         self.ShiftRows, self.ShiftCols = ShiftRows, ShiftCols
         self.mult1, self.mult2 = mult1, mult2
-        self.out_dict = out_dict
+        self.contour_dict = contour_dict
 
-    def make_output(self, i):
-        annotation = self.annotations[i, :, :]
+    def make_output(self, annotation, i):
+        self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
             temp_image = np.zeros([self.image_size_0, self.image_size_1])
@@ -69,29 +76,27 @@ class point_output_maker(object):
                 output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
                 output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
                 output.append(float(self.slice_info[i]))
-            if output:
-                self.out_dict[i].append(output)
-            hole_annotation = 1 - annotation
-            filled_annotation = binary_fill_holes(annotation)
-            hole_annotation[filled_annotation == 0] = 0
-            regions = regionprops(label(hole_annotation))
-            for ii in range(len(regions)):
-                temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                data = regions[ii].coords
-                rows = []
-                cols = []
-                for iii in range(len(data)):
-                    rows.append(data[iii][0])
-                    cols.append(data[iii][1])
-                temp_image[rows, cols] = 1
-                points = find_contours(temp_image, 0)[0]
-                output = []
-                for point in points:
-                    output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                    output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                    output.append(float(self.slice_info[i]))
-            if output:
-                self.out_dict[i].append(output)
+            self.contour_dict[i].append(output)
+        hole_annotation = 1 - annotation
+        filled_annotation = binary_fill_holes(annotation)
+        hole_annotation[filled_annotation == 0] = 0
+        regions = regionprops(label(hole_annotation))
+        for ii in range(len(regions)):
+            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            data = regions[ii].coords
+            rows = []
+            cols = []
+            for iii in range(len(data)):
+                rows.append(data[iii][0])
+                cols.append(data[iii][1])
+            temp_image[rows, cols] = 1
+            points = find_contours(temp_image, 0)[0]
+            output = []
+            for point in points:
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(float(self.slice_info[i]))
+            self.contour_dict[i].append(output)
 
 
 class Dicom_to_Imagestack:
@@ -399,6 +404,7 @@ class Dicom_to_Imagestack:
         return mask
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
+        assert ROI_Names is not None, 'You need to provide ROI_Names'
         annotations = np.squeeze(annotations)
         self.image_size_0, self.image_size_1 = annotations.shape[1], annotations.shape[2]
         self.ROI_Names = ROI_Names
@@ -467,77 +473,89 @@ class Dicom_to_Imagestack:
             del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
+            thread_count = int(cpu_count()*0.9-1)
+            # thread_count = 1
+            contour_dict = {}
+            q = Queue(maxsize=thread_count)
+            threads = []
+            kwargs = {'image_size_0': self.image_size_0, 'image_size_1': self.image_size_1,
+                      'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
+                      'mult2': self.mult2,
+                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict}
+
+            A = [q,kwargs]
+            for worker in range(thread_count):
+                t = Thread(target=contour_worker, args=(A,))
+                t.start()
+                threads.append(t)
 
             contour_num = 0
             if np.max(self.annotations) > 0:  # If we have an annotation, write it
                 image_locations = np.max(self.annotations, axis=(1, 2))
                 indexes = np.where(image_locations > 0)[0]
-                for point_index, i in enumerate(indexes):
-                    print(str(int(point_index / len(indexes) * 100)) + '% done with ' + Name)
-                    annotation = self.annotations[i, :, :]
-                    regions = regionprops(label(annotation))
-                    for ii in range(len(regions)):
-                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                        data = regions[ii].coords
-                        rows = []
-                        cols = []
-                        for iii in range(len(data)):
-                            rows.append(data[iii][0])
-                            cols.append(data[iii][1])
-                        temp_image[rows, cols] = 1
-                        points = find_contours(temp_image, 0)[0]
-                        output = []
-                        for point in points:
-                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                            output.append(float(self.slice_info[i]))
-                        if output:
-                            if contour_num > 0:
-                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
-                                    copy.deepcopy(
-                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourNumber = str(contour_num)
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourData = output
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].NumberofContourPoints = round(len(output) / 3)
-                            contour_num += 1
-                    hole_annotation = 1 - annotation
-                    filled_annotation = binary_fill_holes(annotation)
-                    hole_annotation[filled_annotation == 0] = 0
-                    regions = regionprops(label(hole_annotation))
-                    for ii in range(len(regions)):
-                        temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                        data = regions[ii].coords
-                        rows = []
-                        cols = []
-                        for iii in range(len(data)):
-                            rows.append(data[iii][0])
-                            cols.append(data[iii][1])
-                        temp_image[rows, cols] = 1
-                        points = find_contours(temp_image, 0)[0]
-                        output = []
-                        for point in points:
-                            output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                            output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                            output.append(float(self.slice_info[i]))
-                        if output:
-                            if contour_num > 0:
-                                self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
-                                    copy.deepcopy(
-                                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourNumber = str(contour_num)
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].ContourData = output
-                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                                contour_num].NumberofContourPoints = round(len(output) / 3)
-                            contour_num += 1
+                for index in indexes:
+                    item = [self.annotations[index, ...], index]
+                    q.put(item)
+                for i in range(thread_count):
+                    q.put(None)
+                for t in threads:
+                    t.join()
+                # for point_index, i in enumerate(indexes):
+                #     contour_dict[i] = []
+                #     print(str(int(point_index / len(indexes) * 100)) + '% done with ' + Name)
+                #     annotation = self.annotations[i, :, :]
+                #     regions = regionprops(label(annotation))
+                #     for ii in range(len(regions)):
+                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                #         data = regions[ii].coords
+                #         rows = []
+                #         cols = []
+                #         for iii in range(len(data)):
+                #             rows.append(data[iii][0])
+                #             cols.append(data[iii][1])
+                #         temp_image[rows, cols] = 1
+                #         points = find_contours(temp_image, 0)[0]
+                #         output = []
+                #         for point in points:
+                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                #             output.append(float(self.slice_info[i]))
+                #         contour_dict[i].append(output)
+                #     hole_annotation = 1 - annotation
+                #     filled_annotation = binary_fill_holes(annotation)
+                #     hole_annotation[filled_annotation == 0] = 0
+                #     regions = regionprops(label(hole_annotation))
+                #     for ii in range(len(regions)):
+                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
+                #         data = regions[ii].coords
+                #         rows = []
+                #         cols = []
+                #         for iii in range(len(data)):
+                #             rows.append(data[iii][0])
+                #             cols.append(data[iii][1])
+                #         temp_image[rows, cols] = 1
+                #         points = find_contours(temp_image, 0)[0]
+                #         output = []
+                #         for point in points:
+                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
+                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                #             output.append(float(self.slice_info[i]))
+                #         contour_dict[i].append(output)
+                for i in contour_dict.keys():
+                    for output in contour_dict[i]:
+                        if contour_num > 0:
+                            self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
+                                copy.deepcopy(
+                                    self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourNumber = str(contour_num)
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourData = output
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].NumberofContourPoints = round(len(output) / 3)
+                        contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
         if self.template or self.delete_previous_rois:
             for i in range(len(self.RS_struct.StructureSetROISequence),len(self.ROI_Names),-1):
