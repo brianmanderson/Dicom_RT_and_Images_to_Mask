@@ -122,6 +122,9 @@ class Dicom_to_Imagestack:
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
+        self.__reset__()
+
+    def __reset__(self):
         self.all_RTs = {}
         self.all_rois = []
         self.all_paths = []
@@ -141,6 +144,7 @@ class Dicom_to_Imagestack:
         self.get_images_mask = get_images_mask
 
     def set_contour_names(self, Contour_Names=None):
+        self.__reset__()
         if Contour_Names is None:
             Contour_Names = []
         else:
@@ -154,7 +158,7 @@ class Dicom_to_Imagestack:
     def set_iteration(self, iteration=0):
         self.iteration = str(iteration)
 
-    def down_folder(self, input_path):
+    def down_folder(self, input_path, reset=True):
         files = []
         dirs = []
         file = []
@@ -647,7 +651,8 @@ class Dicom_to_Imagestack:
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
                 break
-        self.paths_with_contours.append(PathDicom) # Add the path that has the contours
+        if PathDicom not in self.paths_with_contours:
+            self.paths_with_contours.append(PathDicom) # Add the path that has the contours
         return None
 
     def rewrite_RT(self, lstRSFile=None):
