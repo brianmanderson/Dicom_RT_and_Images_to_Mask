@@ -223,6 +223,7 @@ class Dicom_to_Imagestack:
             self.use_template()
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
+        out_path = os.path.join(out_path,self.desciption)
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
