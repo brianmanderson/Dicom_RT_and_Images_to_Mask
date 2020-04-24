@@ -346,7 +346,7 @@ class Dicom_to_Imagestack:
         for i in range(len(Contour_data)):
             referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
             if referenced_sop_instance_uid not in self.SOPInstanceUIDs:
-                print('Error here with instance UID')
+                print('{} Error here with instance UID'.format(self.PathDicom))
                 return None
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
