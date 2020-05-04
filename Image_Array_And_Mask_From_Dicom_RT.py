@@ -27,7 +27,7 @@ def contour_worker(A):
 def worker_def(A):
     q, Contour_Names, associations, desc, final_out_dict = A
     base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
-                                     Contour_Names=Contour_Names, desc=desc)
+                                     Contour_Names=Contour_Names, desc=desc, get_dose_output=True)
     while True:
         item = q.get()
         if item is None:
@@ -102,7 +102,8 @@ class Point_Output_Maker_Class(object):
 class Dicom_to_Imagestack:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
-                 associations={},desc='',iteration=0, **kwargs):
+                 associations={},desc='',iteration=0, get_dose_output=False, **kwargs):
+        self.get_dose_output = get_dose_output
         self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
@@ -111,6 +112,7 @@ class Dicom_to_Imagestack:
         self.set_iteration(iteration)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
+        self.dose_handles = []
         if template_dir is None:
             package_name = __package__.split('.')[-1]
             template_dir = os.path.join(__file__[:__file__.index(package_name)],package_name,'template_RS.dcm')
@@ -212,8 +214,14 @@ class Dicom_to_Imagestack:
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
+            reader = sitk.ImageFileReader()
             for lstRSFile in RT_Files:
-                modality = pydicom.read_file(lstRSFile).Modality
+                reader.SetFileName(lstRSFile)
+                try:
+                    reader.ReadImageInformation()
+                    modality = reader.GetMetaData("0008|0060")
+                except:
+                    modality = 'rt'
                 if modality.lower().find('dose') != -1:
                     self.RDs_in_case[lstRSFile] = []
                 else:
@@ -225,8 +233,7 @@ class Dicom_to_Imagestack:
         self.all_RTs.update(self.RTs_in_case)
         if len(self.RTs_in_case.keys()) > 0:
             self.template = False
-            for RT in self.RTs_in_case:
-                self.lstRSFile = RT
+            for self.lstRSFile in self.RTs_in_case:
                 self.get_rois_from_RT()
         elif self.get_images_mask:
             self.use_template()
@@ -282,7 +289,6 @@ class Dicom_to_Imagestack:
             t.join()
         df = pd.DataFrame(final_out_dict)
         df.to_excel(excel_file,index=0)
-
 
     def get_rois_from_RT(self):
         rois_in_structure = []
@@ -510,47 +516,6 @@ class Dicom_to_Imagestack:
                     q.put(None)
                 for t in threads:
                     t.join()
-                # for point_index, i in enumerate(indexes):
-                #     contour_dict[i] = []
-                #     print(str(int(point_index / len(indexes) * 100)) + '% done with ' + Name)
-                #     annotation = self.annotations[i, :, :]
-                #     regions = regionprops(label(annotation))
-                #     for ii in range(len(regions)):
-                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                #         data = regions[ii].coords
-                #         rows = []
-                #         cols = []
-                #         for iii in range(len(data)):
-                #             rows.append(data[iii][0])
-                #             cols.append(data[iii][1])
-                #         temp_image[rows, cols] = 1
-                #         points = find_contours(temp_image, 0)[0]
-                #         output = []
-                #         for point in points:
-                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                #             output.append(float(self.slice_info[i]))
-                #         contour_dict[i].append(output)
-                #     hole_annotation = 1 - annotation
-                #     filled_annotation = binary_fill_holes(annotation)
-                #     hole_annotation[filled_annotation == 0] = 0
-                #     regions = regionprops(label(hole_annotation))
-                #     for ii in range(len(regions)):
-                #         temp_image = np.zeros([self.image_size_0, self.image_size_1])
-                #         data = regions[ii].coords
-                #         rows = []
-                #         cols = []
-                #         for iii in range(len(data)):
-                #             rows.append(data[iii][0])
-                #             cols.append(data[iii][1])
-                #         temp_image[rows, cols] = 1
-                #         points = find_contours(temp_image, 0)[0]
-                #         output = []
-                #         for point in points:
-                #             output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                #             output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
-                #             output.append(float(self.slice_info[i]))
-                #         contour_dict[i].append(output)
                 for i in contour_dict.keys():
                     for output in contour_dict[i]:
                         if contour_num > 0:
@@ -632,7 +597,13 @@ class Dicom_to_Imagestack:
             except:
                 continue
         return None
-        # Get slice locations
+
+    def get_dose(self):
+        reader = sitk.ImageFileReader()
+        for dose_file in self.RDs_in_case:
+            reader.SetFileName(dose_file)
+            reader.ReadImageInformation()
+            self.dose_handles.append(reader.Execute())
 
     def Make_Contour_From_directory(self, PathDicom):
         self.make_array(PathDicom)
@@ -640,6 +611,8 @@ class Dicom_to_Imagestack:
             self.rewrite_RT()
         if not self.template and self.get_images_mask:
             self.get_mask()
+        if self.get_dose_output:
+            self.get_dose()
         true_rois = []
         for roi in self.rois_in_case:
             if roi not in self.all_rois:
