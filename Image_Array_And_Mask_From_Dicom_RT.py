@@ -183,6 +183,7 @@ class Dicom_to_Imagestack:
         self.Dicom_info = []
         fileList = []
         self.RTs_in_case = {}
+        self.RDs_in_case = {}
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
@@ -211,14 +212,18 @@ class Dicom_to_Imagestack:
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
-            for self.lstRSFile in RT_Files:
-                self.RTs_in_case[self.lstRSFile] = []
+            for lstRSFile in RT_Files:
+                modality = pydicom.read_file(lstRSFile).Modality
+                if modality.lower().find('dose') != -1:
+                    self.RDs_in_case[lstRSFile] = []
+                else:
+                    self.RTs_in_case[lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
         self.all_contours_exist = False
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
-        if self.lstRSFile is not None:
+        if len(self.RTs_in_case.keys()) > 0:
             self.template = False
             for RT in self.RTs_in_case:
                 self.lstRSFile = RT
