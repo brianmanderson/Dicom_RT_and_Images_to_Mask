@@ -410,6 +410,12 @@ class Dicom_to_Imagestack:
         if pixel_id.find('int') == -1:
             self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
         sitk.WriteImage(self.annotation_handle,annotation_path)
+        for dose_index, dose_handle in enumerate(self.dose_handles):
+            dose_path = os.path.join(out_path,
+                                     'Overall_dose_{}_{}_{}.nii.gz'.format(self.desciption, self.iteration, dose_index))
+            dose_handle.SetOrigin(self.dicom_handle.GetOrigin())
+            dose_handle.SetDirection(self.dicom_handle.GetDirection())
+            sitk.WriteImage(dose_handle, dose_path)
         fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
         fid.close()
 
