@@ -639,7 +639,7 @@ class Dicom_to_Imagestack:
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
                 break
-        if PathDicom not in self.paths_with_contours:
+        if PathDicom not in self.paths_with_contours and self.all_contours_exist:
             self.paths_with_contours.append(PathDicom) # Add the path that has the contours
         return None
 
