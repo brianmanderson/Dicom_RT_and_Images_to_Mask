@@ -613,7 +613,10 @@ class Dicom_to_Imagestack:
         for dose_file in self.RDs_in_case:
             reader.SetFileName(dose_file)
             reader.ReadImageInformation()
-            self.dose_handles.append(reader.Execute())
+            dose = reader.Execute()
+            scaling_factor = float(reader.GetMetaData("3004|000e"))
+            dose = sitk.GetImageFromArray(sitk.GetArrayFromImage(dose)*scaling_factor)
+            self.dose_handles.append(dose)
 
     def Make_Contour_From_directory(self, PathDicom):
         self.make_array(PathDicom)
