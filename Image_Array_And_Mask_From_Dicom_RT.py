@@ -610,13 +610,20 @@ class Dicom_to_Imagestack:
 
     def get_dose(self):
         reader = sitk.ImageFileReader()
+        output = None
         for dose_file in self.RDs_in_case:
-            reader.SetFileName(dose_file)
-            reader.ReadImageInformation()
-            dose = reader.Execute()
-            scaling_factor = float(reader.GetMetaData("3004|000e"))
-            dose = sitk.GetImageFromArray(sitk.GetArrayFromImage(dose)*scaling_factor)
-            self.dose_handles.append(dose)
+            if os.path.split(dose_file)[-1].startswith('RTDOSE - PLAN'):
+                reader.SetFileName(dose_file)
+                reader.ReadImageInformation()
+                dose = reader.Execute()
+                scaling_factor = float(reader.GetMetaData("3004|000e"))
+                dose = sitk.GetImageFromArray(sitk.GetArrayFromImage(dose)*scaling_factor)
+                if output is None:
+                    output = dose
+                else:
+                    output += dose
+        if output is not None:
+            self.dose_handles.append(sitk.GetImageFromArray(output))
 
     def Make_Contour_From_directory(self, PathDicom):
         self.make_array(PathDicom)
