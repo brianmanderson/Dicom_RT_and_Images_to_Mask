@@ -221,10 +221,10 @@ class Dicom_to_Imagestack:
                     reader.ReadImageInformation()
                     modality = reader.GetMetaData("0008|0060")
                 except:
-                    modality = 'rt'
+                    modality = pydicom.read_file(lstRSFile).Modality
                 if modality.lower().find('dose') != -1:
                     self.RDs_in_case[lstRSFile] = []
-                else:
+                elif modality.lower().find('struct') != -1:
                     self.RTs_in_case[lstRSFile] = []
             self.RefDs = pydicom.read_file(self.dicom_names[0])
             self.ds = pydicom.read_file(self.dicom_names[0])
