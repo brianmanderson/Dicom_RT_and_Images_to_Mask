@@ -617,7 +617,7 @@ class Dicom_to_Imagestack:
                 reader.ReadImageInformation()
                 dose = reader.Execute()
                 scaling_factor = float(reader.GetMetaData("3004|000e"))
-                dose = sitk.GetImageFromArray(sitk.GetArrayFromImage(dose)*scaling_factor)
+                dose = sitk.GetArrayFromImage(dose)*scaling_factor
                 if output is None:
                     output = dose
                 else:
