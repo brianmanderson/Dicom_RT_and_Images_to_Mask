@@ -617,6 +617,8 @@ class Dicom_to_Imagestack:
                 reader.ReadImageInformation()
                 dose = reader.Execute()
                 spacing = dose.GetSpacing()
+                origin = dose.GetOrigin()
+                direction = dose.GetDirection()
                 scaling_factor = float(reader.GetMetaData("3004|000e"))
                 dose = sitk.GetArrayFromImage(dose)*scaling_factor
                 if output is None:
@@ -626,6 +628,8 @@ class Dicom_to_Imagestack:
         if output is not None:
             output = sitk.GetImageFromArray(output)
             output.SetSpacing(spacing)
+            output.SetDirection(direction)
+            output.SetOrigin(origin)
             self.dose_handles.append(output)
 
     def Make_Contour_From_directory(self, PathDicom):
