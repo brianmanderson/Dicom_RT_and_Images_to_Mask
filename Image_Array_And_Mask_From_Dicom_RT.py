@@ -610,7 +610,7 @@ class Dicom_to_Imagestack:
 
     def get_dose(self):
         reader = sitk.ImageFileReader()
-        output = None
+        output, spacing, direction, origin = None, None, None, None
         for dose_file in self.RDs_in_case:
             if os.path.split(dose_file)[-1].startswith('RTDOSE - PLAN'):
                 reader.SetFileName(dose_file)
