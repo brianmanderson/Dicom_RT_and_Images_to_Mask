@@ -445,8 +445,10 @@ class Dicom_to_Imagestack:
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
-        self.ShiftRows, self.ShiftCols, self.ShiftZBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
-        Xx, Xy, Xy, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
+        ShiftRows, ShiftCols, ShiftZBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
+        self.ShiftRows = ShiftRows * Xx + ShiftCols * Xy + ShiftZBase * Xz
+        self.ShiftCols = ShiftRows * Xy + ShiftCols * Yy + ShiftZBase * Yz
         self.mult1 = self.mult2 = 1
         self.PixelSize = self.dicom_handle.GetSpacing()[0]
         current_names = []
