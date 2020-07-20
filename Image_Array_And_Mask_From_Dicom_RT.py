@@ -348,7 +348,7 @@ class Dicom_to_Imagestack:
         mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2], dtype='int8')
         Contour_data = self.Liver_Locations
         ShiftRowsBase, ShiftColsBase, ShiftzBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
-        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         PixelSize = self.dicom_handle.GetSpacing()[0]
         Mag = 1 / PixelSize
         mult1 = mult2 = 1
