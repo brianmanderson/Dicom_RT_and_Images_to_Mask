@@ -347,12 +347,15 @@ class Dicom_to_Imagestack:
     def Contours_to_mask(self):
         mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2], dtype='int8')
         Contour_data = self.Liver_Locations
-        ShiftCols, ShiftRows, _ = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        ShiftRowsBase, ShiftColsBase, ShiftzBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
         PixelSize = self.dicom_handle.GetSpacing()[0]
         Mag = 1 / PixelSize
         mult1 = mult2 = 1
-        if ShiftCols > 0:
+        if ShiftRowsBase > 0:
             mult1 = -1
+        ShiftRows = ShiftRowsBase * Xx + ShiftColsBase * Xy + ShiftzBase * Xz
+        ShiftCols = ShiftRowsBase * Xy + ShiftColsBase * Yy + ShiftzBase * Yz
 
         for i in range(len(Contour_data)):
             referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
@@ -361,10 +364,10 @@ class Dicom_to_Imagestack:
                 return None
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
-            cols = Contour_data[i].ContourData[1::3]
-            rows = Contour_data[i].ContourData[0::3]
-            col_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
-            row_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
+            rows = Contour_data[i].ContourData[1::3]
+            cols = Contour_data[i].ContourData[0::3]
+            row_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
+            col_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
