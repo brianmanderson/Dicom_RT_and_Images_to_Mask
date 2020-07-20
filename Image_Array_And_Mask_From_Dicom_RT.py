@@ -73,8 +73,8 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftRows))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftCols))
                 output.append(float(self.slice_info[i]))
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
@@ -93,8 +93,8 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftCols))
-                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftRows))
+                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftRows))
+                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftCols))
                 output.append(float(self.slice_info[i]))
             self.contour_dict[i].append(output)
 
@@ -445,7 +445,8 @@ class Dicom_to_Imagestack:
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
-        self.ShiftCols, self.ShiftRows, _ = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        self.ShiftRows, self.ShiftCols, self.ShiftZBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        Xx, Xy, Xy, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         self.mult1 = self.mult2 = 1
         self.PixelSize = self.dicom_handle.GetSpacing()[0]
         current_names = []
