@@ -73,9 +73,9 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftRows))
-                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftCols))
-                output.append(float(self.slice_info[i]))
+                output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
+                output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
+                output.append(float(self.ShiftZ[i]))
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
@@ -93,9 +93,9 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize + self.mult1 * self.ShiftRows))
-                output.append(((point[0]) * self.PixelSize + self.mult2 * self.ShiftCols))
-                output.append(float(self.slice_info[i]))
+                output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
+                output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
+                output.append(float(self.ShiftZ[i]))
             self.contour_dict[i].append(output)
 
 
@@ -451,8 +451,7 @@ class Dicom_to_Imagestack:
         Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in shift_list]
         self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in shift_list]
-        xx, yy = np.meshgrid(np.arange(0, self.image_size_rows, 1), np.arange(0, self.image_size_cols, 1))
-        self.ShiftZ = np.stack([xx * (1-Xz) * i[0] + yy * (1-Yz) * i[1] + i[2] for i in shift_list], axis=0)
+        self.ShiftZ = [i[2] for i in shift_list]
         self.mult1 = self.mult2 = 1
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
