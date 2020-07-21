@@ -78,7 +78,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(self.ShiftZ[i] + point[0] * self.PixelSize[1] * Yz + point[1] * self.PixelSize[0] * Xz)
+                output.append(self.ShiftZ[i])
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
@@ -98,7 +98,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(self.ShiftZ[i] + point[0] * self.PixelSize[1] * Yz + point[1] * self.PixelSize[0] * Xz)
+                output.append(self.ShiftZ[i])
             self.contour_dict[i].append(output)
 
 
@@ -503,7 +503,7 @@ class Dicom_to_Imagestack:
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
             thread_count = int(cpu_count()*0.9-1)
-            thread_count = 1
+            # thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
