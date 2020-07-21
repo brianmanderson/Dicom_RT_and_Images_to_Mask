@@ -78,7 +78,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(self.ShiftZ[i])
+                output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
@@ -98,7 +98,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(self.ShiftZ[i])
+                output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
 
 
