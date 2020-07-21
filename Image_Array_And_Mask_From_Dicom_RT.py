@@ -49,12 +49,12 @@ def worker_def(A):
 
 
 class Point_Output_Maker_Class(object):
-    def __init__(self, image_size_0, image_size_1, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, contour_dict):
-        self.image_size_0, self.image_size_1 = image_size_0, image_size_1
+    def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, mult1, mult2,
+                 ShiftRows, ShiftCols, ShiftZ, contour_dict):
+        self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.slice_info = slice_info
         self.PixelSize = PixelSize
-        self.ShiftRows, self.ShiftCols = ShiftRows, ShiftCols
+        self.ShiftRows, self.ShiftCols, self.ShiftZ = ShiftRows, ShiftCols, ShiftZ
         self.mult1, self.mult2 = mult1, mult2
         self.contour_dict = contour_dict
 
@@ -62,7 +62,7 @@ class Point_Output_Maker_Class(object):
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
-            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
             data = regions[ii].coords
             rows = []
             cols = []
@@ -82,7 +82,7 @@ class Point_Output_Maker_Class(object):
         hole_annotation[filled_annotation == 0] = 0
         regions = regionprops(label(hole_annotation))
         for ii in range(len(regions)):
-            temp_image = np.zeros([self.image_size_0, self.image_size_1])
+            temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
             data = regions[ii].coords
             rows = []
             cols = []
@@ -304,7 +304,7 @@ class Dicom_to_Imagestack:
         self.all_RTs[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
-        self.mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2, len(self.Contour_Names) + 1],
+        self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
                              dtype='int8')
         self.structure_references = {}
         for contour_number in range(len(self.RS_struct.ROIContourSequence)):
@@ -345,17 +345,13 @@ class Dicom_to_Imagestack:
         return self.Contours_to_mask()
 
     def Contours_to_mask(self):
-        mask = np.zeros([len(self.dicom_names), self.image_size_1, self.image_size_2], dtype='int8')
+        mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.Liver_Locations
-        ShiftRowsBase, ShiftColsBase, ShiftzBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        shifts = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))]
         Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         PixelSize = self.dicom_handle.GetSpacing()[0]
         Mag = 1 / PixelSize
         mult1 = mult2 = 1
-        if ShiftRowsBase > 0:
-            mult1 = -1
-        ShiftRows = ShiftRowsBase * Xx + ShiftColsBase * Xy + ShiftzBase * Xz
-        ShiftCols = ShiftRowsBase * Xy + ShiftColsBase * Yy + ShiftzBase * Yz
 
         for i in range(len(Contour_data)):
             referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
@@ -364,11 +360,17 @@ class Dicom_to_Imagestack:
                 return None
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
+            ShiftRowsBase, ShiftColsBase, ShiftzBase = shifts[slice_index]
+            if ShiftRowsBase > 0:
+                mult1 = -1
+            ShiftRows = ShiftRowsBase * Xx + ShiftColsBase * Xy + ShiftzBase * Xz
+            ShiftCols = ShiftRowsBase * Xy + ShiftColsBase * Yy + ShiftzBase * Yz
+
             rows = Contour_data[i].ContourData[1::3]
             cols = Contour_data[i].ContourData[0::3]
             row_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
             col_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
-            temp_mask = self.poly2mask(col_val, row_val, [self.image_size_1, self.image_size_2])
+            temp_mask = self.poly2mask(col_val, row_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
         return mask
@@ -394,7 +396,7 @@ class Dicom_to_Imagestack:
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
-        self.image_size_2, self.image_size_1, _ = self.dicom_handle.GetSize()
+        self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
@@ -435,7 +437,7 @@ class Dicom_to_Imagestack:
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
         assert ROI_Names is not None, 'You need to provide ROI_Names'
         annotations = np.squeeze(annotations)
-        self.image_size_0, self.image_size_1 = annotations.shape[1], annotations.shape[2]
+        self.image_size_z, self.image_size_rows, self.image_size_cols = annotations.shape[:3]
         self.ROI_Names = ROI_Names
         self.output_dir = output_dir
         if len(annotations.shape) == 3:
@@ -445,12 +447,14 @@ class Dicom_to_Imagestack:
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
-        ShiftRows, ShiftCols, ShiftZBase = [float(i) for i in self.reader.GetMetaData(0, "0020|0032").split('\\')]
+        shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
         Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        self.ShiftRows = ShiftRows * Xx + ShiftCols * Xy + ShiftZBase * Xz
-        self.ShiftCols = ShiftRows * Xy + ShiftCols * Yy + ShiftZBase * Yz
+        self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in shift_list]
+        self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in shift_list]
+        xx, yy = np.meshgrid(np.arange(0, self.image_size_rows, 1), np.arange(0, self.image_size_cols, 1))
+        self.ShiftZ = np.stack([xx * (1-Xz) * i[0] + yy * (1-Yz) * i[1] + i[2] for i in shift_list], axis=0)
         self.mult1 = self.mult2 = 1
-        self.PixelSize = self.dicom_handle.GetSpacing()[0]
+        self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
             current_names.append(names.ROIName)
@@ -506,13 +510,13 @@ class Dicom_to_Imagestack:
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
             thread_count = int(cpu_count()*0.9-1)
-            # thread_count = 1
+            thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
-            kwargs = {'image_size_0': self.image_size_0, 'image_size_1': self.image_size_1,
+            kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
-                      'mult2': self.mult2,
+                      'mult2': self.mult2, 'ShiftZ': self.ShiftZ,
                       'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict}
 
             A = [q,kwargs]
