@@ -50,15 +50,18 @@ def worker_def(A):
 
 class Point_Output_Maker_Class(object):
     def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, ShiftZ, contour_dict):
+                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.slice_info = slice_info
         self.PixelSize = PixelSize
         self.ShiftRows, self.ShiftCols, self.ShiftZ = ShiftRows, ShiftCols, ShiftZ
         self.mult1, self.mult2 = mult1, mult2
+        self.mv = mv
+        self.shift_list = shift_list
         self.contour_dict = contour_dict
 
     def make_output(self, annotation, i):
+        Xx, Xy, Xz, Yx, Yy, Yz = self.mv
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -75,7 +78,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(float(self.ShiftZ[i]))
+                output.append(self.ShiftZ[i] + point[0] * self.PixelSize[1] * Yz + point[1] * self.PixelSize[0] * Xz)
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
@@ -95,7 +98,7 @@ class Point_Output_Maker_Class(object):
             for point in points:
                 output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
                 output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
-                output.append(float(self.ShiftZ[i]))
+                output.append(self.ShiftZ[i] + point[0] * self.PixelSize[1] * Yz + point[1] * self.PixelSize[0] * Xz)
             self.contour_dict[i].append(output)
 
 
@@ -325,7 +328,7 @@ class Dicom_to_Imagestack:
         for ROI_Name in found_rois.keys():
             if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
                 index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
-                mask = self.get_mask_for_contour(index)
+                mask = self.Contours_to_mask(index)
                 self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
@@ -335,22 +338,13 @@ class Dicom_to_Imagestack:
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
-    def get_mask_for_contour(self, i):
-        self.Liver_Locations = self.RS_struct.ROIContourSequence[i].ContourSequence
-        self.Liver_Slices = []
-        for contours in self.Liver_Locations:
-            data_point = contours.ContourData[2]
-            if data_point not in self.Liver_Slices:
-                self.Liver_Slices.append(contours.ContourData[2])
-        return self.Contours_to_mask()
 
-    def Contours_to_mask(self):
+    def Contours_to_mask(self, i):
         mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
-        Contour_data = self.Liver_Locations
+        Contour_data = self.RS_struct.ROIContourSequence[i].ContourSequence
         shifts = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))]
         Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        PixelSize = self.dicom_handle.GetSpacing()[0]
-        Mag = 1 / PixelSize
+        PixelSize = self.dicom_handle.GetSpacing()
         mult1 = mult2 = 1
 
         for i in range(len(Contour_data)):
@@ -368,8 +362,8 @@ class Dicom_to_Imagestack:
 
             rows = Contour_data[i].ContourData[1::3]
             cols = Contour_data[i].ContourData[0::3]
-            row_val = [Mag * abs(x - mult1 * ShiftRows) for x in cols]
-            col_val = [Mag * abs(x - mult2 * ShiftCols) for x in rows]
+            row_val = [abs(x - mult1 * ShiftRows)/PixelSize[0] for x in cols]
+            col_val = [abs(x - mult2 * ShiftCols)/PixelSize[1] for x in rows]
             temp_mask = self.poly2mask(col_val, row_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
@@ -447,11 +441,11 @@ class Dicom_to_Imagestack:
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
-        shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
-        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in shift_list]
-        self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in shift_list]
-        self.ShiftZ = [i[2] for i in shift_list]
+        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
+        self.mv = Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
+        self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in self.shift_list]
+        self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in self.shift_list]
+        self.ShiftZ = [i[2] for i in self.shift_list]
         self.mult1 = self.mult2 = 1
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
@@ -515,7 +509,7 @@ class Dicom_to_Imagestack:
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
-                      'mult2': self.mult2, 'ShiftZ': self.ShiftZ,
+                      'mult2': self.mult2, 'ShiftZ': self.ShiftZ, 'mv': self.mv, 'shift_list': self.shift_list,
                       'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict}
 
             A = [q,kwargs]
