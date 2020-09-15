@@ -390,6 +390,15 @@ class Dicom_to_Imagestack:
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
+        imageorientation_patient_key = "0020|0037"
+        self.image_orientation_patient = [float(i) for i in
+                                          self.reader.GetMetaData(0, imageorientation_patient_key).split('\\')][3:]
+        if self.image_orientation_patient[0] == -1.0:
+            self.ArrayDicom = self.ArrayDicom[::-1, ...]
+        if self.image_orientation_patient[1] == -1.0:
+            self.ArrayDicom = self.ArrayDicom[:, ::-1, ...]
+        if self.image_orientation_patient[2] == -1.0:
+            self.ArrayDicom = self.ArrayDicom[..., ::-1]
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
