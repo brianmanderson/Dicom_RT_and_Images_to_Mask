@@ -107,6 +107,7 @@ class Dicom_to_Imagestack:
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
                  associations={},desc='',iteration=0, get_dose_output=False, **kwargs):
         self.get_dose_output = get_dose_output
+        self.flip_axes = [False, False, False]
         self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
@@ -330,6 +331,12 @@ class Dicom_to_Imagestack:
                 index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
                 mask = self.Contours_to_mask(index)
                 self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
+        if self.flip_axes[0]:
+            self.mask = self.mask[::-1, ...]
+        if self.flip_axes[1]:
+            self.mask = self.mask[:, ::-1, ...]
+        if self.flip_axes[2]:
+            self.mask = self.mask[..., ::-1]
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
@@ -389,16 +396,18 @@ class Dicom_to_Imagestack:
         slice_location_key = "0020|0032"
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
-        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         imageorientation_patient_key = "0020|0037"
+        flipimagefilter = sitk.FlipImageFilter()
         self.image_orientation_patient = [float(i) for i in
                                           self.reader.GetMetaData(0, imageorientation_patient_key).split('\\')][3:]
-        if self.image_orientation_patient[0] == -1.0:
-            self.ArrayDicom = self.ArrayDicom[::-1, ...]
-        if self.image_orientation_patient[1] == -1.0:
-            self.ArrayDicom = self.ArrayDicom[:, ::-1, ...]
-        if self.image_orientation_patient[2] == -1.0:
-            self.ArrayDicom = self.ArrayDicom[..., ::-1]
+        for i in range(3):
+            if self.image_orientation_patient[i] == -1.0:
+                self.flip_axes[i] = True
+            else:
+                self.flip_axes[i] = False
+        flipimagefilter.SetFlipAxes(self.flip_axes)
+        self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
+        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
     def write_images_annotations(self, out_path):
