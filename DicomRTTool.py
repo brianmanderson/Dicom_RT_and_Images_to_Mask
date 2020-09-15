@@ -9,7 +9,7 @@ from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
-from .Plot_And_Scroll_Images.Plot_Scroll_Images import plot_scroll_Image, plt
+from Plot_Scroll_Images import plot_scroll_Image, plt
 
 
 def contour_worker(A):
@@ -26,8 +26,8 @@ def contour_worker(A):
 
 def worker_def(A):
     q, Contour_Names, associations, desc, final_out_dict = A
-    base_class = Dicom_to_Imagestack(get_images_mask=True, associations=associations,
-                                     Contour_Names=Contour_Names, desc=desc, get_dose_output=True)
+    base_class = DicomReaderWriter(get_images_mask=True, associations=associations,
+                                   Contour_Names=Contour_Names, desc=desc, get_dose_output=True)
     while True:
         item = q.get()
         if item is None:
@@ -104,7 +104,7 @@ class Point_Output_Maker_Class(object):
             self.contour_dict[i].append(output)
 
 
-class Dicom_to_Imagestack:
+class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
                  template_dir=None, channels=3, get_images_mask=True, arg_max=True,
                  associations={},desc='',iteration=0, get_dose_output=False, **kwargs):
