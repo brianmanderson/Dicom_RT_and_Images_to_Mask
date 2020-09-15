@@ -10,9 +10,9 @@ with open('requirements.txt') as f:
     required = f.read().splitlines()
 
 setup(
-    name='DicomRTTools',
+    name='DicomRTTool',
     author='Brian Mark Anderson',
-    email='bmanderson@mdanderson.org',
+    author_email='bmanderson@mdanderson.org',
     version='0.0.2',
     description='Tools for reading dicom files, RT structures, and dose files, as well as tools for '
                 'converting numpy prediction masks back to an RT structure',
@@ -20,6 +20,7 @@ setup(
     long_description_content_type="text/markdown",
     py_modules=['DicomRTTool'],
     package_dir={'': 'src'},
+    url='https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask',
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU Affero General Public License v3",

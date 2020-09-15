@@ -10,3 +10,4 @@ scipy
 SimpleITK
 six
 xlrd
+check-manifest
