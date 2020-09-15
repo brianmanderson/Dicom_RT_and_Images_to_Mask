@@ -7,6 +7,9 @@
 #### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
 ##### Please consider using the .write_parallel if you have many patients
 ##### Ring update allows for multiple rings to be represented correctly
+## Installation guide
+    pip install DicomRTTool
+    from DicomRTTool import Dicom_to_Imagestack
 ![multiple_rings.png](./Images/multiple_rings.png)
 
 Various utilities created to help with the interpretation of dicom images/RT Structures
