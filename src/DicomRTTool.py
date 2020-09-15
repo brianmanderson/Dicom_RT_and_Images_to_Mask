@@ -728,7 +728,7 @@ class DicomReaderWriter:
         self.RS_struct.save_as(self.lstRSFile)
 
 
-class Dicom_To_Imagestack(DicomReaderWriter):
+class Dicom_to_Imagestack(DicomReaderWriter):
     def __init__(self, **kwargs):
         print('Please move over to using DicomReaderWriter, same arguments are passed')
         super().__init__(**kwargs)
