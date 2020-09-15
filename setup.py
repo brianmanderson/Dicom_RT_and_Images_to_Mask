@@ -13,12 +13,12 @@ setup(
     name='DicomRTTool',
     author='Brian Mark Anderson',
     author_email='bmanderson@mdanderson.org',
-    version='0.0.2',
+    version='0.0.3',
     description='Tools for reading dicom files, RT structures, and dose files, as well as tools for '
                 'converting numpy prediction masks back to an RT structure',
     long_description=long_description,
     long_description_content_type="text/markdown",
-    py_modules=['DicomRTTool'],
+    py_modules=['DicomRTTool', 'Plot_Scroll_Images'],
     package_dir={'': 'src'},
     url='https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask',
     classifiers=[
