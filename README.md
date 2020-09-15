@@ -1,4 +1,7 @@
 # This code provides functionality for turning dicom images and RT structures into nifti files as well as turning prediction masks back into RT structures
+# Installation guide
+    pip install DicomRTTool
+    from DicomRTTool import Dicom_to_Imagestack
 ## Highly recommend to go through the jupyter notebook Data_Curation_and_Predictions_to_RT
 ## Data_Curation_and_Predictions_to_RT has three main parts
 ### 1) Identify RT structures and names in multiple patients
@@ -7,9 +10,7 @@
 #### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
 ##### Please consider using the .write_parallel if you have many patients
 ##### Ring update allows for multiple rings to be represented correctly
-## Installation guide
-    pip install DicomRTTool
-    from DicomRTTool import Dicom_to_Imagestack
+
 ![multiple_rings.png](./Images/multiple_rings.png)
 
 Various utilities created to help with the interpretation of dicom images/RT Structures
@@ -29,8 +30,8 @@ You can see the available contour names with
 
 Example:
 
-    from Image_Array_And_Mask_From_Dicom_RT import Dicom_to_Imagestack
-    Dicom_reader = Dicom_to_Imagestack(get_images_mask=False)
+    from DicomRTTool import DicomReaderWriter
+    Dicom_reader = DicomReaderWriter(get_images_mask=False)
     path = 'C:\users\brianmanderson\Patients\'
     Dicom_reader.down_folder(path)
     # See all rois in the folders
@@ -41,7 +42,7 @@ Example:
     Contour_Names = ['Liver']
     associations = {'Liver_BMA_Program4':'Liver','Liver':'Liver'}
     path = 'C:\users\brianmanderson\Patients\Patient_1\CT_1\'
-    Dicom_reader = Dicom_to_Imagestack(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
+    Dicom_reader = DicomReaderWriter(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
     
     Dicom_reader.Make_Contour_From_directory(path)
     image = DicomImage.ArrayDicom
