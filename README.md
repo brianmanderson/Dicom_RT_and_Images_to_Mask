@@ -1,7 +1,6 @@
 # This code provides functionality for turning dicom images and RT structures into nifti files as well as turning prediction masks back into RT structures
 # Installation guide
     pip install DicomRTTool
-    from DicomRTTool import Dicom_to_Imagestack
 ## Highly recommend to go through the jupyter notebook Data_Curation_and_Predictions_to_RT
 ## Data_Curation_and_Predictions_to_RT has three main parts
 ### 1) Identify RT structures and names in multiple patients
