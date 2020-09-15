@@ -173,7 +173,7 @@ class DicomReaderWriter:
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.dose_handles = []
-        if template_dir is None:
+        if template_dir is None or not os.path.exists(template_dir):
             package_name = __package__.split('.')[-1]
             template_dir = os.path.join(__file__[:__file__.index(package_name)],package_name,'template_RS.dcm')
         self.template_dir = template_dir
