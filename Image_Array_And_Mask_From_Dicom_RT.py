@@ -50,7 +50,7 @@ def worker_def(A):
 
 class Point_Output_Maker_Class(object):
     def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list):
+                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list, RS, ds):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.slice_info = slice_info
         self.PixelSize = PixelSize
@@ -59,6 +59,8 @@ class Point_Output_Maker_Class(object):
         self.mv = mv
         self.shift_list = shift_list
         self.contour_dict = contour_dict
+        self.RS = RS
+        self.ds = ds
 
     def make_output(self, annotation, i):
         Xx, Xy, Xz, Yx, Yy, Yz = self.mv
@@ -76,8 +78,8 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
-                output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
+                output.append(((point[1]) * self.PixelSize[0] + self.mult1[i] * self.ShiftRows[i]))
+                output.append(self.mult2[i] * ((point[0]) * self.PixelSize[1] + self.ShiftCols[i]))
                 output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
         hole_annotation = 1 - annotation
@@ -96,8 +98,8 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize[0] + self.mult1 * self.ShiftRows[i]))
-                output.append(((point[0]) * self.PixelSize[1] + self.mult2 * self.ShiftCols[i]))
+                output.append(((point[1]) * self.PixelSize[0] + self.mult1[i] * self.ShiftRows[i]))
+                output.append(((point[0]) * self.PixelSize[1] + self.mult2[i] * self.ShiftCols[i]))
                 output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
 
@@ -295,42 +297,44 @@ class Dicom_to_Imagestack:
         df.to_excel(excel_file,index=0)
 
     def get_rois_from_RT(self):
-        rois_in_structure = []
+        rois_in_structure = {}
         self.RS_struct = pydicom.read_file(self.lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
-            self.ROI_Structure = self.RS_struct.StructureSetROISequence
+            ROI_Structure = self.RS_struct.StructureSetROISequence
         else:
-            self.ROI_Structure = []
-        for Structures in self.ROI_Structure:
+            ROI_Structure = []
+        for Structures in ROI_Structure:
             if Structures.ROIName not in self.rois_in_case:
                 self.rois_in_case.append(Structures.ROIName)
-                rois_in_structure.append(Structures.ROIName)
+                rois_in_structure[Structures.ROIName] = Structures.ROINumber
         self.all_RTs[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
                              dtype='int8')
-        self.structure_references = {}
-        for contour_number in range(len(self.RS_struct.ROIContourSequence)):
-            self.structure_references[
-                self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-        found_rois = {}
-        for Structures in self.ROI_Structure:
-            ROI_Name = Structures.ROIName
-            if Structures.ROINumber not in self.structure_references.keys():
-                continue
-            true_name = None
-            if ROI_Name in self.associations:
-                true_name = self.associations[ROI_Name].lower()
-            elif ROI_Name.lower() in self.associations:
-                true_name = self.associations[ROI_Name.lower()]
-            if true_name and true_name in self.Contour_Names:
-                found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': Structures.ROINumber}
-        for ROI_Name in found_rois.keys():
-            if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
-                index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
-                mask = self.Contours_to_mask(index)
-                self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
+        for RT_key in self.all_RTs:
+            found_rois = {}
+            ROIName_Number = self.all_RTs[RT_key]
+            RS_struct = None
+            self.structure_references = {}
+            for ROI_Name in ROIName_Number.keys():
+                true_name = None
+                if ROI_Name in self.associations:
+                    true_name = self.associations[ROI_Name].lower()
+                elif ROI_Name.lower() in self.associations:
+                    true_name = self.associations[ROI_Name.lower()]
+                if true_name and true_name in self.Contour_Names:
+                    if RS_struct is None:
+                        self.RS_struct = RS_struct = pydicom.read_file(RT_key)
+                        for contour_number in range(len(self.RS_struct.ROIContourSequence)):
+                            self.structure_references[
+                                self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
+                    found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': self.all_RTs[RT_key][ROI_Name]}
+            for ROI_Name in found_rois.keys():
+                if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
+                    index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
+                    mask = self.Contours_to_mask(index)
+                    self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
         if self.flip_axes[0]:
             self.mask = self.mask[::-1, ...]
         if self.flip_axes[1]:
@@ -345,14 +349,12 @@ class Dicom_to_Imagestack:
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
-
     def Contours_to_mask(self, i):
         mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[i].ContourSequence
         shifts = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))]
         Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         PixelSize = self.dicom_handle.GetSpacing()
-        mult1 = mult2 = 1
 
         for i in range(len(Contour_data)):
             referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
@@ -362,8 +364,12 @@ class Dicom_to_Imagestack:
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
             ShiftRowsBase, ShiftColsBase, ShiftzBase = shifts[slice_index]
+            mult1 = 1
+            mult2 = 1
             if ShiftRowsBase > 0:
                 mult1 = -1
+            if ShiftColsBase > 0:
+                mult2 = -1
             ShiftRows = ShiftRowsBase * Xx + ShiftColsBase * Xy + ShiftzBase * Xz
             ShiftCols = ShiftRowsBase * Xy + ShiftColsBase * Yy + ShiftzBase * Yz
 
@@ -464,7 +470,17 @@ class Dicom_to_Imagestack:
         self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in self.shift_list]
         self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in self.shift_list]
         self.ShiftZ = [i[2] for i in self.shift_list]
-        self.mult1 = self.mult2 = 1
+        self.mult1 = []
+        self.mult2 = []
+        for i in self.shift_list:
+            if i[0] > 0:
+                self.mult1.append(-1)
+            else:
+                self.mult1.append(1)
+            if i[1] > 0:
+                self.mult2.append(-1)
+            else:
+                self.mult2.append(1)
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
@@ -490,6 +506,12 @@ class Dicom_to_Imagestack:
             print('Writing data for ' + Name)
             self.annotations = copy.deepcopy(base_annotations[:, :, :, int(self.ROI_Names.index(Name) + 1)])
             self.annotations = self.annotations.astype('int')
+            if self.flip_axes[0]:
+                self.annotations = self.annotations[::-1, ...]
+            if self.flip_axes[1]:
+                self.annotations = self.annotations[:, ::-1, ...]
+            if self.flip_axes[2]:
+                self.annotations = self.annotations[..., ::-1]
 
             make_new = 1
             allow_slip_in = True
@@ -521,14 +543,15 @@ class Dicom_to_Imagestack:
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
             thread_count = int(cpu_count()*0.9-1)
-            # thread_count = 1
+            thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
                       'mult2': self.mult2, 'ShiftZ': self.ShiftZ, 'mv': self.mv, 'shift_list': self.shift_list,
-                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict}
+                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict, 'RS': self.RS_struct,
+                      'ds': self.ds}
 
             A = [q,kwargs]
             for worker in range(thread_count):
