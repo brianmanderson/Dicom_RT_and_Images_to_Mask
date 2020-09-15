@@ -1,0 +1,12 @@
+matplotlib
+numpy
+opencv-python==4.4.0.*
+openpyxl
+pandas
+Pillow
+pydicom
+scikit-image
+scipy
+SimpleITK
+six
+xlrd

@@ -6,6 +6,8 @@ from setuptools import setup
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
 
 setup(
     name='DicomRTTools',
@@ -20,6 +22,7 @@ setup(
     package_dir={'': 'src'},
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU Affero General Public License v3"
-    ]
+        "License :: OSI Approved :: GNU Affero General Public License v3",
+    ],
+    install_requires=required,
 )
