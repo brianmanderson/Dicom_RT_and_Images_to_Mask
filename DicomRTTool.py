@@ -727,5 +727,12 @@ class DicomReaderWriter:
                 self.RS_struct.RTROIObservationsSequence[i].ROIObservationLabel = new_name
         self.RS_struct.save_as(self.lstRSFile)
 
+
+class Dicom_To_Imagestack(DicomReaderWriter):
+    def __init__(self, **kwargs):
+        print('Please move over to using DicomReaderWriter, same arguments are passed')
+        super().__init__(**kwargs)
+
+
 if __name__ == '__main__':
     xxx = 1
