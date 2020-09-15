@@ -9,6 +9,8 @@ from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
+import sys
+sys.path.append('.')
 from Plot_Scroll_Images import plot_scroll_Image, plt
 
 
