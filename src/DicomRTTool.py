@@ -390,11 +390,9 @@ class DicomReaderWriter:
                     mask = self.Contours_to_mask(index)
                     self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
         if self.flip_axes[0]:
-            self.mask = self.mask[::-1, ...]
+            self.mask = self.mask[:, :, ::-1, ...]
         if self.flip_axes[1]:
             self.mask = self.mask[:, ::-1, ...]
-        if self.flip_axes[2]:
-            self.mask = self.mask[..., ::-1]
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
@@ -515,6 +513,10 @@ class DicomReaderWriter:
         self.output_dir = output_dir
         if len(annotations.shape) == 3:
             annotations = np.expand_dims(annotations, axis=-1)
+        if self.flip_axes[0]:
+            annotations = annotations[:, :, ::-1, ...]
+        if self.flip_axes[1]:
+            annotations = annotations[:, ::-1, ...]
         self.annotations = annotations
         self.Mask_to_Contours()
 
@@ -545,7 +547,6 @@ class DicomReaderWriter:
         for name in self.ROI_Names:
             Contour_Key[name] = xxx
             xxx += 1
-        self.all_annotations = self.annotations
         base_annotations = copy.deepcopy(self.annotations)
         temp_color_list = []
         color_list = [[128, 0, 0], [170, 110, 40], [0, 128, 128], [0, 0, 128], [230, 25, 75], [225, 225, 25],
@@ -559,12 +560,8 @@ class DicomReaderWriter:
                 temp_color_list = copy.deepcopy(color_list)
             color_int = np.random.randint(len(temp_color_list))
             print('Writing data for ' + Name)
-            self.annotations = copy.deepcopy(base_annotations[:, :, :, int(self.ROI_Names.index(Name) + 1)])
-            self.annotations = self.annotations.astype('int')
-            if self.flip_axes[0]:
-                self.annotations = self.annotations[:, :, ::-1, ...]
-            if self.flip_axes[1]:
-                self.annotations = self.annotations[:, ::-1, ...]
+            annotations = copy.deepcopy(base_annotations[:, :, :, int(self.ROI_Names.index(Name) + 1)])
+            annotations = annotations.astype('int')
 
             make_new = 1
             allow_slip_in = True
@@ -613,11 +610,11 @@ class DicomReaderWriter:
                 threads.append(t)
 
             contour_num = 0
-            if np.max(self.annotations) > 0:  # If we have an annotation, write it
-                image_locations = np.max(self.annotations, axis=(1, 2))
+            if np.max(annotations) > 0:  # If we have an annotation, write it
+                image_locations = np.max(annotations, axis=(1, 2))
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
-                    item = [self.annotations[index, ...], index]
+                    item = [annotations[index, ...], index]
                     q.put(item)
                 for i in range(thread_count):
                     q.put(None)
