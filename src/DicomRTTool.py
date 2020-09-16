@@ -459,8 +459,9 @@ class DicomReaderWriter:
         imageorientation_patient_key = "0020|0037"
         flipimagefilter = sitk.FlipImageFilter()
         self.image_orientation_patient = [float(i) for i in
-                                          self.reader.GetMetaData(0, imageorientation_patient_key).split('\\')][3:]
-        for i in range(3):
+                                          self.reader.GetMetaData(0, imageorientation_patient_key).split('\\')]
+        self.image_orientation_patient = [self.image_orientation_patient[0], self.image_orientation_patient[-2]]
+        for i in range(2):
             if self.image_orientation_patient[i] == -1.0:
                 self.flip_axes[i] = True
             else:
@@ -561,11 +562,11 @@ class DicomReaderWriter:
             self.annotations = copy.deepcopy(base_annotations[:, :, :, int(self.ROI_Names.index(Name) + 1)])
             self.annotations = self.annotations.astype('int')
             if self.flip_axes[0]:
-                self.annotations = self.annotations[::-1, ...]
+                self.annotations = self.annotations[:, :, ::-1, ...]
             if self.flip_axes[1]:
                 self.annotations = self.annotations[:, ::-1, ...]
             if self.flip_axes[2]:
-                self.annotations = self.annotations[..., ::-1]
+                self.annotations = self.annotations[::-1, ...]
 
             make_new = 1
             allow_slip_in = True
