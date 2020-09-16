@@ -565,8 +565,6 @@ class DicomReaderWriter:
                 self.annotations = self.annotations[:, :, ::-1, ...]
             if self.flip_axes[1]:
                 self.annotations = self.annotations[:, ::-1, ...]
-            if self.flip_axes[2]:
-                self.annotations = self.annotations[::-1, ...]
 
             make_new = 1
             allow_slip_in = True
