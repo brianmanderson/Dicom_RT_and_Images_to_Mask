@@ -361,13 +361,14 @@ class DicomReaderWriter:
                 self.rois_in_case.append(Structures.ROIName)
                 rois_in_structure[Structures.ROIName] = Structures.ROINumber
         self.all_RTs[self.lstRSFile] = rois_in_structure
+        self.RTs_in_case[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
                              dtype='int8')
-        for RT_key in self.all_RTs:
+        for RT_key in self.RTs_in_case:
             found_rois = {}
-            ROIName_Number = self.all_RTs[RT_key]
+            ROIName_Number = self.RTs_in_case[RT_key]
             RS_struct = None
             self.structure_references = {}
             for ROI_Name in ROIName_Number.keys():
@@ -382,7 +383,7 @@ class DicomReaderWriter:
                         for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                             self.structure_references[
                                 self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-                    found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': self.all_RTs[RT_key][ROI_Name]}
+                    found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': self.RTs_in_case[RT_key][ROI_Name]}
             for ROI_Name in found_rois.keys():
                 if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
                     index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
