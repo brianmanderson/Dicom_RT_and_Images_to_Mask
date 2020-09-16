@@ -132,7 +132,7 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize[0] + self.mult1[i] * self.ShiftRows[i]))
+                output.append(self.mult1[i] * ((point[1]) * self.PixelSize[0] + self.ShiftRows[i]))
                 output.append(self.mult2[i] * ((point[0]) * self.PixelSize[1] + self.ShiftCols[i]))
                 output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
@@ -152,8 +152,8 @@ class Point_Output_Maker_Class(object):
             points = find_contours(temp_image, 0)[0]
             output = []
             for point in points:
-                output.append(((point[1]) * self.PixelSize[0] + self.mult1[i] * self.ShiftRows[i]))
-                output.append(((point[0]) * self.PixelSize[1] + self.mult2[i] * self.ShiftCols[i]))
+                output.append(self.mult1[i] * ((point[1]) * self.PixelSize[0] + self.ShiftRows[i]))
+                output.append(self.mult2[i] * ((point[0]) * self.PixelSize[1] + self.ShiftCols[i]))
                 output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
             self.contour_dict[i].append(output)
 
@@ -593,7 +593,7 @@ class DicomReaderWriter:
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
             thread_count = int(cpu_count()*0.9-1)
-            thread_count = 1
+            # thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
