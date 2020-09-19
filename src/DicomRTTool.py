@@ -104,7 +104,7 @@ def worker_def(A):
 
 class Point_Output_Maker_Class(object):
     def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list, RS, ds):
+                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list, RS, ds, image_orientation_patient):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.slice_info = slice_info
         self.PixelSize = PixelSize
@@ -115,6 +115,7 @@ class Point_Output_Maker_Class(object):
         self.contour_dict = contour_dict
         self.RS = RS
         self.ds = ds
+        self.image_orientation_patient = image_orientation_patient
 
     def make_output(self, annotation, i):
         Xx, Xy, Xz, Yx, Yy, Yz = self.mv
@@ -389,10 +390,10 @@ class DicomReaderWriter:
                     index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
                     mask = self.Contours_to_mask(index)
                     self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
-        if self.flip_axes[0]:
-            self.mask = self.mask[:, :, ::-1, ...]
-        if self.flip_axes[1]:
-            self.mask = self.mask[:, ::-1, ...]
+        # if self.flip_axes[0]:
+        #     self.mask = self.mask[:, :, ::-1, ...]
+        # if self.flip_axes[1]:
+        #     self.mask = self.mask[:, ::-1, ...]
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
@@ -415,21 +416,18 @@ class DicomReaderWriter:
                 return None
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
-            ShiftRowsBase, ShiftColsBase, ShiftzBase = shifts[slice_index]
-            mult1 = 1
-            mult2 = 1
-            if ShiftRowsBase > 0:
-                mult1 = -1
-            if ShiftColsBase > 0:
-                mult2 = -1
-            ShiftRows = ShiftRowsBase * Xx + ShiftColsBase * Xy + ShiftzBase * Xz
-            ShiftCols = ShiftRowsBase * Xy + ShiftColsBase * Yy + ShiftzBase * Yz
-
-            rows = Contour_data[i].ContourData[1::3]
-            cols = Contour_data[i].ContourData[0::3]
-            row_val = [abs(x - mult1 * ShiftRows)/PixelSize[0] for x in cols]
-            col_val = [abs(x - mult2 * ShiftCols)/PixelSize[1] for x in rows]
-            temp_mask = self.poly2mask(col_val, row_val, [self.image_size_rows, self.image_size_cols])
+            Sx, Sy, Sz = shifts[slice_index]
+            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], 0, Sx],
+                                         [Xy * PixelSize[1], Yy * PixelSize[0], 0, Sy],
+                                         [Xz * PixelSize[1], Yz * PixelSize[0], 0, Sz],
+                                         [0, 0, 0, 1],
+                                         ])
+            as_array = np.asarray(Contour_data[i].ContourData[:])
+            reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
+            out_answer = np.zeros([as_array.shape[0]//3, 4])
+            out_answer[:, :-1] = reshaped
+            col_val, row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
+            temp_mask = self.poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
         return mask
@@ -513,10 +511,10 @@ class DicomReaderWriter:
         self.output_dir = output_dir
         if len(annotations.shape) == 3:
             annotations = np.expand_dims(annotations, axis=-1)
-        if self.flip_axes[0]:
-            annotations = annotations[:, :, ::-1, ...]
-        if self.flip_axes[1]:
-            annotations = annotations[:, ::-1, ...]
+        # if self.flip_axes[0]:
+        #     annotations = annotations[:, :, ::-1, ...]
+        # if self.flip_axes[1]:
+        #     annotations = annotations[:, ::-1, ...]
         self.annotations = annotations
         self.Mask_to_Contours()
 
@@ -531,11 +529,11 @@ class DicomReaderWriter:
         self.mult2 = []
         for i in self.shift_list:
             if i[0] > 0:
-                self.mult1.append(-1)
+                self.mult1.append(1)
             else:
                 self.mult1.append(1)
             if i[1] > 0:
-                self.mult2.append(-1)
+                self.mult2.append(1)
             else:
                 self.mult2.append(1)
         self.PixelSize = self.dicom_handle.GetSpacing()
@@ -593,14 +591,15 @@ class DicomReaderWriter:
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
             thread_count = int(cpu_count()*0.9-1)
-            # thread_count = 1
+            thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
                       'mult2': self.mult2, 'ShiftZ': self.ShiftZ, 'mv': self.mv, 'shift_list': self.shift_list,
-                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict, 'RS': self.RS_struct,
+                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict,
+                      'RS': self.RS_struct, 'image_orientation_patient': self.image_orientation_patient,
                       'ds': self.ds}
 
             A = [q,kwargs]
@@ -780,7 +779,7 @@ class DicomReaderWriter:
 
 class Dicom_to_Imagestack(DicomReaderWriter):
     def __init__(self, **kwargs):
-        print('Please move over to using DicomReaderWriter, same arguments are passed')
+        print('Please move from using Dicom_to_Imagestack to DicomReaderWriter, same arguments are passed')
         super().__init__(**kwargs)
 
 
