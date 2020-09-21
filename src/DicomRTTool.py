@@ -423,13 +423,16 @@ class DicomReaderWriter:
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
             Sx, Sy, Sz = shifts[slice_index]
-            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], Sx],
-                                         [Xy * PixelSize[1], Yy * PixelSize[0], Sy],
-                                         [Xz * PixelSize[1], Yz * PixelSize[0], Sz],
+            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], 0, Sx],
+                                         [Xy * PixelSize[1], Yy * PixelSize[0], 0, Sy],
+                                         [Xz * PixelSize[1], Yz * PixelSize[0], 0, Sz],
+                                         [0, 0, 0, 1],
                                          ])
             as_array = np.asarray(Contour_data[i].ContourData[:])
             reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
-            col_val, row_val, z_val = np.matmul(np.linalg.inv(patient_matrix), np.transpose(reshaped))
+            out_answer = np.zeros([as_array.shape[0]//3, 4])
+            out_answer[:, :-1] = reshaped
+            col_val, row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
             temp_mask = self.poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
@@ -460,7 +463,6 @@ class DicomReaderWriter:
             self.flip_axes = [False, False, False]  # Col, row, z
         elif self.patient_position.find('HFS') == 0:
             self.flip_axes = [False, True, False]
-        self.flip_axes = [False, False, False]
         flipimagefilter = sitk.FlipImageFilter()
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
