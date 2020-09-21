@@ -103,22 +103,26 @@ def worker_def(A):
 
 
 class Point_Output_Maker_Class(object):
-    def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, mult1, mult2,
-                 ShiftRows, ShiftCols, ShiftZ, contour_dict, mv, shift_list, RS, ds, image_orientation_patient):
+    def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, contour_dict, mv, shift_list,
+                 RS, ds):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.slice_info = slice_info
         self.PixelSize = PixelSize
-        self.ShiftRows, self.ShiftCols, self.ShiftZ = ShiftRows, ShiftCols, ShiftZ
-        self.mult1, self.mult2 = mult1, mult2
         self.mv = mv
         self.shift_list = shift_list
         self.contour_dict = contour_dict
         self.RS = RS
         self.ds = ds
-        self.image_orientation_patient = image_orientation_patient
+        self.shift_list = shift_list
 
     def make_output(self, annotation, i):
+        Sx, Sy, Sz = self.shift_list[i]
         Xx, Xy, Xz, Yx, Yy, Yz = self.mv
+        patient_matrix = np.asarray([[Xx * self.PixelSize[1], Yx * self.PixelSize[0], 0, Sx],
+                                     [Xy * self.PixelSize[1], Yy * self.PixelSize[0], 0, Sy],
+                                     [Xz * self.PixelSize[1], Yz * self.PixelSize[0], 0, Sz],
+                                     [0, 0, 0, 1],
+                                     ])
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -130,33 +134,33 @@ class Point_Output_Maker_Class(object):
                 rows.append(data[iii][0])
                 cols.append(data[iii][1])
             temp_image[rows, cols] = 1
-            points = find_contours(temp_image, 0)[0]
-            output = []
-            for point in points:
-                output.append(self.mult1[i] * ((point[1]) * self.PixelSize[0] + self.ShiftRows[i]))
-                output.append(self.mult2[i] * ((point[0]) * self.PixelSize[1] + self.ShiftCols[i]))
-                output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
-            self.contour_dict[i].append(output)
+            points = np.transpose(find_contours(temp_image, 0)[0])
+            points = np.stack([points[1, :], points[0,:]])
+            out_points = np.zeros([4, points.shape[-1]])
+            out_points[-1, :] = 1
+            out_points[:2, :] = points
+            values = np.matmul(patient_matrix, out_points)[:3]
+            self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
         hole_annotation[filled_annotation == 0] = 0
-        regions = regionprops(label(hole_annotation))
-        for ii in range(len(regions)):
-            temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
-            data = regions[ii].coords
-            rows = []
-            cols = []
-            for iii in range(len(data)):
-                rows.append(data[iii][0])
-                cols.append(data[iii][1])
-            temp_image[rows, cols] = 1
-            points = find_contours(temp_image, 0)[0]
-            output = []
-            for point in points:
-                output.append(self.mult1[i] * ((point[1]) * self.PixelSize[0] + self.ShiftRows[i]))
-                output.append(self.mult2[i] * ((point[0]) * self.PixelSize[1] + self.ShiftCols[i]))
-                output.append(self.ShiftZ[i] + point[1] * self.PixelSize[0] * Xz + point[0] * self.PixelSize[1] * Yz)
-            self.contour_dict[i].append(output)
+        # regions = regionprops(label(annotation))
+        # for ii in range(len(regions)):
+        #     temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
+        #     data = regions[ii].coords
+        #     rows = []
+        #     cols = []
+        #     for iii in range(len(data)):
+        #         rows.append(data[iii][0])
+        #         cols.append(data[iii][1])
+        #     temp_image[rows, cols] = 1
+        #     points = np.transpose(find_contours(temp_image, 0)[0])
+        #     points = np.stack([points[1, :], points[0,:]])
+        #     out_points = np.zeros([4, points.shape[-1]])
+        #     out_points[-1, :] = 1
+        #     out_points[:2, :] = points
+        #     values = np.matmul(patient_matrix, out_points)[:3]
+        #     self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
 
 
 class DicomReaderWriter:
@@ -390,10 +394,12 @@ class DicomReaderWriter:
                     index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
                     mask = self.Contours_to_mask(index)
                     self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
-        # if self.flip_axes[0]:
-        #     self.mask = self.mask[:, :, ::-1, ...]
-        # if self.flip_axes[1]:
-        #     self.mask = self.mask[:, ::-1, ...]
+        if self.flip_axes[0]:
+            self.mask = self.mask[:, :, ::-1, ...]
+        if self.flip_axes[1]:
+            self.mask = self.mask[:, ::-1, ...]
+        if self.flip_axes[2]:
+            self.mask = self.mask[::-1, ...]
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
@@ -429,6 +435,29 @@ class DicomReaderWriter:
             col_val, row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
             temp_mask = self.poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
+            '''
+            Temp working issue
+            '''
+            fixing = False
+            if fixing:
+                contour_dict = {}
+                regions = regionprops(label(temp_mask))
+                for ii in range(len(regions)):
+                    temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
+                    data = regions[ii].coords
+                    rows = []
+                    cols = []
+                    for iii in range(len(data)):
+                        rows.append(data[iii][0])
+                        cols.append(data[iii][1])
+                    temp_image[rows, cols] = 1
+                    points = np.transpose(find_contours(temp_image, 0)[0])
+                    points = np.stack([points[1, :], points[0, :]])
+                    out_points = np.zeros([4, points.shape[-1]])
+                    out_points[-1, :] = 1
+                    out_points[:2, :] = points
+                    values = np.matmul(patient_matrix, out_points)[:3]
+                    contour_dict[0].append(list(np.round(values.flatten('F')[:], 5)))
         mask = mask % 2
         return mask
 
@@ -452,16 +481,13 @@ class DicomReaderWriter:
         slice_location_key = "0020|0032"
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
-        imageorientation_patient_key = "0020|0037"
+        self.patient_position = self.reader.GetMetaData(0, "0018|5100")
+        if self.patient_position.find('FFS') == 0:
+            self.flip_axes = [False, False, False]  # Col, row, z
+        elif self.patient_position.find('HFS') == 0:
+            self.flip_axes = [False, True, False]
+        self.flip_axes = [False, False, False]
         flipimagefilter = sitk.FlipImageFilter()
-        self.image_orientation_patient = [float(i) for i in
-                                          self.reader.GetMetaData(0, imageorientation_patient_key).split('\\')]
-        self.image_orientation_patient = [self.image_orientation_patient[0], self.image_orientation_patient[-2]]
-        for i in range(2):
-            if self.image_orientation_patient[i] == -1.0:
-                self.flip_axes[i] = True
-            else:
-                self.flip_axes[i] = False
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
@@ -511,31 +537,19 @@ class DicomReaderWriter:
         self.output_dir = output_dir
         if len(annotations.shape) == 3:
             annotations = np.expand_dims(annotations, axis=-1)
-        # if self.flip_axes[0]:
-        #     annotations = annotations[:, :, ::-1, ...]
-        # if self.flip_axes[1]:
-        #     annotations = annotations[:, ::-1, ...]
+        if self.flip_axes[0]:
+            annotations = annotations[:, :, ::-1, ...]
+        if self.flip_axes[1]:
+            annotations = annotations[:, ::-1, ...]
+        if self.flip_axes[2]:
+            annotations = annotations[::-1, ...]
         self.annotations = annotations
         self.Mask_to_Contours()
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
         self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
-        self.mv = Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        self.ShiftRows = [i[0] * Xx + i[1] * Xy + i[2] * Xz for i in self.shift_list]
-        self.ShiftCols = [i[0] * Xy + i[1] * Yy + i[2] * Yz for i in self.shift_list]
-        self.ShiftZ = [i[2] for i in self.shift_list]
-        self.mult1 = []
-        self.mult2 = []
-        for i in self.shift_list:
-            if i[0] > 0:
-                self.mult1.append(1)
-            else:
-                self.mult1.append(1)
-            if i[1] > 0:
-                self.mult2.append(1)
-            else:
-                self.mult2.append(1)
+        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
@@ -596,11 +610,9 @@ class DicomReaderWriter:
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
-                      'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mult1': self.mult1,
-                      'mult2': self.mult2, 'ShiftZ': self.ShiftZ, 'mv': self.mv, 'shift_list': self.shift_list,
-                      'ShiftRows': self.ShiftRows, 'ShiftCols': self.ShiftCols, 'contour_dict': contour_dict,
-                      'RS': self.RS_struct, 'image_orientation_patient': self.image_orientation_patient,
-                      'ds': self.ds}
+                      'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mv': self.mv,
+                      'shift_list': self.shift_list, 'contour_dict': contour_dict,
+                      'RS': self.RS_struct, 'ds': self.ds}
 
             A = [q,kwargs]
             for worker in range(thread_count):
@@ -627,6 +639,8 @@ class DicomReaderWriter:
                                     self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[0]))
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
                             contour_num].ContourNumber = str(contour_num)
+                        self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
+                            contour_num].ContourGeometricType = 'CLOSED_PLANAR'
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
                             contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
