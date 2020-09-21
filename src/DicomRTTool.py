@@ -144,23 +144,23 @@ class Point_Output_Maker_Class(object):
         hole_annotation = 1 - annotation
         filled_annotation = binary_fill_holes(annotation)
         hole_annotation[filled_annotation == 0] = 0
-        # regions = regionprops(label(annotation))
-        # for ii in range(len(regions)):
-        #     temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
-        #     data = regions[ii].coords
-        #     rows = []
-        #     cols = []
-        #     for iii in range(len(data)):
-        #         rows.append(data[iii][0])
-        #         cols.append(data[iii][1])
-        #     temp_image[rows, cols] = 1
-        #     points = np.transpose(find_contours(temp_image, 0)[0])
-        #     points = np.stack([points[1, :], points[0,:]])
-        #     out_points = np.zeros([4, points.shape[-1]])
-        #     out_points[-1, :] = 1
-        #     out_points[:2, :] = points
-        #     values = np.matmul(patient_matrix, out_points)[:3]
-        #     self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
+        regions = regionprops(label(hole_annotation))
+        for ii in range(len(regions)):
+            temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
+            data = regions[ii].coords
+            rows = []
+            cols = []
+            for iii in range(len(data)):
+                rows.append(data[iii][0])
+                cols.append(data[iii][1])
+            temp_image[rows, cols] = 1
+            points = np.transpose(find_contours(temp_image, 0)[0])
+            points = np.stack([points[1, :], points[0,:]])
+            out_points = np.zeros([4, points.shape[-1]])
+            out_points[-1, :] = 1
+            out_points[:2, :] = points
+            values = np.matmul(patient_matrix, out_points)[:3]
+            self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
 
 
 class DicomReaderWriter:
@@ -423,41 +423,15 @@ class DicomReaderWriter:
             else:
                 slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
             Sx, Sy, Sz = shifts[slice_index]
-            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], 0, Sx],
-                                         [Xy * PixelSize[1], Yy * PixelSize[0], 0, Sy],
-                                         [Xz * PixelSize[1], Yz * PixelSize[0], 0, Sz],
-                                         [0, 0, 0, 1],
+            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], Sx],
+                                         [Xy * PixelSize[1], Yy * PixelSize[0], Sy],
+                                         [Xz * PixelSize[1], Yz * PixelSize[0], Sz],
                                          ])
             as_array = np.asarray(Contour_data[i].ContourData[:])
             reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
-            out_answer = np.zeros([as_array.shape[0]//3, 4])
-            out_answer[:, :-1] = reshaped
-            col_val, row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
+            col_val, row_val, z_val = np.matmul(np.linalg.inv(patient_matrix), np.transpose(reshaped))
             temp_mask = self.poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
-            '''
-            Temp working issue
-            '''
-            fixing = False
-            if fixing:
-                contour_dict = {}
-                regions = regionprops(label(temp_mask))
-                for ii in range(len(regions)):
-                    temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
-                    data = regions[ii].coords
-                    rows = []
-                    cols = []
-                    for iii in range(len(data)):
-                        rows.append(data[iii][0])
-                        cols.append(data[iii][1])
-                    temp_image[rows, cols] = 1
-                    points = np.transpose(find_contours(temp_image, 0)[0])
-                    points = np.stack([points[1, :], points[0, :]])
-                    out_points = np.zeros([4, points.shape[-1]])
-                    out_points[-1, :] = 1
-                    out_points[:2, :] = points
-                    values = np.matmul(patient_matrix, out_points)[:3]
-                    contour_dict[0].append(list(np.round(values.flatten('F')[:], 5)))
         mask = mask % 2
         return mask
 
@@ -604,7 +578,7 @@ class DicomReaderWriter:
             del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
-            thread_count = int(cpu_count()*0.9-1)
+            # thread_count = int(cpu_count()*0.9-1)
             thread_count = 1
             contour_dict = {}
             q = Queue(maxsize=thread_count)
@@ -626,6 +600,8 @@ class DicomReaderWriter:
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
                     item = [annotations[index, ...], index]
+                    # point_maker = Point_Output_Maker_Class(**kwargs)
+                    # point_maker.make_output(*item)
                     q.put(item)
                 for i in range(thread_count):
                     q.put(None)
