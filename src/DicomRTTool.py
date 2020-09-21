@@ -11,6 +11,7 @@ from queue import *
 import pandas as pd
 import copy
 import matplotlib.pyplot as plt
+import cv2 as cv
 
 
 def plot_scroll_Image(x):
@@ -123,6 +124,7 @@ class Point_Output_Maker_Class(object):
                                      [Xz * self.PixelSize[1], Yz * self.PixelSize[0], 0, Sz],
                                      [0, 0, 0, 1],
                                      ])
+        self.contour_dict = {}
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -134,8 +136,8 @@ class Point_Output_Maker_Class(object):
                 rows.append(data[iii][0])
                 cols.append(data[iii][1])
             temp_image[rows, cols] = 1
-            points = np.transpose(find_contours(temp_image, 0)[0])
-            points = np.stack([points[1, :], points[0,:]])
+            contours, hierarchy = cv.findContours(temp_image.astype('uint8'), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+            points = np.transpose(np.squeeze(contours))
             out_points = np.zeros([4, points.shape[-1]])
             out_points[-1, :] = 1
             out_points[:2, :] = points
@@ -432,8 +434,13 @@ class DicomReaderWriter:
             reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
             out_answer = np.zeros([as_array.shape[0]//3, 4])
             out_answer[:, :-1] = reshaped
-            col_val, row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
-            temp_mask = self.poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
+            self.col_val, self.row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
+            # self.col_val, self.row_val = self.col_val.astype('int'), self.row_val.astype('int')
+            # combined = []
+            # for i in range(len(self.col_val)):
+            #     combined.append([self.row_val[i], self.col_val[i]])
+            # cv.drawContours(np.zeros([512, 512]), np.asarray(combined), -1, (255), 1)
+            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
             mask[slice_index, :, :][temp_mask > 0] += 1
         mask = mask % 2
         return mask
@@ -602,8 +609,6 @@ class DicomReaderWriter:
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
                     item = [annotations[index, ...], index]
-                    # point_maker = Point_Output_Maker_Class(**kwargs)
-                    # point_maker.make_output(*item)
                     q.put(item)
                 for i in range(thread_count):
                     q.put(None)
