@@ -3,7 +3,6 @@ import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
-from scipy.ndimage.morphology import binary_fill_holes
 from skimage.measure import label,regionprops,find_contours
 from threading import Thread
 from multiprocessing import cpu_count
@@ -11,7 +10,6 @@ from queue import *
 import pandas as pd
 import copy
 import matplotlib.pyplot as plt
-import cv2 as cv
 
 
 def plot_scroll_Image(x):
@@ -124,7 +122,6 @@ class Point_Output_Maker_Class(object):
                                      [Xz * self.PixelSize[1], Yz * self.PixelSize[0], 0, Sz],
                                      [0, 0, 0, 1],
                                      ])
-        self.contour_dict = {}
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -136,33 +133,15 @@ class Point_Output_Maker_Class(object):
                 rows.append(data[iii][0])
                 cols.append(data[iii][1])
             temp_image[rows, cols] = 1
-            contours, hierarchy = cv.findContours(temp_image.astype('uint8'), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-            points = np.transpose(np.squeeze(contours))
-            out_points = np.zeros([4, points.shape[-1]])
-            out_points[-1, :] = 1
-            out_points[:2, :] = points
-            values = np.matmul(patient_matrix, out_points)[:3]
-            self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
-        hole_annotation = 1 - annotation
-        filled_annotation = binary_fill_holes(annotation)
-        hole_annotation[filled_annotation == 0] = 0
-        regions = regionprops(label(hole_annotation))
-        for ii in range(len(regions)):
-            temp_image = np.zeros([self.image_size_rows, self.image_size_cols])
-            data = regions[ii].coords
-            rows = []
-            cols = []
-            for iii in range(len(data)):
-                rows.append(data[iii][0])
-                cols.append(data[iii][1])
-            temp_image[rows, cols] = 1
-            points = np.transpose(find_contours(temp_image, 0)[0])
-            points = np.stack([points[1, :], points[0,:]])
-            out_points = np.zeros([4, points.shape[-1]])
-            out_points[-1, :] = 1
-            out_points[:2, :] = points
-            values = np.matmul(patient_matrix, out_points)[:3]
-            self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5)))
+            contours = find_contours(temp_image, 0.5)
+            for contour in contours:
+                points = np.transpose(np.squeeze(contour))
+                out_points = np.zeros([4, points.shape[-1]])
+                out_points[-1, :] = 1
+                out_points[0, :] = points[1, :]
+                out_points[1, :] = points[0, :]
+                values = np.matmul(patient_matrix, out_points)[:3]
+                self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5))[:])
 
 
 class DicomReaderWriter:
@@ -410,13 +389,14 @@ class DicomReaderWriter:
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
-    def Contours_to_mask(self, i):
+    def Contours_to_mask(self, index):
         mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
-        Contour_data = self.RS_struct.ROIContourSequence[i].ContourSequence
+        Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         shifts = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))]
-        Xx, Xy, Xz, Yx, Yy, Yz = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
+        Xx, Xy, Xz, Yx, Yy, Yz = self.mv
         PixelSize = self.dicom_handle.GetSpacing()
-
+        pointer_class = Point_Output_Maker_Class(512, 512, self.slice_info, PixelSize=PixelSize, contour_dict={},
+                                                 mv=self.mv, shift_list=self.shift_list, RS=None, ds=None)
         for i in range(len(Contour_data)):
             referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
             if referenced_sop_instance_uid not in self.SOPInstanceUIDs:
@@ -435,13 +415,9 @@ class DicomReaderWriter:
             out_answer = np.zeros([as_array.shape[0]//3, 4])
             out_answer[:, :-1] = reshaped
             self.col_val, self.row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
-            # self.col_val, self.row_val = self.col_val.astype('int'), self.row_val.astype('int')
-            # combined = []
-            # for i in range(len(self.col_val)):
-            #     combined.append([self.row_val[i], self.col_val[i]])
-            # cv.drawContours(np.zeros([512, 512]), np.asarray(combined), -1, (255), 1)
-            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
+            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols]).astype('int')
             mask[slice_index, :, :][temp_mask > 0] += 1
+
         mask = mask % 2
         return mask
 
@@ -475,6 +451,9 @@ class DicomReaderWriter:
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
+        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')]
+                           for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
@@ -531,8 +510,6 @@ class DicomReaderWriter:
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
-        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
-        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
@@ -587,8 +564,7 @@ class DicomReaderWriter:
             del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
-            # thread_count = int(cpu_count()*0.9-1)
-            thread_count = 1
+            thread_count = int(cpu_count()*0.9-1)
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
@@ -602,7 +578,6 @@ class DicomReaderWriter:
                 t = Thread(target=contour_worker, args=(A,))
                 t.start()
                 threads.append(t)
-
             contour_num = 0
             if np.max(annotations) > 0:  # If we have an annotation, write it
                 image_locations = np.max(annotations, axis=(1, 2))
