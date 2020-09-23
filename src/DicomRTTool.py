@@ -392,32 +392,16 @@ class DicomReaderWriter:
     def Contours_to_mask(self, index):
         mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
-        shifts = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')] for j in range(len(self.reader.GetFileNames()))]
-        Xx, Xy, Xz, Yx, Yy, Yz = self.mv
-        PixelSize = self.dicom_handle.GetSpacing()
-        pointer_class = Point_Output_Maker_Class(512, 512, self.slice_info, PixelSize=PixelSize, contour_dict={},
-                                                 mv=self.mv, shift_list=self.shift_list, RS=None, ds=None)
         for i in range(len(Contour_data)):
-            referenced_sop_instance_uid = Contour_data[i].ContourImageSequence[0].ReferencedSOPInstanceUID
-            if referenced_sop_instance_uid not in self.SOPInstanceUIDs:
-                print('{} Error here with instance UID'.format(self.PathDicom))
-                return None
-            else:
-                slice_index = self.SOPInstanceUIDs.index(referenced_sop_instance_uid)
-            Sx, Sy, Sz = shifts[slice_index]
-            patient_matrix = np.asarray([[Xx * PixelSize[1], Yx * PixelSize[0], 0, Sx],
-                                         [Xy * PixelSize[1], Yy * PixelSize[0], 0, Sy],
-                                         [Xz * PixelSize[1], Yz * PixelSize[0], 0, Sz],
-                                         [0, 0, 0, 1],
-                                         ])
             as_array = np.asarray(Contour_data[i].ContourData[:])
             reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
-            out_answer = np.zeros([as_array.shape[0]//3, 4])
-            out_answer[:, :-1] = reshaped
-            self.col_val, self.row_val, z_val, ones = np.matmul(np.linalg.pinv(patient_matrix), np.transpose(out_answer))
-            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols]).astype('int')
-            mask[slice_index, :, :][temp_mask > 0] += 1
-
+            matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
+                                        for i in range(reshaped.shape[0])])
+            self.col_val = matrix_points[:, 0]
+            self.row_val = matrix_points[:, 1]
+            z_vals = matrix_points[:, 2]
+            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
+            mask[z_vals[0], temp_mask] += 1
         mask = mask % 2
         return mask
 
@@ -435,6 +419,10 @@ class DicomReaderWriter:
 
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
+        self.mv = self.dicom_handle.GetDirection()[:6]
+        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')]
+                           for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
+        # self.shift_list = [self.dicom_handle[:, :, i:i+1].GetOrigin() for i in range(self.dicom_handle.GetSize()[-1])]
         sop_instance_UID_key = "0008|0018"
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
@@ -445,15 +433,13 @@ class DicomReaderWriter:
         if self.patient_position.find('FFS') == 0:
             self.flip_axes = [False, False, False]  # Col, row, z
         elif self.patient_position.find('HFS') == 0:
-            self.flip_axes = [False, True, False]
+            self.flip_axes = [True, False, False]
         flipimagefilter = sitk.FlipImageFilter()
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
-        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')]
-                           for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
+
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
