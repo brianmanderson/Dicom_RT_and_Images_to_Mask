@@ -525,8 +525,8 @@ class DicomReaderWriter:
             allow_slip_in = True
             if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
                 self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
-                # self.RS_struct.ROIContourSequence[0].ContourSequence[0].ContourData = []
-                # self.RS_struct.ROIContourSequence[0].ContourSequence[0].NumberofContourPoints = 0
+                self.RS_struct.ROIContourSequence[0].ContourSequence[0].ContourData = []
+                self.RS_struct.ROIContourSequence[0].ContourSequence[0].NumberofContourPoints = 0
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
