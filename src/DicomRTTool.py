@@ -419,7 +419,7 @@ class DicomReaderWriter:
 
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
-        self.mv = self.dicom_handle.GetDirection()[:6]
+        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
         self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')]
                            for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
         # self.shift_list = [self.dicom_handle[:, :, i:i+1].GetOrigin() for i in range(self.dicom_handle.GetSize()[-1])]
