@@ -434,6 +434,10 @@ class DicomReaderWriter:
             self.flip_axes = [False, False, False]  # Col, row, z
         elif self.patient_position.find('HFS') == 0:
             self.flip_axes = [True, False, False]
+        elif self.patient_position.find('FFP') == 0:
+            self.flip_axes = [False, True, False]
+        elif self.patient_position.find('HFP') == 0:
+            self.flip_axes = [True, True, False]
         flipimagefilter = sitk.FlipImageFilter()
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
