@@ -350,8 +350,6 @@ class DicomReaderWriter:
         self.RTs_in_case[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
-        self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-                             dtype='int8')
         for RT_key in self.RTs_in_case:
             found_rois = {}
             ROIName_Number = self.RTs_in_case[RT_key]
@@ -433,11 +431,11 @@ class DicomReaderWriter:
         if self.patient_position.find('FFS') == 0:
             self.flip_axes = [False, False, False]  # Col, row, z
         elif self.patient_position.find('HFS') == 0:
-            self.flip_axes = [True, False, False]
+            self.flip_axes = [True, False, True]
         elif self.patient_position.find('FFP') == 0:
             self.flip_axes = [False, True, False]
         elif self.patient_position.find('HFP') == 0:
-            self.flip_axes = [True, True, False]
+            self.flip_axes = [True, True, True]
         flipimagefilter = sitk.FlipImageFilter()
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
@@ -693,8 +691,11 @@ class DicomReaderWriter:
         self.make_array(PathDicom)
         if self.rewrite_RT_file:
             self.rewrite_RT()
-        if not self.template and self.get_images_mask:
-            self.get_mask()
+        if self.get_images_mask and self.Contour_Names is not None:
+            self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+                                 dtype='int8')
+            if not self.template:
+                self.get_mask()
         if self.get_dose_output:
             self.get_dose()
         true_rois = []
