@@ -350,6 +350,9 @@ class DicomReaderWriter:
         self.RTs_in_case[self.lstRSFile] = rois_in_structure
 
     def get_mask(self):
+        self.mask = np.zeros(
+            [len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+            dtype='int8')
         for RT_key in self.RTs_in_case:
             found_rois = {}
             ROIName_Number = self.RTs_in_case[RT_key]
