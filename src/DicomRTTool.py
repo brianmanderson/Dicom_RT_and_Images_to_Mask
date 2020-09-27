@@ -146,10 +146,24 @@ class Point_Output_Maker_Class(object):
 
 class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
-                 template_dir=None, channels=3, get_images_mask=True, arg_max=True,
-                 associations={},desc='',iteration=0, get_dose_output=False, **kwargs):
+                 template_dir=None, get_images_mask=True, arg_max=True,
+                 associations={},desc='',iteration=0, get_dose_output=False, flip_axes=(False, False, False), **kwargs):
+        '''
+        :param rewrite_RT_file: Boolean, should we re-write the RT structure
+        :param delete_previous_rois: delete the previous RTs within the structure
+        :param Contour_Names: list of contour nmes
+        :param template_dir: default to None, specifies path to template RT structure
+        :param get_images_mask: boolean, load the images and mask
+        :param arg_max: perform argmax on the mask
+        :param associations: dictionary of associations {'liver_bma_program_4': 'liver'}
+        :param desc: description information to add to .nii files
+        :param iteration: what iteration for writing .nii files
+        :param get_dose_output: boolean, collect dose information
+        :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
+        :param kwargs:
+        '''
         self.get_dose_output = get_dose_output
-        self.flip_axes = [False, False, False]
+        self.flip_axes = flip_axes
         self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
@@ -164,7 +178,6 @@ class DicomReaderWriter:
         self.template_dir = template_dir
         self.template = True
         self.delete_previous_rois = delete_previous_rois
-        self.channels = channels
         self.get_images_mask = get_images_mask
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
@@ -431,14 +444,6 @@ class DicomReaderWriter:
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
         self.patient_position = self.reader.GetMetaData(0, "0018|5100")
-        if self.patient_position.find('FFS') == 0:
-            self.flip_axes = [False, False, False]  # Col, row, z
-        elif self.patient_position.find('HFS') == 0:
-            self.flip_axes = [True, False, True]
-        elif self.patient_position.find('FFP') == 0:
-            self.flip_axes = [False, True, False]
-        elif self.patient_position.find('HFP') == 0:
-            self.flip_axes = [True, True, True]
         flipimagefilter = sitk.FlipImageFilter()
         flipimagefilter.SetFlipAxes(self.flip_axes)
         self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
