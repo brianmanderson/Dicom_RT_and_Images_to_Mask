@@ -444,9 +444,10 @@ class DicomReaderWriter:
         self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
                            range(self.dicom_handle.GetDepth())]
         self.patient_position = self.reader.GetMetaData(0, "0018|5100")
-        flipimagefilter = sitk.FlipImageFilter()
-        flipimagefilter.SetFlipAxes(self.flip_axes)
-        self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
+        if max(self.flip_axes):
+            flipimagefilter = sitk.FlipImageFilter()
+            flipimagefilter.SetFlipAxes(self.flip_axes)
+            self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
