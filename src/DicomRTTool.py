@@ -9,6 +9,7 @@ from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
 import copy
+import cv2 as cv
 import matplotlib.pyplot as plt
 
 
@@ -115,13 +116,6 @@ class Point_Output_Maker_Class(object):
         self.shift_list = shift_list
 
     def make_output(self, annotation, i):
-        Sx, Sy, Sz = self.shift_list[i]
-        Xx, Xy, Xz, Yx, Yy, Yz = self.mv
-        patient_matrix = np.asarray([[Xx * self.PixelSize[1], Yx * self.PixelSize[0], 0, Sx],
-                                     [Xy * self.PixelSize[1], Yy * self.PixelSize[0], 0, Sy],
-                                     [Xz * self.PixelSize[1], Yz * self.PixelSize[0], 0, Sz],
-                                     [0, 0, 0, 1],
-                                     ])
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -133,15 +127,9 @@ class Point_Output_Maker_Class(object):
                 rows.append(data[iii][0])
                 cols.append(data[iii][1])
             temp_image[rows, cols] = 1
-            contours = find_contours(temp_image, 0.5)
+            contours = find_contours(temp_image, 0)
             for contour in contours:
-                points = np.transpose(np.squeeze(contour))
-                out_points = np.zeros([4, points.shape[-1]])
-                out_points[-1, :] = 1
-                out_points[0, :] = points[1, :]
-                out_points[1, :] = points[0, :]
-                values = np.matmul(patient_matrix, out_points)[:3]
-                self.contour_dict[i].append(list(np.round(values.flatten('F')[:],5))[:])
+                self.contour_dict[i].append(contour)
 
 
 class DicomReaderWriter:
@@ -415,6 +403,7 @@ class DicomReaderWriter:
             self.row_val = matrix_points[:, 1]
             z_vals = matrix_points[:, 2]
             temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
+            temp_mask[self.row_val, self.col_val] = 0
             mask[z_vals[0], temp_mask] += 1
         mask = mask % 2
         return mask
@@ -573,6 +562,7 @@ class DicomReaderWriter:
                       'RS': self.RS_struct, 'ds': self.ds}
 
             A = [q,kwargs]
+            # pointer_class = Point_Output_Maker_Class(**kwargs)
             for worker in range(thread_count):
                 t = Thread(target=contour_worker, args=(A,))
                 t.start()
@@ -583,13 +573,17 @@ class DicomReaderWriter:
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
                     item = [annotations[index, ...], index]
+                    # pointer_class.make_output(*item)
                     q.put(item)
                 for i in range(thread_count):
                     q.put(None)
                 for t in threads:
                     t.join()
                 for i in contour_dict.keys():
-                    for output in contour_dict[i]:
+                    for all_contours in contour_dict[i]:
+                        contours = [[int(contour[1]), int(contour[0]), int(i)] for contour in np.squeeze(all_contours)]
+                        points = [self.dicom_handle.TransformIndexToPhysicalPoint(ii) for ii in contours]
+                        output = np.asarray(points).flatten('C')
                         if contour_num > 0:
                             self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
                                 copy.deepcopy(
@@ -601,9 +595,9 @@ class DicomReaderWriter:
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
                             contour_num].ContourImageSequence[0].ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                            contour_num].ContourData = output
+                            contour_num].ContourData = list(output)
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                            contour_num].NumberofContourPoints = round(len(output) / 3)
+                            contour_num].NumberofContourPoints = len(output) // 3
                         contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
         if self.template or self.delete_previous_rois:
