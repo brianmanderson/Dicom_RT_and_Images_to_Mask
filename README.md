@@ -3,6 +3,7 @@
     pip install DicomRTTool
 ## Highly recommend to go through the jupyter notebook Data_Curation_and_Predictions_to_RT
 ## Data_Curation_and_Predictions_to_RT has three main parts
+### Works on oblique images for masks and predictions*
 ### 1) Identify RT structures and names in multiple patients
 ### 2) Creating associations file and turning dicom into nifti/numpy files
 ### 3) Turning predictions into RT structures
