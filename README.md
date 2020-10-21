@@ -45,8 +45,8 @@ Example:
     Dicom_reader = DicomReaderWriter(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
     
     Dicom_reader.Make_Contour_From_directory(path)
-    image = DicomImage.ArrayDicom
-    mask = DicomImage.mask
+    image = Dicom_reader.ArrayDicom
+    mask = Dicom_reader.mask
 
     pred = np.zeros([mask.shape[0],mask.shape[1],mask.shape[2],2]) # prediction needs to be [# images, rows, cols, # classes]
     pred[:,200:300,200:300,1] = 1
