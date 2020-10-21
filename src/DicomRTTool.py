@@ -103,12 +103,11 @@ def worker_def(A):
 
 
 class Point_Output_Maker_Class(object):
-    def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS, ds):
+    def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.PixelSize = PixelSize
         self.contour_dict = contour_dict
         self.RS = RS
-        self.ds = ds
 
     def make_output(self, annotation, i):
         self.contour_dict[i] = []
@@ -546,7 +545,7 @@ class DicomReaderWriter:
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
-                      'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct, 'ds': self.ds}
+                      'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct}
 
             A = [q,kwargs]
             # pointer_class = Point_Output_Maker_Class(**kwargs)
