@@ -250,10 +250,9 @@ class DicomReaderWriter:
                 self.RefDs = pydicom.read_file(self.lstFilesDCM[0])
         else:
             self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
-            if self.dicom_names:
-                self.reader.SetFileNames(self.dicom_names)
-                self.RefDs = pydicom.read_file(self.dicom_names[0])
-                self.ds = pydicom.read_file(self.dicom_names[0])
+            self.reader.SetFileNames(self.dicom_names)
+            self.RefDs = pydicom.read_file(self.dicom_names[0])
+            self.ds = pydicom.read_file(self.dicom_names[0])
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
