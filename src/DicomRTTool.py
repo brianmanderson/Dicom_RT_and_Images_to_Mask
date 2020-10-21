@@ -103,17 +103,12 @@ def worker_def(A):
 
 
 class Point_Output_Maker_Class(object):
-    def __init__(self, image_size_rows, image_size_cols, slice_info, PixelSize, contour_dict, mv, shift_list,
-                 RS, ds):
+    def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS, ds):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
-        self.slice_info = slice_info
         self.PixelSize = PixelSize
-        self.mv = mv
-        self.shift_list = shift_list
         self.contour_dict = contour_dict
         self.RS = RS
         self.ds = ds
-        self.shift_list = shift_list
 
     def make_output(self, annotation, i):
         self.contour_dict[i] = []
@@ -256,7 +251,10 @@ class DicomReaderWriter:
                 self.RefDs = pydicom.read_file(self.lstFilesDCM[0])
         else:
             self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
-            self.reader.SetFileNames(self.dicom_names)
+            if self.dicom_names:
+                self.reader.SetFileNames(self.dicom_names)
+                self.RefDs = pydicom.read_file(self.dicom_names[0])
+                self.ds = pydicom.read_file(self.dicom_names[0])
             self.get_images()
             image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
             RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
@@ -272,8 +270,7 @@ class DicomReaderWriter:
                     self.RDs_in_case[lstRSFile] = []
                 elif modality.lower().find('struct') != -1:
                     self.RTs_in_case[lstRSFile] = []
-            self.RefDs = pydicom.read_file(self.dicom_names[0])
-            self.ds = pydicom.read_file(self.dicom_names[0])
+
         self.all_contours_exist = False
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
@@ -422,17 +419,9 @@ class DicomReaderWriter:
 
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
-        self.mv = [float(i) for i in self.reader.GetMetaData(0, "0020|0037").split('\\')]
-        self.shift_list = [[float(i) for i in self.reader.GetMetaData(j, "0020|0032").split('\\')]
-                           for j in range(len(self.reader.GetFileNames()))] #ShiftRows, ShiftCols, ShiftZBase
-        # self.shift_list = [self.dicom_handle[:, :, i:i+1].GetOrigin() for i in range(self.dicom_handle.GetSize()[-1])]
         sop_instance_UID_key = "0008|0018"
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
-        slice_location_key = "0020|0032"
-        self.slice_info = [self.reader.GetMetaData(i, slice_location_key).split('\\')[-1] for i in
-                           range(self.dicom_handle.GetDepth())]
-        self.patient_position = self.reader.GetMetaData(0, "0018|5100")
         if max(self.flip_axes):
             flipimagefilter = sitk.FlipImageFilter()
             flipimagefilter.SetFlipAxes(self.flip_axes)
@@ -557,9 +546,7 @@ class DicomReaderWriter:
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
-                      'slice_info': self.slice_info, 'PixelSize': self.PixelSize, 'mv': self.mv,
-                      'shift_list': self.shift_list, 'contour_dict': contour_dict,
-                      'RS': self.RS_struct, 'ds': self.ds}
+                      'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct, 'ds': self.ds}
 
             A = [q,kwargs]
             # pointer_class = Point_Output_Maker_Class(**kwargs)
