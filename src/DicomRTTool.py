@@ -127,8 +127,8 @@ class Point_Output_Maker_Class(object):
 
 
 class DicomReaderWriter:
-    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True,Contour_Names=None,
-                 template_dir=None, get_images_mask=True, arg_max=True,
+    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
+                 template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True,
                  associations={},desc='',iteration=0, get_dose_output=False, flip_axes=(False, False, False), **kwargs):
         '''
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
@@ -146,6 +146,7 @@ class DicomReaderWriter:
         '''
         self.get_dose_output = get_dose_output
         self.flip_axes = flip_axes
+        self.create_new_RT = create_new_RT
         self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
@@ -479,6 +480,8 @@ class DicomReaderWriter:
         :param ROI_Names: list of ROI names equal to the number of classes
         :return:
         '''
+        if self.create_new_RT:
+            self.use_template()
         assert ROI_Names is not None, 'You need to provide ROI_Names'
         assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
