@@ -215,7 +215,7 @@ class DicomReaderWriter:
             for path in self.RTs_with_ROI_Names[ROIName.lower()]:
                 print(path)
         else:
-            print('{} was not found within the set, check spelling or list all rois')
+            print('{} was not found within the set, check spelling or list all rois'.format(ROIName))
 
     def list_rois(self):
         print('The following ROIs were found')
@@ -472,9 +472,18 @@ class DicomReaderWriter:
         mask[fill_row_coords, fill_col_coords] = True
         return mask
 
-    def with_annotations(self, annotations, output_dir, ROI_Names=None):
+    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names=None):
+        '''
+        :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
+        :param output_dir: directory to pass RT structure to
+        :param ROI_Names: list of ROI names equal to the number of classes
+        :return:
+        '''
         assert ROI_Names is not None, 'You need to provide ROI_Names'
-        annotations = np.squeeze(annotations)
+        assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
+                                                                 ' equal  to the number or ROI_names minus 1, channel' \
+                                                                 ' 0 is background'
+        annotations = np.squeeze(prediction_array)
         self.image_size_z, self.image_size_rows, self.image_size_cols = annotations.shape[:3]
         self.ROI_Names = ROI_Names
         self.output_dir = output_dir
@@ -488,6 +497,9 @@ class DicomReaderWriter:
             annotations = annotations[::-1, ...]
         self.annotations = annotations
         self.Mask_to_Contours()
+
+    def with_annotations(self, annotations, output_dir, ROI_Names=None):
+        self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
     def Mask_to_Contours(self):
         self.RefDs = self.ds
