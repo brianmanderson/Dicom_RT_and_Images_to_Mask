@@ -210,12 +210,17 @@ class DicomReaderWriter:
         return None
 
     def where_are_RTs(self, ROIName):
-        if ROIName in self.RTs_with_ROI_Names:
-            print('Contours of {} are located:'.format(ROIName))
-            for path in self.RTs_with_ROI_Names[ROIName]:
+        if ROIName.lower() in self.RTs_with_ROI_Names:
+            print('Contours of {} are located:'.format(ROIName.lower()))
+            for path in self.RTs_with_ROI_Names[ROIName.lower()]:
                 print(path)
         else:
-            print('{} was not found within the set, check capitalization!')
+            print('{} was not found within the set, check spelling or list all rois')
+
+    def list_rois(self):
+        print('The following ROIs were found')
+        for roi in self.all_rois:
+            print(roi)
 
     def make_array(self, PathDicom):
         self.PathDicom = PathDicom
@@ -341,10 +346,10 @@ class DicomReaderWriter:
             if Structures.ROIName not in self.rois_in_case:
                 self.rois_in_case.append(Structures.ROIName)
                 rois_in_structure[Structures.ROIName] = Structures.ROINumber
-            if Structures.ROIName not in self.RTs_with_ROI_Names:
-                self.RTs_with_ROI_Names[Structures.ROIName] = [self.lstRSFile]
+            if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
+                self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [self.lstRSFile]
             else:
-                self.RTs_with_ROI_Names[Structures.ROIName].append(self.lstRSFile)
+                self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(self.lstRSFile)
         self.all_RTs[self.lstRSFile] = rois_in_structure
         self.RTs_in_case[self.lstRSFile] = rois_in_structure
 
