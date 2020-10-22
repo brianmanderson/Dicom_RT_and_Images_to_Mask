@@ -696,8 +696,8 @@ class DicomReaderWriter:
             self.get_dose()
         true_rois = []
         for roi in self.rois_in_case:
-            if roi not in self.all_rois:
-                self.all_rois.append(roi)
+            if roi.lower() not in self.all_rois:
+                self.all_rois.append(roi.lower())
             if self.Contour_Names:
                 if roi.lower() in self.associations:
                     true_rois.append(self.associations[roi.lower()])
