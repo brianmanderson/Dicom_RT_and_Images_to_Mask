@@ -200,22 +200,12 @@ class DicomReaderWriter:
     def set_iteration(self, iteration=0):
         self.iteration = str(iteration)
 
-    def down_folder(self, input_path, reset=True):
-        files = []
-        dirs = []
-        file = []
+    def down_folder(self, input_path):
         for root, dirs, files in os.walk(input_path):
-            break
-        for val in files:
-            if val.find('.dcm') != -1:
-                file = val
-                break
-        if file and input_path:
-            self.all_paths.append(input_path)
-            self.Make_Contour_From_directory(input_path)
-        for dir in dirs:
-            new_directory = os.path.join(input_path, dir)
-            self.down_folder(new_directory)
+            dicom_files = [i for i in files if i.endswith('.dcm')]
+            if dicom_files:
+                self.all_paths.append(root)
+                self.Make_Contour_From_directory(root)
         return None
 
     def make_array(self, PathDicom):
