@@ -304,19 +304,24 @@ class DicomReaderWriter:
             threads.append(t)
         out_dict = {'Path':[], 'Iteration':[]}
         iterations = copy.deepcopy(final_out_dict['Iteration'])
+        no_iterations = []
         for path in self.paths_with_contours:
             iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
-            iteration = 0
             if iteration_files:
                 file = iteration_files[0]
                 iteration = int(file.split('_')[-1].split('.')[0])
-                iterations.append(iteration)
             elif path in final_out_dict['Path']:
                 iteration = final_out_dict['Iteration'][final_out_dict['Path'].index(path)]
             else:
-                while iteration in iterations:
-                    iteration += 1
-                iterations.append(iteration)
+                no_iterations.append(path)
+                continue
+            out_dict['Path'].append(path)
+            out_dict['Iteration'].append(iteration)
+
+        for path in no_iterations:
+            iteration = 0
+            while iteration in out_dict['Iteration']:
+                iteration += 1
             out_dict['Path'].append(path)
             out_dict['Iteration'].append(iteration)
         for index in range(len(out_dict['Path'])):
