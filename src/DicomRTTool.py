@@ -93,10 +93,11 @@ def worker_def(A):
                 base_class.Make_Contour_From_directory(PathDicom=path)
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
-                final_out_dict['MRN'].append(base_class.ds.PatientID)
-                final_out_dict['Iteration'].append(iteration)
-                final_out_dict['Path'].append(path)
-                final_out_dict['Folder'].append('')
+                if iteration not in final_out_dict['Iteration']:
+                    final_out_dict['MRN'].append(base_class.ds.PatientID)
+                    final_out_dict['Iteration'].append(iteration)
+                    final_out_dict['Path'].append(path)
+                    final_out_dict['Folder'].append('')
             except:
                 print('failed on {}'.format(path))
             q.task_done()
