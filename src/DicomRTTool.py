@@ -303,7 +303,6 @@ class DicomReaderWriter:
             t.start()
             threads.append(t)
         out_dict = {'Path':[], 'Iteration':[]}
-        iterations = copy.deepcopy(final_out_dict['Iteration'])
         no_iterations = []
         for path in self.paths_with_contours:
             iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
