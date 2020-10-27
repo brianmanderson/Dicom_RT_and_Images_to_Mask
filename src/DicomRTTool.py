@@ -129,7 +129,7 @@ class Point_Output_Maker_Class(object):
 
 class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
-                 template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True,
+                 template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True, require_all_contours=True,
                  associations={},desc='',iteration=0, get_dose_output=False, flip_axes=(False, False, False), **kwargs):
         '''
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
@@ -138,6 +138,7 @@ class DicomReaderWriter:
         :param template_dir: default to None, specifies path to template RT structure
         :param get_images_mask: boolean, load the images and mask
         :param arg_max: perform argmax on the mask
+        :param require_all_contours: Boolean, require all contours present when making nifti files?
         :param associations: dictionary of associations {'liver_bma_program_4': 'liver'}
         :param desc: description information to add to .nii files
         :param iteration: what iteration for writing .nii files
@@ -146,6 +147,7 @@ class DicomReaderWriter:
         :param kwargs:
         '''
         self.get_dose_output = get_dose_output
+        self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
         self.create_new_RT = create_new_RT
         self.associations = associations
@@ -729,9 +731,9 @@ class DicomReaderWriter:
                 print('Lacking {} in {}'.format(roi, PathDicom))
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
-                break
-        if PathDicom not in self.paths_with_contours and self.all_contours_exist:
-            self.paths_with_contours.append(PathDicom) # Add the path that has the contours
+        if PathDicom not in self.paths_with_contours:
+            if self.all_contours_exist or not self.require_all_contours:
+                self.paths_with_contours.append(PathDicom) # Add the path that has the contours
         return None
 
     def rewrite_RT(self, lstRSFile=None):
