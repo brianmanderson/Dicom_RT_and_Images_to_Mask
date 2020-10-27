@@ -277,7 +277,6 @@ class DicomReaderWriter:
                 elif modality.lower().find('struct') != -1:
                     self.RTs_in_case[lstRSFile] = []
 
-        self.all_contours_exist = False
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
         if len(self.RTs_in_case.keys()) > 0:
