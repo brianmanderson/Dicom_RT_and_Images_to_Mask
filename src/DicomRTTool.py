@@ -1,4 +1,4 @@
-import os, copy, pydicom
+import os, copy, pydicom, inspect
 import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
@@ -79,9 +79,8 @@ def contour_worker(A):
 
 
 def worker_def(A):
-    q, Contour_Names, associations, desc, final_out_dict = A
-    base_class = DicomReaderWriter(get_images_mask=True, associations=associations,
-                                   Contour_Names=Contour_Names, desc=desc, get_dose_output=True)
+    q, key_dict, final_out_dict = A
+    base_class = DicomReaderWriter(**key_dict)
     while True:
         item = q.get()
         if item is None:
@@ -298,7 +297,10 @@ class DicomReaderWriter:
             for key in final_out_dict.keys():
                 for index in data[key]:
                     final_out_dict[key].append(data[key][index])
-        A = [q, self.Contour_Names, self.associations, self.desciption, final_out_dict]
+        key_dict = {'get_images_mask': True, 'associations': self.associations, 'arg_max': self.arg_max,
+                    'require_all_contours': self.require_all_contours, 'Contour_Names': self.Contour_Names,
+                    'desc': self.desciption, 'get_dose_output': True}
+        A = [q, key_dict, final_out_dict]
         threads = []
         for worker in range(thread_count):
             t = Thread(target=worker_def, args=(A,))
