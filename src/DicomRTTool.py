@@ -367,7 +367,6 @@ class DicomReaderWriter:
             [len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
         for RT_key in self.RTs_in_case:
-            found_rois = {}
             ROIName_Number = self.RTs_in_case[RT_key]
             RS_struct = None
             self.structure_references = {}
@@ -380,15 +379,12 @@ class DicomReaderWriter:
                 if true_name and true_name in self.Contour_Names:
                     if RS_struct is None:
                         self.RS_struct = RS_struct = pydicom.read_file(RT_key)
-                        for contour_number in range(len(self.RS_struct.ROIContourSequence)):
-                            self.structure_references[
-                                self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-                    found_rois[true_name] = {'Hierarchy': 999, 'Name': ROI_Name, 'Roi_Number': self.RTs_in_case[RT_key][ROI_Name]}
-            for ROI_Name in found_rois.keys():
-                if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
-                    index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
+                    for contour_number in range(len(self.RS_struct.ROIContourSequence)):
+                        self.structure_references[
+                            self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
+                    index = self.structure_references[self.RTs_in_case[RT_key][ROI_Name]]
                     mask = self.Contours_to_mask(index)
-                    self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] += 1
+                    self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
             self.mask = self.mask[:, :, ::-1, ...]
