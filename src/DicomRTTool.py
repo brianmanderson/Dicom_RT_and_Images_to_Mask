@@ -388,7 +388,8 @@ class DicomReaderWriter:
                 if found_rois[ROI_Name]['Roi_Number'] in self.structure_references:
                     index = self.structure_references[found_rois[ROI_Name]['Roi_Number']]
                     mask = self.Contours_to_mask(index)
-                    self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] = 1
+                    self.mask[..., self.Contour_Names.index(ROI_Name) + 1][mask == 1] += 1
+                    self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
             self.mask = self.mask[:, :, ::-1, ...]
         if self.flip_axes[1]:
