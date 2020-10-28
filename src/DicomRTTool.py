@@ -491,19 +491,29 @@ class DicomReaderWriter:
         assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
                                                                  ' 0 is background'
-        annotations = np.squeeze(prediction_array)
-        self.image_size_z, self.image_size_rows, self.image_size_cols = annotations.shape[:3]
+        prediction_array = np.squeeze(prediction_array)
+        contour_values = np.max(prediction_array, axis=0) # See what the maximum value is across the prediction array
+        while len(contour_values.shape) > 1:
+            contour_values = np.max(contour_values, axis=0)
+        contour_values[0] = 1  # Keep background
+        prediction_array = prediction_array[..., contour_values == 1]
+        contour_values = contour_values[1:]
+        ROI_Names = list(np.asarray(ROI_Names)[contour_values == 1])
+
+        if not ROI_Names:
+            print('RT Structure not made for {}, given prediction_array had no mask')
+        self.image_size_z, self.image_size_rows, self.image_size_cols = prediction_array.shape[:3]
         self.ROI_Names = ROI_Names
         self.output_dir = output_dir
-        if len(annotations.shape) == 3:
-            annotations = np.expand_dims(annotations, axis=-1)
+        if len(prediction_array.shape) == 3:
+            prediction_array = np.expand_dims(prediction_array, axis=-1)
         if self.flip_axes[0]:
-            annotations = annotations[:, :, ::-1, ...]
+            prediction_array = prediction_array[:, :, ::-1, ...]
         if self.flip_axes[1]:
-            annotations = annotations[:, ::-1, ...]
+            prediction_array = prediction_array[:, ::-1, ...]
         if self.flip_axes[2]:
-            annotations = annotations[::-1, ...]
-        self.annotations = annotations
+            prediction_array = prediction_array[::-1, ...]
+        self.annotations = prediction_array
         self.Mask_to_Contours()
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
