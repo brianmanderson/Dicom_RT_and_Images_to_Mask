@@ -434,7 +434,7 @@ class DicomReaderWriter:
         self.key_list = self.template_dir.replace('template_RS.dcm', 'key_list.txt')
         self.RS_struct = pydicom.read_file(self.template_dir)
         print('Running off a template')
-        self.changetemplate()
+        self.change_template()
 
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
@@ -480,12 +480,12 @@ class DicomReaderWriter:
         fid.close()
 
     def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names=None):
-        '''
+        """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
         :param ROI_Names: list of ROI names equal to the number of classes
         :return:
-        '''
+        """
         if self.create_new_RT:
             self.use_template()
         assert ROI_Names is not None, 'You need to provide ROI_Names'
@@ -650,7 +650,7 @@ class DicomReaderWriter:
         print('Finished!')
         return None
 
-    def changetemplate(self):
+    def change_template(self):
         keys = self.RS_struct.keys()
         for key in keys:
             # print(self.RS_struct[key].name)
