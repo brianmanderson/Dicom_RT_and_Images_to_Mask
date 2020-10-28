@@ -126,6 +126,13 @@ class Point_Output_Maker_Class(object):
                 self.contour_dict[i].append(contour)
 
 
+def poly2mask(vertex_row_coords, vertex_col_coords, shape):
+    fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
+    mask = np.zeros(shape, dtype=np.bool)
+    mask[fill_row_coords, fill_col_coords] = True
+    return mask
+
+
 class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
                  template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True, require_all_contours=True,
@@ -411,7 +418,7 @@ class DicomReaderWriter:
             self.col_val = matrix_points[:, 0]
             self.row_val = matrix_points[:, 1]
             z_vals = matrix_points[:, 2]
-            temp_mask = self.poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
+            temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
             temp_mask[self.row_val, self.col_val] = 0
             mask[z_vals[0], temp_mask] += 1
         mask = mask % 2
@@ -471,12 +478,6 @@ class DicomReaderWriter:
                 sitk.WriteImage(dose_handle, dose_path)
         fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
         fid.close()
-
-    def poly2mask(self, vertex_row_coords, vertex_col_coords, shape):
-        fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
-        mask = np.zeros(shape, dtype=np.bool)
-        mask[fill_row_coords, fill_col_coords] = True
-        return mask
 
     def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names=None):
         '''
