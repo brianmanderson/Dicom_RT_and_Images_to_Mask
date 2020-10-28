@@ -1,4 +1,7 @@
 include *.txt
+include src/*.txt
+include src/*.dcm
+include src/template_RS.dcm
 recursive-include src *.dcm
 recursive-include Images *.png
 recursive-include src *.dcm
