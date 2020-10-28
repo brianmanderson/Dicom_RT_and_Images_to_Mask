@@ -68,7 +68,7 @@ class IndexTracker(object):
 
 def contour_worker(A):
     q, kwargs = A
-    point_maker = Point_Output_Maker_Class(**kwargs)
+    point_maker = PointOutputMakerClass(**kwargs)
     while True:
         item = q.get()
         if item is None:
@@ -102,7 +102,7 @@ def worker_def(A):
             q.task_done()
 
 
-class Point_Output_Maker_Class(object):
+class PointOutputMakerClass(object):
     def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.PixelSize = PixelSize
