@@ -227,10 +227,12 @@ class DicomReaderWriter:
         else:
             print('{} was not found within the set, check spelling or list all rois'.format(ROIName))
 
-    def list_rois(self):
-        print('The following ROIs were found')
-        for roi in self.all_rois:
-            print(roi)
+    def return_rois(self, print_rois=True):
+        if print_rois:
+            print('The following ROIs were found')
+            for roi in self.all_rois:
+                print(roi)
+        return self.all_rois
 
     def make_array(self, PathDicom):
         self.PathDicom = PathDicom
@@ -390,7 +392,7 @@ class DicomReaderWriter:
                         self.structure_references[
                             self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
                     index = self.structure_references[self.RTs_in_case[RT_key][ROI_Name]]
-                    mask = self.Contours_to_mask(index)
+                    mask = self.contours_to_mask(index)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
@@ -407,7 +409,7 @@ class DicomReaderWriter:
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
-    def Contours_to_mask(self, index):
+    def contours_to_mask(self, index):
         mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
