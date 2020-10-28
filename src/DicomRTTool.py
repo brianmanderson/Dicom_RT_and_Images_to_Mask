@@ -137,7 +137,7 @@ class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
                  template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True, require_all_contours=True,
                  associations={},desc='',iteration=0, get_dose_output=False, flip_axes=(False, False, False), **kwargs):
-        '''
+        """
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
         :param delete_previous_rois: delete the previous RTs within the structure
         :param Contour_Names: list of contour nmes
@@ -151,7 +151,7 @@ class DicomReaderWriter:
         :param get_dose_output: boolean, collect dose information
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param kwargs:
-        '''
+        """
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
