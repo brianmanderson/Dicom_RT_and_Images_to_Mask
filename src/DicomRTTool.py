@@ -89,7 +89,7 @@ def worker_def(A):
             path, iteration, out_path = item
             print(path)
             try:
-                base_class.Make_Contour_From_directory(PathDicom=path)
+                base_class.make_contour_from_directory(dicom_path=path)
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
                 if iteration not in final_out_dict['Iteration']:
@@ -216,7 +216,7 @@ class DicomReaderWriter:
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
                 self.all_paths.append(root)
-                self.Make_Contour_From_directory(root)
+                self.make_contour_from_directory(root)
         return None
 
     def where_are_RTs(self, ROIName):
@@ -448,7 +448,6 @@ class DicomReaderWriter:
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
-
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
         annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption,self.iteration))
@@ -515,12 +514,12 @@ class DicomReaderWriter:
         if self.flip_axes[2]:
             prediction_array = prediction_array[::-1, ...]
         self.annotations = prediction_array
-        self.Mask_to_Contours()
+        self.mask_to_contours()
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
         self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
-    def Mask_to_Contours(self):
+    def mask_to_contours(self):
         self.RefDs = self.ds
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
@@ -715,7 +714,11 @@ class DicomReaderWriter:
             self.dose_handles.append(output)
 
     def Make_Contour_From_directory(self, PathDicom):
-        self.make_array(PathDicom)
+        print('Please move over to using make_contour_from_directory')
+        self.make_contour_from_directory(dicom_path=PathDicom)
+
+    def make_contour_from_directory(self, dicom_path):
+        self.make_array(dicom_path)
         if self.rewrite_RT_file:
             self.rewrite_RT()
         if self.get_images_mask and self.Contour_Names is not None:
@@ -737,12 +740,12 @@ class DicomReaderWriter:
         self.all_contours_exist = True
         for roi in self.Contour_Names:
             if roi not in true_rois:
-                print('Lacking {} in {}'.format(roi, PathDicom))
+                print('Lacking {} in {}'.format(roi, dicom_path))
                 print('Found {}'.format(self.rois_in_case))
                 self.all_contours_exist = False
-        if PathDicom not in self.paths_with_contours:
+        if dicom_path not in self.paths_with_contours:
             if self.all_contours_exist or not self.require_all_contours:
-                self.paths_with_contours.append(PathDicom) # Add the path that has the contours
+                self.paths_with_contours.append(dicom_path) # Add the path that has the contours
         return None
 
     def rewrite_RT(self, lstRSFile=None):
