@@ -1,6 +1,6 @@
 __author__ = 'Brian M Anderson'
 # Created on 10/28/2020
-import os, copy, pydicom, inspect
+import os, pydicom
 import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
@@ -11,7 +11,6 @@ from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
 import copy
-import cv2 as cv
 import matplotlib.pyplot as plt
 
 
