@@ -1,6 +1,6 @@
 numpy
 matplotlib
-opencv-python
+opencv-python==4.2.0.*
 openpyxl
 pandas
 Pillow
