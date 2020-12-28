@@ -140,12 +140,12 @@ def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series
     :param frame_of_reference: a unique frame of reference
     :param path: path to the images or structure in question
     :param series_instance_uid: series instance UID for the object in question
-    :param dicom_type: "RT" or "Image"
+    :param dicom_type: "RT" or "Images"
     """
     if frame_of_reference not in frames_of_reference_dict.keys():
         frames_of_reference_dict[frame_of_reference] = {'Images': [], 'Images_Series_UIDs': [],
-                                                        'RTs': [], 'RT_Series_UID': []}
-    if dicom_type == 'Image':
+                                                        'RT': [], 'RT_Series_UID': []}
+    if dicom_type == 'Images':
         key = 'Images'
     else:
         key = 'RT'
@@ -474,7 +474,7 @@ class DicomReaderWriter:
         frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
         add_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
                           frame_of_reference=frame_of_ref, path=self.PathDicom,
-                          series_instance_uid=self.reader.GetMetaData(0, "0020|000e"), dicom_type='Image')
+                          series_instance_uid=self.reader.GetMetaData(0, "0020|000e"), dicom_type='Images')
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
         if max(self.flip_axes):
