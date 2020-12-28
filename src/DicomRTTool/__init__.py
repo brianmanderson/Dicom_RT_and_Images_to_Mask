@@ -154,21 +154,22 @@ def add_rt_to_dictionary(frames_of_reference_dict, frame_of_reference, path, ser
         frames_of_reference_dict[frame_of_reference][series_key].append(series_instance_uid)
 
 
-def add_images_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series_instance_uid):
+def add_images_to_dictionary(frames_of_reference_dict, sitk_dicom_reader, path):
     """
     :param frames_of_reference_dict: dictionary of frames_of_reference
-    :param frame_of_reference: a unique frame of reference
+    :param sitk_dicom_reader: sitk.ImageSeriesReader()
     :param path: path to the images or structure in question
-    :param series_instance_uid: series instance UID for the object in question
-    :param dicom_type: "RT" or "Images"
     """
-    if frame_of_reference not in frames_of_reference_dict.keys():
-        frames_of_reference_dict[frame_of_reference] = {'Images': {'Paths': [], 'Series_UIDs': []},
-                                                        'RTs': {}}
-    series_key = 'Images_Series_UIDs'
-    if series_instance_uid not in frames_of_reference_dict[frame_of_reference][series_key]:
-        frames_of_reference_dict[frame_of_reference]['Images'].append(path)
-        frames_of_reference_dict[frame_of_reference][series_key].append(series_instance_uid)
+    frame_of_reference = sitk_dicom_reader.GetMetaData(0, "0020|0052")
+    if frame_of_reference not in frames_of_reference_dict:
+        frames_of_reference_dict[frame_of_reference] = {}
+    temp_dict = frames_of_reference_dict[frame_of_reference]
+    series_instance_uid = sitk_dicom_reader.GetMetaData(0, "0020|000e")
+    sop_instance_uids = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in range(sitk_dicom_reader.__sizeof__())]
+    if series_instance_uid not in temp_dict:
+        temp_dict[series_instance_uid] = {'Path': path, 'RTs': {},
+                                          'SOP_Instance_UIDs': sop_instance_uids}
+    frames_of_reference_dict[frame_of_reference] = temp_dict
 
 
 class DicomReaderWriter:
@@ -291,13 +292,6 @@ class DicomReaderWriter:
         reader = sitk.ImageFileReader()
         if self.get_images_mask:
             self.get_images()
-        else:
-            reader.SetFileName(self.dicom_names[0])
-            reader.ReadImageInformation()
-            frame_of_ref = reader.GetMetaData("0020|0052")
-            add_images_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
-                                     frame_of_reference=frame_of_ref, path=self.PathDicom,
-                                     series_instance_uid=reader.GetMetaData("0020|000e"))
         image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
         RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
         for lstRSFile in RT_Files:
@@ -473,10 +467,8 @@ class DicomReaderWriter:
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
         sop_instance_UID_key = "0008|0018"
-        frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
         add_images_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
-                                 frame_of_reference=frame_of_ref, path=self.PathDicom,
-                                 series_instance_uid=self.reader.GetMetaData(0, "0020|000e"))
+                                 sitk_dicom_reader=self.reader, path=self.PathDicom)
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
         if max(self.flip_axes):
