@@ -153,6 +153,7 @@ class DicomReaderWriter:
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param kwargs:
         """
+        self.Frames_of_Reference = {}
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
@@ -442,6 +443,11 @@ class DicomReaderWriter:
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
         sop_instance_UID_key = "0008|0018"
+        frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
+        if frame_of_ref not in self.Frames_of_Reference.keys():
+            self.Frames_of_Reference[frame_of_ref] = {'Images': [self.PathDicom], 'RTs': []}
+        else:
+            self.Frames_of_Reference[frame_of_ref]['Images'] += [self.PathDicom]
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
         if max(self.flip_axes):
