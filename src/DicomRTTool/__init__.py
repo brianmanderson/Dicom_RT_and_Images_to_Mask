@@ -134,7 +134,7 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
-def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series_instance_uid, dicom_type):
+def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series_instance_uid, dicom_type='Images'):
     """
     :param frames_of_reference_dict: dictionary of frames_of_reference
     :param frame_of_reference: a unique frame of reference
@@ -144,7 +144,7 @@ def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series
     """
     if frame_of_reference not in frames_of_reference_dict.keys():
         frames_of_reference_dict[frame_of_reference] = {'Images': [], 'Images_Series_UIDs': [],
-                                                        'RT': [], 'RT_Series_UID': []}
+                                                        'RT': [], 'RT_Series_UIDs': []}
     if dicom_type == 'Images':
         key = 'Images'
     else:
