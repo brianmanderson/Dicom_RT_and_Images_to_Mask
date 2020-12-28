@@ -288,11 +288,18 @@ class DicomReaderWriter:
         self.reader.SetFileNames(self.dicom_names)
         self.RefDs = pydicom.read_file(self.dicom_names[0])
         self.ds = pydicom.read_file(self.dicom_names[0])
-        if not self.get_images_mask:
+        reader = sitk.ImageFileReader()
+        if self.get_images_mask:
             self.get_images()
+        else:
+            reader.SetFileName(self.dicom_names[0])
+            reader.ReadImageInformation()
+            frame_of_ref = reader.GetMetaData("0020|0052")
+            add_images_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
+                                     frame_of_reference=frame_of_ref, path=self.PathDicom,
+                                     series_instance_uid=reader.GetMetaData("0020|000e"))
         image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
         RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
-        reader = sitk.ImageFileReader()
         for lstRSFile in RT_Files:
             reader.SetFileName(lstRSFile)
             try:
@@ -467,9 +474,9 @@ class DicomReaderWriter:
         self.dicom_handle = self.reader.Execute()
         sop_instance_UID_key = "0008|0018"
         frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
-        add_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
-                          frame_of_reference=frame_of_ref, path=self.PathDicom,
-                          series_instance_uid=self.reader.GetMetaData(0, "0020|000e"), dicom_type='Images')
+        add_images_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
+                                 frame_of_reference=frame_of_ref, path=self.PathDicom,
+                                 series_instance_uid=self.reader.GetMetaData(0, "0020|000e"))
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
         if max(self.flip_axes):
