@@ -134,6 +134,25 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
+def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series_instance_uid, dicom_type):
+    """
+    :param frames_of_reference_dict: dictionary of frames_of_reference
+    :param frame_of_reference: a unique frame of reference
+    :param path: path to the images or structure in question
+    :param series_instance_uid: series instance UID for the object in question
+    :param dicom_type: "RT" or "Image"
+    """
+    if frame_of_reference not in frames_of_reference_dict.keys():
+        frames_of_reference_dict[frame_of_reference] = {'Images': [], 'Image_Series_UIDs': [],
+                                                        'RTs': [], 'RT_Series_UID': []}
+    elif dicom_type == 'Image':
+        frames_of_reference_dict[frame_of_reference]['Images'].append(path)
+        frames_of_reference_dict[frame_of_reference]['Image_Series_UIDs'].append(series_instance_uid)
+    elif dicom_type == 'RT':
+        frames_of_reference_dict[frame_of_reference]['RTs'].append(path)
+        frames_of_reference_dict[frame_of_reference]['RT_Series_UID'].append(series_instance_uid)
+
+
 class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
                  template_dir=None, get_images_mask=True, arg_max=True, create_new_RT=True, require_all_contours=True,
@@ -280,13 +299,20 @@ class DicomReaderWriter:
                 try:
                     reader.ReadImageInformation()
                     modality = reader.GetMetaData("0008|0060")
+                    frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
+                    series_instance_uid = self.reader.GetMetaData(0, "0020|000e")
                 except:
-                    modality = pydicom.read_file(lstRSFile).Modality
+                    rt = pydicom.read_file(lstRSFile)
+                    modality = rt.Modality
+                    frame_of_ref = rt.FrameOfReferenceUID
+                    series_instance_uid = rt.SeriesInstanceUID
                 if modality.lower().find('dose') != -1:
                     self.RDs_in_case[lstRSFile] = []
                 elif modality.lower().find('struct') != -1:
                     self.RTs_in_case[lstRSFile] = []
-
+                    add_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
+                                      frame_of_reference=frame_of_ref, path=lstRSFile,
+                                      series_instance_uid=series_instance_uid, dicom_type='RT')
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
         if len(self.RTs_in_case.keys()) > 0:
@@ -444,10 +470,9 @@ class DicomReaderWriter:
         self.dicom_handle = self.reader.Execute()
         sop_instance_UID_key = "0008|0018"
         frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
-        if frame_of_ref not in self.Frames_of_Reference.keys():
-            self.Frames_of_Reference[frame_of_ref] = {'Images': [self.PathDicom], 'RTs': []}
-        else:
-            self.Frames_of_Reference[frame_of_ref]['Images'] += [self.PathDicom]
+        add_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
+                          frame_of_reference=frame_of_ref, path=self.PathDicom,
+                          series_instance_uid=self.reader.GetMetaData(0, "0020|000e"), dicom_type='Image')
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
         if max(self.flip_axes):
