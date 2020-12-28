@@ -143,14 +143,16 @@ def add_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series
     :param dicom_type: "RT" or "Image"
     """
     if frame_of_reference not in frames_of_reference_dict.keys():
-        frames_of_reference_dict[frame_of_reference] = {'Images': [], 'Image_Series_UIDs': [],
+        frames_of_reference_dict[frame_of_reference] = {'Images': [], 'Images_Series_UIDs': [],
                                                         'RTs': [], 'RT_Series_UID': []}
-    elif dicom_type == 'Image':
-        frames_of_reference_dict[frame_of_reference]['Images'].append(path)
-        frames_of_reference_dict[frame_of_reference]['Image_Series_UIDs'].append(series_instance_uid)
-    elif dicom_type == 'RT':
-        frames_of_reference_dict[frame_of_reference]['RTs'].append(path)
-        frames_of_reference_dict[frame_of_reference]['RT_Series_UID'].append(series_instance_uid)
+    if dicom_type == 'Image':
+        key = 'Images'
+    else:
+        key = 'RT'
+    series_key = '{}_Series_UIDs'.format(key)
+    if series_instance_uid not in frames_of_reference_dict[frame_of_reference][series_key]:
+        frames_of_reference_dict[frame_of_reference][key].append(path)
+        frames_of_reference_dict[frame_of_reference][series_key].append(series_instance_uid)
 
 
 class DicomReaderWriter:
