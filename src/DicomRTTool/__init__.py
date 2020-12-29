@@ -431,10 +431,12 @@ class DicomReaderWriter:
     def get_mask(self, index=0):
         assert index in self.series_instances_dictionary, 'You need to pass a valid index!'
         self.mask = np.zeros(
-            [self.reader.__sizeof__(), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+            [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
-        for RT_key in self.RTs_in_case:
-            ROIName_Number = self.RTs_in_case[RT_key]
+        RTs = self.series_instances_dictionary[index]['RTs']
+        for RT_key in RTs:
+            RT = RTs[RT_key]
+            ROIName_Number = RT['ROIs_in_structure']
             RS_struct = None
             self.structure_references = {}
             for ROI_Name in ROIName_Number.keys():
@@ -445,11 +447,11 @@ class DicomReaderWriter:
                     true_name = self.associations[ROI_Name.lower()]
                 if true_name and true_name in self.Contour_Names:
                     if RS_struct is None:
-                        self.RS_struct = RS_struct = pydicom.read_file(RT_key)
+                        self.RS_struct = RS_struct = pydicom.read_file(RT['Path'])
                     for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                         self.structure_references[
                             self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-                    index = self.structure_references[self.RTs_in_case[RT_key][ROI_Name]]
+                    index = self.structure_references[ROIName_Number[ROI_Name]]
                     mask = self.contours_to_mask(index)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
@@ -468,7 +470,7 @@ class DicomReaderWriter:
         return None
 
     def contours_to_mask(self, index):
-        mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols], dtype='int8')
+        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
             as_array = np.asarray(Contour_data[i].ContourData[:])
@@ -508,7 +510,7 @@ class DicomReaderWriter:
             series_instance_uids.append(value['SeriesInstanceUID'])
         index = keys[series_instance_uids.index(series_instance_uid)]
         self.SOPInstanceUIDs = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in
-                                range(sitk_dicom_reader.__sizeof__())]
+                                range(len(sitk_dicom_reader.GetFileNames()))]
         temp_dict = {'SOP_Instance_UIDs': self.SOPInstanceUIDs}
         self.series_instances_dictionary[index].update(temp_dict)
 
