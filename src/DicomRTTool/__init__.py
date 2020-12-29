@@ -295,6 +295,7 @@ class DicomReaderWriter:
         :param ds: pydicom data structure
         :param path: path to the images or structure in question
         """
+        series_instance_uid = ds.SeriesInstanceUID
         for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
             for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
                 for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
@@ -318,7 +319,8 @@ class DicomReaderWriter:
                             self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [path]
                         else:
                             self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(path)
-                    temp_dict = {path: {'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure}}
+                    temp_dict = {series_instance_uid: {'Path': path, 'ROI_Names': rois,
+                                                       'ROIs_in_structure': rois_in_structure}}
                     self.all_RTs[path] = rois_in_structure
                     self.RTs_in_case[path] = rois_in_structure
                     self.series_instances_dictionary[referenced_series_instance_uid]['RTs'].update(temp_dict)
