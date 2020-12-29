@@ -167,16 +167,15 @@ def return_template_dictionary():
 
 
 class DicomReaderWriter:
-    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
-                 template_dir=None, get_images_mask=False, arg_max=True, create_new_RT=True, require_all_contours=True,
-                 associations={}, desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False),
+    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
+                 template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
+                 desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False),
                  **kwargs):
         """
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
         :param delete_previous_rois: delete the previous RTs within the structure
         :param Contour_Names: list of contour nmes
         :param template_dir: default to None, specifies path to template RT structure
-        :param get_images_mask: boolean, load the images and mask
         :param arg_max: perform argmax on the mask
         :param require_all_contours: Boolean, require all contours present when making nifti files?
         :param associations: dictionary of associations {'liver_bma_program_4': 'liver'}
@@ -194,7 +193,6 @@ class DicomReaderWriter:
         self.associations = associations
         self.set_contour_names(Contour_Names)
         self.set_associations(associations)
-        self.set_get_images_and_mask(get_images_mask)
         self.set_description(desc)
         self.set_iteration(iteration)
         self.arg_max = arg_max
@@ -205,12 +203,12 @@ class DicomReaderWriter:
         self.template_dir = template_dir
         self.template = True
         self.delete_previous_rois = delete_previous_rois
-        self.get_images_mask = get_images_mask
         self.reader = sitk.ImageSeriesReader()
         self.image_reader = sitk.ImageFileReader()
         self.image_reader.LoadPrivateTagsOn()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
+        self.verbose = verbose
         self.__reset__()
 
     def __reset__(self):
@@ -252,10 +250,11 @@ class DicomReaderWriter:
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
                 self.add_dicom_to_dictionary(root)
-        for key in self.series_instances_dictionary:
-            print('Index {}, description {}\n'.format(key, self.series_instances_dictionary[key]['Description']))
-        print('{} unique series IDs were found, to load one please use the'
-              ' read_images(index), default is 0'.format(len(self.series_instances_dictionary)))
+        if self.verbose:
+            for key in self.series_instances_dictionary:
+                print('Index {}, description {}'.format(key, self.series_instances_dictionary[key]['Description']))
+            print('{} unique series IDs were found, to load one please use the'
+                  ' read_images(index), default is 0'.format(len(self.series_instances_dictionary)))
         return None
 
     def where_are_RTs(self, ROIName):
@@ -284,16 +283,16 @@ class DicomReaderWriter:
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
-        self.dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
-        if self.dicom_names:
-            self.reader.SetFileNames(self.dicom_names)
-            self.image_reader.SetFileName(self.dicom_names[0])
+        dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
+        if dicom_names:
+            self.reader.SetFileNames(dicom_names)
+            self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
-            self.RefDs = pydicom.read_file(self.dicom_names[0])
-            self.ds = pydicom.read_file(self.dicom_names[0])
+            self.RefDs = pydicom.read_file(dicom_names[0])
+            self.ds = pydicom.read_file(dicom_names[0])
             add_images_to_dictionary(series_instances_dictionary=self.series_instances_dictionary,
                                      sitk_dicom_reader=self.image_reader, path=self.PathDicom)
-        image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
+        image_files = [i.split(PathDicom)[1][1:] for i in dicom_names]
         RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
@@ -408,10 +407,31 @@ class DicomReaderWriter:
         df = pd.DataFrame(final_out_dict)
         df.to_excel(excel_file,index=0)
 
+    def get_images_and_mask(self, index=0):
+        assert index in self.series_instances_dictionary, 'You need to pass an index that is present in the dictionary!'
+        self.get_images(index=index)
+        self.get_mask(index=index)
 
-    def get_mask(self):
+    def get_images(self, index=0):
+        assert index in self.series_instances_dictionary, 'You need to pass an index that is present in the dictionary!'
+        if self.verbose:
+            print('Loading images for {}'.format(self.series_instances_dictionary[index]['Description']))
+        dicom_path = self.series_instances_dictionary[index]['Image_Path']
+        dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
+        self.reader.SetFileNames(dicom_names)
+        self.dicom_handle = self.reader.Execute()
+        self.add_sops_to_dictionary(sitk_dicom_reader=self.reader)
+        if max(self.flip_axes):
+            flipimagefilter = sitk.FlipImageFilter()
+            flipimagefilter.SetFlipAxes(self.flip_axes)
+            self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
+        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
+        self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+
+    def get_mask(self, index=0):
+        assert index in self.series_instances_dictionary, 'You need to pass a valid index!'
         self.mask = np.zeros(
-            [len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+            [self.reader.__sizeof__(), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
         for RT_key in self.RTs_in_case:
             ROIName_Number = self.RTs_in_case[RT_key]
@@ -481,20 +501,16 @@ class DicomReaderWriter:
         :param sitk_dicom_reader: sitk.ImageSeriesReader()
         """
         series_instance_uid = sitk_dicom_reader.GetMetaData(0, "0020|000e")
+        keys = []
+        series_instance_uids = []
+        for key, value in self.series_instances_dictionary.items():
+            keys.append(key)
+            series_instance_uids.append(value['SeriesInstanceUID'])
+        index = keys[series_instance_uids.index(series_instance_uid)]
         self.SOPInstanceUIDs = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in
                                 range(sitk_dicom_reader.__sizeof__())]
         temp_dict = {'SOP_Instance_UIDs': self.SOPInstanceUIDs}
-        self.series_instances_dictionary[series_instance_uid].update(temp_dict)
-
-    def get_images(self, index=0):
-        self.dicom_handle = self.reader.Execute()
-        self.add_sops_to_dictionary(sitk_dicom_reader=self.reader)
-        if max(self.flip_axes):
-            flipimagefilter = sitk.FlipImageFilter()
-            flipimagefilter.SetFlipAxes(self.flip_axes)
-            self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
-        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
-        self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+        self.series_instances_dictionary[index].update(temp_dict)
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
