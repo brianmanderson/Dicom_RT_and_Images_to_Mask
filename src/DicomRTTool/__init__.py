@@ -134,26 +134,6 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
-def add_rt_to_dictionary(frames_of_reference_dict, frame_of_reference, path, series_instance_uid):
-    """
-    :param frames_of_reference_dict: dictionary of frames_of_reference
-    :param frame_of_reference: a unique frame of reference
-    :param path: path to the images or structure in question
-    :param series_instance_uid: series instance UID for the object in question
-    :param dicom_type: "RT" or "Images"
-    """
-    if frame_of_reference not in frames_of_reference_dict.keys():
-        frames_of_reference_dict[frame_of_reference] = {series_instance_uid: {'Images': {'Paths': [],
-                                                                                         'Series_UIDs': []},
-                                                                              'RTs': {}}}
-    if series_instance_uid not in frames_of_reference_dict[frame_of_reference]['RTs'].keys():
-        frames_of_reference_dict[frame_of_reference]['RTs'][series_instance_uid] = {'ROIs': []}
-    series_key = 'Images_Series_UIDs'
-    if series_instance_uid not in frames_of_reference_dict[frame_of_reference][series_key]:
-        frames_of_reference_dict[frame_of_reference]['Images'].append(path)
-        frames_of_reference_dict[frame_of_reference][series_key].append(series_instance_uid)
-
-
 def add_images_to_dictionary(frames_of_reference_dict, sitk_dicom_reader, path):
     """
     :param frames_of_reference_dict: dictionary of frames_of_reference
@@ -162,14 +142,14 @@ def add_images_to_dictionary(frames_of_reference_dict, sitk_dicom_reader, path):
     """
     frame_of_reference = sitk_dicom_reader.GetMetaData(0, "0020|0052")
     if frame_of_reference not in frames_of_reference_dict:
-        frames_of_reference_dict[frame_of_reference] = {}
-    temp_dict = frames_of_reference_dict[frame_of_reference]
+        frames_of_reference_dict[frame_of_reference] = {'Image': {}, 'RT': {}}
+    temp_dict = frames_of_reference_dict[frame_of_reference]['Image']
     series_instance_uid = sitk_dicom_reader.GetMetaData(0, "0020|000e")
     sop_instance_uids = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in range(sitk_dicom_reader.__sizeof__())]
     if series_instance_uid not in temp_dict:
         temp_dict[series_instance_uid] = {'Path': path, 'RTs': {},
                                           'SOP_Instance_UIDs': sop_instance_uids}
-    frames_of_reference_dict[frame_of_reference] = temp_dict
+    frames_of_reference_dict[frame_of_reference]['Image'] = temp_dict
 
 
 class DicomReaderWriter:
@@ -191,7 +171,7 @@ class DicomReaderWriter:
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param kwargs:
         """
-        self.Frames_of_Reference = {}
+        self.series_instances_dictionary = {}
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
@@ -299,26 +279,52 @@ class DicomReaderWriter:
             try:
                 reader.ReadImageInformation()
                 modality = reader.GetMetaData("0008|0060")
-                frame_of_ref = self.reader.GetMetaData(0, "0020|0052")
-                series_instance_uid = self.reader.GetMetaData(0, "0020|000e")
             except:
                 rt = pydicom.read_file(lstRSFile)
                 modality = rt.Modality
-                frame_of_ref = rt.FrameOfReferenceUID
-                series_instance_uid = rt.SeriesInstanceUID
             if modality.lower().find('dose') != -1:
                 self.RDs_in_case[lstRSFile] = []
             elif modality.lower().find('struct') != -1:
                 self.RTs_in_case[lstRSFile] = []
-                add_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
-                                  frame_of_reference=frame_of_ref, path=lstRSFile,
-                                  series_instance_uid=series_instance_uid, dicom_type='RT')
+                self.add_rt_to_dictionary(ds=rt, path=lstRSFile)
                 self.template = False
-                self.get_rois_from_RT(rt_structure=rt, file_path=lstRSFile)
         self.rois_in_case = []
         self.all_RTs.update(self.RTs_in_case)
         if self.get_images_mask and self.template:
             self.use_template()
+
+    def add_rt_to_dictionary(self, ds, path):
+        """
+        :param ds: pydicom data structure
+        :param path: path to the images or structure in question
+        """
+        series_instance_uid = ds.SeriesInstanceUID
+        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
+            for referred_study_sequence in referenced_frame_of_reference:
+                for referred_series in referred_study_sequence:
+                    referenced_series_instance_uid = referred_series.SeriesInstanceUID
+                    if referenced_series_instance_uid not in self.series_instances_dictionary:
+                        self.series_instances_dictionary[referenced_series_instance_uid] = {'Image': None, 'RTs': {},
+                                                                                            'Description': None}
+                    if Tag((0x3006, 0x020)) in ds.keys():
+                        ROI_Structure = ds.StructureSetROISequence
+                    else:
+                        ROI_Structure = []
+                    rois_in_structure = {}
+                    rois = []
+                    for Structures in ROI_Structure:
+                        rois.append(Structures.ROIName.lower())
+                        if Structures.ROIName not in self.rois_in_case:
+                            self.rois_in_case.append(Structures.ROIName)
+                            rois_in_structure[Structures.ROIName] = Structures.ROINumber
+                        if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
+                            self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [path]
+                        else:
+                            self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(path)
+                    temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure}
+                    self.all_RTs[path] = rois_in_structure
+                    self.RTs_in_case[path] = rois_in_structure
+                    self.series_instances_dictionary[referenced_series_instance_uid]['RTs'][series_instance_uid] = temp_dict
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
         out_path = os.path.join(out_path,self.desciption)
@@ -379,23 +385,6 @@ class DicomReaderWriter:
         df = pd.DataFrame(final_out_dict)
         df.to_excel(excel_file,index=0)
 
-    def get_rois_from_RT(self, rt_structure, file_path):
-        rois_in_structure = {}
-        self.RS_struct = rt_structure
-        if Tag((0x3006, 0x020)) in self.RS_struct.keys():
-            ROI_Structure = self.RS_struct.StructureSetROISequence
-        else:
-            ROI_Structure = []
-        for Structures in ROI_Structure:
-            if Structures.ROIName not in self.rois_in_case:
-                self.rois_in_case.append(Structures.ROIName)
-                rois_in_structure[Structures.ROIName] = Structures.ROINumber
-            if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
-                self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [file_path]
-            else:
-                self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(file_path)
-        self.all_RTs[file_path] = rois_in_structure
-        self.RTs_in_case[file_path] = rois_in_structure
 
     def get_mask(self):
         self.mask = np.zeros(
