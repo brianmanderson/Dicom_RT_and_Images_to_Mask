@@ -274,8 +274,6 @@ class DicomReaderWriter:
         self.ds = pydicom.read_file(self.dicom_names[0])
         add_images_to_dictionary(series_instances_dictionary=self.series_instances_dictionary,
                                  sitk_dicom_reader=self.image_reader, path=self.PathDicom)
-        if self.get_images_mask:
-            self.get_images()
         image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
         RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
         for lstRSFile in RT_Files:
@@ -297,10 +295,9 @@ class DicomReaderWriter:
         :param ds: pydicom data structure
         :param path: path to the images or structure in question
         """
-        series_instance_uid = ds.SeriesInstanceUID
         for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
-            for referred_study_sequence in referenced_frame_of_reference:
-                for referred_series in referred_study_sequence:
+            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
+                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
                     referenced_series_instance_uid = referred_series.SeriesInstanceUID
                     if referenced_series_instance_uid not in self.series_instances_dictionary:
                         self.series_instances_dictionary[referenced_series_instance_uid] = {'Image_Path': None,
@@ -315,17 +312,16 @@ class DicomReaderWriter:
                     rois = []
                     for Structures in ROI_Structure:
                         rois.append(Structures.ROIName.lower())
-                        if Structures.ROIName not in self.rois_in_case:
-                            self.rois_in_case.append(Structures.ROIName)
+                        if Structures.ROIName not in rois_in_structure:
                             rois_in_structure[Structures.ROIName] = Structures.ROINumber
                         if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
                             self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [path]
                         else:
                             self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(path)
-                    temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure}
+                    temp_dict = {path: {'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure}}
                     self.all_RTs[path] = rois_in_structure
                     self.RTs_in_case[path] = rois_in_structure
-                    self.series_instances_dictionary[referenced_series_instance_uid]['RTs'][series_instance_uid] = temp_dict
+                    self.series_instances_dictionary[referenced_series_instance_uid]['RTs'].update(temp_dict)
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
         out_path = os.path.join(out_path,self.desciption)
