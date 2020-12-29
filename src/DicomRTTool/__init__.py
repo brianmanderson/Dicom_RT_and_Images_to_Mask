@@ -134,22 +134,21 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
-def add_images_to_dictionary(frames_of_reference_dict, sitk_dicom_reader, path):
+def add_images_to_dictionary(series_instance_dictionary, sitk_dicom_reader, path):
     """
-    :param frames_of_reference_dict: dictionary of frames_of_reference
+    :param series_instance_dictionary: dictionary of frames_of_reference
     :param sitk_dicom_reader: sitk.ImageSeriesReader()
     :param path: path to the images or structure in question
     """
-    frame_of_reference = sitk_dicom_reader.GetMetaData(0, "0020|0052")
-    if frame_of_reference not in frames_of_reference_dict:
-        frames_of_reference_dict[frame_of_reference] = {'Image': {}, 'RT': {}}
-    temp_dict = frames_of_reference_dict[frame_of_reference]['Image']
     series_instance_uid = sitk_dicom_reader.GetMetaData(0, "0020|000e")
+    description = sitk_dicom_reader.GetMetaData(0, "0008|103e")
     sop_instance_uids = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in range(sitk_dicom_reader.__sizeof__())]
-    if series_instance_uid not in temp_dict:
-        temp_dict[series_instance_uid] = {'Path': path, 'RTs': {},
-                                          'SOP_Instance_UIDs': sop_instance_uids}
-    frames_of_reference_dict[frame_of_reference]['Image'] = temp_dict
+    temp_dict = {'Image': path, 'Description': description, 'SOP_Instance_UIDs': sop_instance_uids}
+    if series_instance_uid not in series_instance_dictionary:
+        temp_dict['RTs'] = {}
+        series_instance_dictionary[series_instance_uid] = temp_dict
+    else:
+        series_instance_dictionary[series_instance_uid].update(temp_dict)
 
 
 class DicomReaderWriter:
@@ -269,19 +268,13 @@ class DicomReaderWriter:
         self.reader.SetFileNames(self.dicom_names)
         self.RefDs = pydicom.read_file(self.dicom_names[0])
         self.ds = pydicom.read_file(self.dicom_names[0])
-        reader = sitk.ImageFileReader()
         if self.get_images_mask:
             self.get_images()
         image_files = [i.split(PathDicom)[1][1:] for i in self.dicom_names]
         RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
         for lstRSFile in RT_Files:
-            reader.SetFileName(lstRSFile)
-            try:
-                reader.ReadImageInformation()
-                modality = reader.GetMetaData("0008|0060")
-            except:
-                rt = pydicom.read_file(lstRSFile)
-                modality = rt.Modality
+            rt = pydicom.read_file(lstRSFile)
+            modality = rt.Modality
             if modality.lower().find('dose') != -1:
                 self.RDs_in_case[lstRSFile] = []
             elif modality.lower().find('struct') != -1:
@@ -305,7 +298,8 @@ class DicomReaderWriter:
                     referenced_series_instance_uid = referred_series.SeriesInstanceUID
                     if referenced_series_instance_uid not in self.series_instances_dictionary:
                         self.series_instances_dictionary[referenced_series_instance_uid] = {'Image': None, 'RTs': {},
-                                                                                            'Description': None}
+                                                                                            'Description': None,
+                                                                                            'SOP_Instance_UIDs': None}
                     if Tag((0x3006, 0x020)) in ds.keys():
                         ROI_Structure = ds.StructureSetROISequence
                     else:
@@ -456,7 +450,7 @@ class DicomReaderWriter:
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
         sop_instance_UID_key = "0008|0018"
-        add_images_to_dictionary(frames_of_reference_dict=self.Frames_of_Reference,
+        add_images_to_dictionary(frames_of_reference_dict=self.series_instances_dictionary,
                                  sitk_dicom_reader=self.reader, path=self.PathDicom)
         self.SOPInstanceUIDs = [self.reader.GetMetaData(i, sop_instance_UID_key) for i in
                                 range(self.dicom_handle.GetDepth())]
