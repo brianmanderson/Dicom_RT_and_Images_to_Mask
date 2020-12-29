@@ -454,25 +454,19 @@ class DicomReaderWriter:
         print('Running off a template')
         self.change_template()
 
-    def add_sops_to_dictionary(self, sitk_dicom_reader, path):
+    def add_sops_to_dictionary(self, sitk_dicom_reader):
         """
         :param sitk_dicom_reader: sitk.ImageSeriesReader()
-        :param path: path to the images or structure in question
         """
         series_instance_uid = sitk_dicom_reader.GetMetaData(0, "0020|000e")
-        description = sitk_dicom_reader.GetMetaData(0, "0008|103e")
         self.SOPInstanceUIDs = [sitk_dicom_reader.GetMetaData(i, "0008|0018") for i in
                                 range(sitk_dicom_reader.__sizeof__())]
-        temp_dict = {'Image_Path': path, 'Description': description, 'SOP_Instance_UIDs': self.SOPInstanceUIDs}
-        if series_instance_uid not in self.series_instances_dictionary:
-            temp_dict['RTs'] = {}
-            self.series_instances_dictionary[series_instance_uid] = temp_dict
-        else:
-            self.series_instances_dictionary[series_instance_uid].update(temp_dict)
+        temp_dict = {'SOP_Instance_UIDs': self.SOPInstanceUIDs}
+        self.series_instances_dictionary[series_instance_uid].update(temp_dict)
 
     def get_images(self):
         self.dicom_handle = self.reader.Execute()
-        self.add_sops_to_dictionary(sitk_dicom_reader=self.reader, path=self.PathDicom)
+        self.add_sops_to_dictionary(sitk_dicom_reader=self.reader)
         if max(self.flip_axes):
             flipimagefilter = sitk.FlipImageFilter()
             flipimagefilter.SetFlipAxes(self.flip_axes)
