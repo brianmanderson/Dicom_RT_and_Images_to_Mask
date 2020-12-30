@@ -380,7 +380,9 @@ class DicomReaderWriter:
                         index = 0
                         while index in self.series_instances_dictionary:
                             index += 1
-                        self.series_instances_dictionary[index] = return_template_dictionary()
+                        temp_dict = return_template_dictionary()
+                        temp_dict['SeriesInstanceUID'] = refed_series_instance_uid
+                        self.series_instances_dictionary[index] = temp_dict
                     else:
                         index = keys[series_instance_uids.index(refed_series_instance_uid)]
                     if series_instance_uid not in self.series_instances_dictionary[index]['RTs']:
