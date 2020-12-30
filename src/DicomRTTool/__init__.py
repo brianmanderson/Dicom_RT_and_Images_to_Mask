@@ -272,6 +272,10 @@ class DicomReaderWriter:
         self.iteration = str(iteration)
 
     def down_folder(self, input_path):
+        print('Please move over to walk_through_folders()')
+        self.walk_through_folders(input_path=input_path)
+
+    def walk_through_folders(self, input_path):
         """
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
@@ -279,7 +283,7 @@ class DicomReaderWriter:
         for root, dirs, files in os.walk(input_path):
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
-                self.add_dicom_to_dictionary(root)
+                self.add_dicom_to_dictionary_from_path(root)
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
@@ -287,6 +291,8 @@ class DicomReaderWriter:
                                                               self.series_instances_dictionary[key]['Image_Path']))
             print('{} unique series IDs were found. Default is index 0, to change use '
                   '__set_index__(index)'.format(len(self.series_instances_dictionary)))
+        if len(self.series_instances_dictionary) == 1:
+            self.get_images_and_mask()  # If there is only one, load the images and the mask
         self.check_if_all_contours_present()
         return None
 
@@ -336,7 +342,7 @@ class DicomReaderWriter:
                 print(roi)
         return self.all_rois
 
-    def add_dicom_to_dictionary(self, PathDicom):
+    def add_dicom_to_dictionary_from_path(self, PathDicom):
         self.PathDicom = PathDicom
         self.lstFilesDCM = []
         self.lstRSFile = None
@@ -482,23 +488,25 @@ class DicomReaderWriter:
         assert self.index in self.series_instances_dictionary,\
             'Index is not present in the dictionary! Set it using __set_index__(index)'
         index = self.index
-        if self.verbose:
-            print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
-                                                            self.series_instances_dictionary[index]['Image_Path']))
-        self.dicom_handle_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
-        dicom_path = self.series_instances_dictionary[index]['Image_Path']
-        dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
-        self.ds = pydicom.read_file(dicom_names[0])
-        self.reader.SetFileNames(dicom_names)
-        self.dicom_handle = self.reader.Execute()
-        add_sops_to_dictionary(sitk_dicom_reader=self.reader,
-                               series_instances_dictionary=self.series_instances_dictionary)
-        if max(self.flip_axes):
-            flipimagefilter = sitk.FlipImageFilter()
-            flipimagefilter.SetFlipAxes(self.flip_axes)
-            self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
-        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
-        self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+        if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Only load if needed
+            if self.verbose:
+                print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
+                                                                self.series_instances_dictionary[index]['Image_Path']))
+
+            dicom_path = self.series_instances_dictionary[index]['Image_Path']
+            dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
+            self.ds = pydicom.read_file(dicom_names[0])
+            self.reader.SetFileNames(dicom_names)
+            self.dicom_handle = self.reader.Execute()
+            add_sops_to_dictionary(sitk_dicom_reader=self.reader,
+                                   series_instances_dictionary=self.series_instances_dictionary)
+            if max(self.flip_axes):
+                flipimagefilter = sitk.FlipImageFilter()
+                flipimagefilter.SetFlipAxes(self.flip_axes)
+                self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
+            self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
+            self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+            self.dicom_handle_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
 
     def get_mask(self):
         assert self.index in self.series_instances_dictionary,\
@@ -508,6 +516,8 @@ class DicomReaderWriter:
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
+        if self.RS_struct_uid == self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Already loaded
+            return None
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
@@ -858,20 +868,12 @@ class DicomReaderWriter:
             self.dose_handles.append(output)
 
     def Make_Contour_From_directory(self, PathDicom):
-        print('Please move over to using make_contour_from_directory')
-        self.make_contour_from_directory(dicom_path=PathDicom)
+        print('Please move over to using add_dicom_to_dictionary_from_path')
+        self.add_dicom_to_dictionary_from_path(PathDicom=PathDicom)
 
     def make_contour_from_directory(self, dicom_path):
-        self.make_array(dicom_path)
-        # if self.rewrite_RT_file:
-        #     self.rewrite_RT()
-        # if self.get_images_mask and self.Contour_Names is not None:
-        #     self.mask = np.zeros([len(self.dicom_names), self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-        #                          dtype='int8')
-        #     if not self.template:
-        #         self.get_mask()
-        # if self.get_dose_output:
-        #     self.get_dose()
+        print('Please move over to using add_dicom_to_dictionary_from_path')
+        self.add_dicom_to_dictionary_from_path(PathDicom=dicom_path)
         return None
 
     def rewrite_RT(self, lstRSFile=None):
