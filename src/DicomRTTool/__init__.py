@@ -228,6 +228,7 @@ class DicomReaderWriter:
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
         self.verbose = verbose
+        self.dicom_handle_uid = None
         self.__reset__()
 
     def __reset__(self):
@@ -472,7 +473,9 @@ class DicomReaderWriter:
     def get_images(self, index=0):
         assert index in self.series_instances_dictionary, 'You need to pass an index that is present in the dictionary!'
         if self.verbose:
-            print('Loading images for {}'.format(self.series_instances_dictionary[index]['Description']))
+            print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
+                                                            self.series_instances_dictionary[index]['Image_Path']))
+        self.dicom_handle_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
         dicom_path = self.series_instances_dictionary[index]['Image_Path']
         dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
         self.reader.SetFileNames(dicom_names)
@@ -488,7 +491,9 @@ class DicomReaderWriter:
 
     def get_mask(self, index=0):
         assert index in self.series_instances_dictionary, 'You need to pass a valid index!'
-        if self.series_instances_dictionary[index]['SOP_Instance_UIDs'] is None:
+        if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
+            print('Loading images for index {}, since mask was requested but image loading was '
+                  'previously different\n'.format(index))
             self.get_images(index=index)
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
