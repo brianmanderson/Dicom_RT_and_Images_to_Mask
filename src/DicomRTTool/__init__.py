@@ -187,7 +187,7 @@ def return_template_dictionary():
 class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
-                 desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False),
+                 desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
                  **kwargs):
         """
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
@@ -230,7 +230,11 @@ class DicomReaderWriter:
         self.verbose = verbose
         self.dicom_handle_uid = None
         self.RS_struct_uid = None
+        self.index = index
         self.__reset__()
+
+    def __set_index__(self, index):
+        self.index = index
 
     def __reset__(self):
         self.all_RTs = {}
@@ -276,13 +280,13 @@ class DicomReaderWriter:
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
                 self.add_dicom_to_dictionary(root)
-        if self.verbose:
+        if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
                                                               self.series_instances_dictionary[key]['Description'],
                                                               self.series_instances_dictionary[key]['Image_Path']))
-            print('{} unique series IDs were found, to load one please use the'
-                  ' read_images(index), default is 0'.format(len(self.series_instances_dictionary)))
+            print('{} unique series IDs were found. Default is index 0, to change use '
+                  '__set_index__(index)'.format(len(self.series_instances_dictionary)))
         self.check_if_all_contours_present()
         return None
 
@@ -468,13 +472,16 @@ class DicomReaderWriter:
         df = pd.DataFrame(final_out_dict)
         df.to_excel(excel_file,index=0)
 
-    def get_images_and_mask(self, index=0):
-        assert index in self.series_instances_dictionary, 'You need to pass an index that is present in the dictionary!'
-        self.get_images(index=index)
-        self.get_mask(index=index)
+    def get_images_and_mask(self):
+        assert self.index in self.series_instances_dictionary,\
+            'Index is not present in the dictionary! Set it using __set_index__(index)'
+        self.get_images()
+        self.get_mask()
 
-    def get_images(self, index=0):
-        assert index in self.series_instances_dictionary, 'You need to pass an index that is present in the dictionary!'
+    def get_images(self):
+        assert self.index in self.series_instances_dictionary,\
+            'Index is not present in the dictionary! Set it using __set_index__(index)'
+        index = self.index
         if self.verbose:
             print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
                                                             self.series_instances_dictionary[index]['Image_Path']))
@@ -493,12 +500,14 @@ class DicomReaderWriter:
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
 
-    def get_mask(self, index=0):
-        assert index in self.series_instances_dictionary, 'You need to pass a valid index!'
+    def get_mask(self):
+        assert self.index in self.series_instances_dictionary,\
+            'Index is not present in the dictionary! Set it using __set_index__(index)'
+        index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
-            self.get_images(index=index)
+            self.get_images()
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
@@ -598,7 +607,7 @@ class DicomReaderWriter:
         fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
         fid.close()
 
-    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names, index=0):
+    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names):
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
@@ -610,9 +619,12 @@ class DicomReaderWriter:
         assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
                                                                  ' 0 is background'
-        assert index in self.series_instances_dictionary, 'Requested index is not present in the dictionary'
+        assert self.index in self.series_instances_dictionary, \
+            'Index is not present in the dictionary! Set it using __set_index__(index)'
+        index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
-            self.get_images(index=index)
+            self.get_images()
+        self.SOPInstanceUIDs = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
 
         if self.create_new_RT or len(self.series_instances_dictionary[index]['RTs']) == 0:
             self.use_template()
@@ -623,7 +635,6 @@ class DicomReaderWriter:
                 self.RS_struct_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
                 break
 
-        self.SOPInstanceUIDs = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
         prediction_array = np.squeeze(prediction_array)
         contour_values = np.max(prediction_array, axis=0) # See what the maximum value is across the prediction array
         while len(contour_values.shape) > 1:
@@ -650,6 +661,7 @@ class DicomReaderWriter:
         self.mask_to_contours()
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
+        print('Please move over to using prediction_array_to_RT')
         self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
     def mask_to_contours(self):
