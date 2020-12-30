@@ -278,7 +278,9 @@ class DicomReaderWriter:
                 self.add_dicom_to_dictionary(root)
         if self.verbose:
             for key in self.series_instances_dictionary:
-                print('Index {}, description {}'.format(key, self.series_instances_dictionary[key]['Description']))
+                print('Index {}, description {} at {}'.format(key,
+                                                              self.series_instances_dictionary[key]['Description'],
+                                                              self.series_instances_dictionary[key]['Image_Path']))
             print('{} unique series IDs were found, to load one please use the'
                   ' read_images(index), default is 0'.format(len(self.series_instances_dictionary)))
         self.check_if_all_contours_present()
@@ -629,8 +631,8 @@ class DicomReaderWriter:
         contour_values[0] = 1  # Keep background
         prediction_array = prediction_array[..., contour_values == 1]
         contour_values = contour_values[1:]
+        not_contained = list(np.asarray(ROI_Names)[contour_values == 0])
         ROI_Names = list(np.asarray(ROI_Names)[contour_values == 1])
-        not_contained = np.asarray(ROI_Names)[contour_values == 0]
         if not_contained:
             print('RT Structure not made for ROIs {}, given prediction_array had no mask'.format(not_contained))
         self.image_size_z, self.image_size_rows, self.image_size_cols = prediction_array.shape[:3]
@@ -766,7 +768,7 @@ class DicomReaderWriter:
                 self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-
+        self.RS_struct.SeriesInstanceUID = pydicom.uid.generate_uid(prefix='1.2.826.0.1.3680043.8.498.')
         out_name = os.path.join(self.output_dir,
                                 'RS_MRN' + self.RS_struct.PatientID + '_' + self.RS_struct.SeriesInstanceUID + '.dcm')
         if os.path.exists(out_name):
