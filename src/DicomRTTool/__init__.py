@@ -229,6 +229,7 @@ class DicomReaderWriter:
         self.reader.LoadPrivateTagsOn()
         self.verbose = verbose
         self.dicom_handle_uid = None
+        self.RS_struct_uid = None
         self.__reset__()
 
     def __reset__(self):
@@ -345,8 +346,6 @@ class DicomReaderWriter:
             self.reader.SetFileNames(dicom_names)
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
-            self.RefDs = pydicom.read_file(dicom_names[0])
-            self.ds = pydicom.read_file(dicom_names[0])
             add_images_to_dictionary(series_instances_dictionary=self.series_instances_dictionary,
                                      sitk_dicom_reader=self.image_reader, path=self.PathDicom)
         image_files = [i.split(PathDicom)[1][1:] for i in dicom_names]
@@ -478,6 +477,7 @@ class DicomReaderWriter:
         self.dicom_handle_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
         dicom_path = self.series_instances_dictionary[index]['Image_Path']
         dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
+        self.ds = pydicom.read_file(dicom_names[0])
         self.reader.SetFileNames(dicom_names)
         self.dicom_handle = self.reader.Execute()
         add_sops_to_dictionary(sitk_dicom_reader=self.reader,
@@ -513,6 +513,7 @@ class DicomReaderWriter:
                 if true_name and true_name in self.Contour_Names:
                     if RS_struct is None:
                         self.RS_struct = RS_struct = pydicom.read_file(RT['Path'])
+                        self.RS_struct_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
                     for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                         self.structure_references[
                             self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
@@ -601,18 +602,24 @@ class DicomReaderWriter:
         :param index: index of the series instance UID to match with
         :return:
         """
-        if self.create_new_RT:
-            self.use_template()
         assert ROI_Names is not None, 'You need to provide ROI_Names'
         assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
                                                                  ' 0 is background'
         assert index in self.series_instances_dictionary, 'Requested index is not present in the dictionary'
-        sop_instance_uids = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
-        if sop_instance_uids is None:
+        if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             self.get_images(index=index)
-            sop_instance_uids = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
-        self.SOPInstanceUIDs = sop_instance_uids
+
+        if self.create_new_RT or len(self.series_instances_dictionary[index]['RTs']) == 0:
+            self.use_template()
+        elif self.RS_struct_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
+            RTs = self.series_instances_dictionary[index]['RTs']
+            for uid_key in RTs:
+                self.RS_struct = pydicom.read_file(RTs[uid_key]['Path'])
+                self.RS_struct_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+                break
+
+        self.SOPInstanceUIDs = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
         prediction_array = np.squeeze(prediction_array)
         contour_values = np.max(prediction_array, axis=0) # See what the maximum value is across the prediction array
         while len(contour_values.shape) > 1:
@@ -621,9 +628,9 @@ class DicomReaderWriter:
         prediction_array = prediction_array[..., contour_values == 1]
         contour_values = contour_values[1:]
         ROI_Names = list(np.asarray(ROI_Names)[contour_values == 1])
-
-        if not ROI_Names:
-            print('RT Structure not made for {}, given prediction_array had no mask')
+        not_contained = np.asarray(ROI_Names)[contour_values == 0]
+        if not_contained:
+            print('RT Structure not made for ROIs {}, given prediction_array had no mask'.format(not_contained))
         self.image_size_z, self.image_size_rows, self.image_size_cols = prediction_array.shape[:3]
         self.ROI_Names = ROI_Names
         self.output_dir = output_dir
@@ -642,7 +649,6 @@ class DicomReaderWriter:
         self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
     def mask_to_contours(self):
-        self.RefDs = self.ds
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
