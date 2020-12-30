@@ -289,7 +289,8 @@ class DicomReaderWriter:
             true_rois = []
             self.rois_in_case = []
             for RT_key in RTs:
-                ROI_Names = RTs[RT_key]['ROI_Names']
+                RT = RTs[RT_key]
+                ROI_Names = RT['ROI_Names']
                 for roi in ROI_Names:
                     if roi.lower() not in self.rois_in_case:
                         self.rois_in_case.append(roi.lower())
@@ -303,7 +304,9 @@ class DicomReaderWriter:
             self.all_contours_exist = True
             for roi in self.Contour_Names:
                 if roi not in true_rois:
-                    print('Lacking {} in index {}, location {}'.format(roi, index, self.series_instances_dictionary[index]['RTs']['Path']))
+                    print('Lacking {} in index {}, location {}'.format(roi, index,
+                                                                       self.series_instances_dictionary[index]
+                                                                       ['Image_Path']))
                     print('Found {}'.format(self.rois_in_case))
                     self.all_contours_exist = False
             if index not in self.indexes_with_contours:
@@ -485,6 +488,8 @@ class DicomReaderWriter:
 
     def get_mask(self, index=0):
         assert index in self.series_instances_dictionary, 'You need to pass a valid index!'
+        if self.series_instances_dictionary[index]['SOP_Instance_UIDs'] is None:
+            self.get_images(index=index)
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
@@ -597,8 +602,12 @@ class DicomReaderWriter:
         assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
                                                                  ' 0 is background'
-        assert index in self.series_instances_dictionary, 'You probably need to load the images, run "get_images()'
-        self.SOPInstanceUIDs = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
+        assert index in self.series_instances_dictionary, 'Requested index is not present in the dictionary'
+        sop_instance_uids = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
+        if sop_instance_uids is None:
+            self.get_images(index=index)
+            sop_instance_uids = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
+        self.SOPInstanceUIDs = sop_instance_uids
         prediction_array = np.squeeze(prediction_array)
         contour_values = np.max(prediction_array, axis=0) # See what the maximum value is across the prediction array
         while len(contour_values.shape) > 1:
