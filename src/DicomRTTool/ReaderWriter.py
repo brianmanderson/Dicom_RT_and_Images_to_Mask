@@ -10,6 +10,7 @@ from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
+import copy
 from .Viewer import plot_scroll_Image
 
 def contour_worker(A):
