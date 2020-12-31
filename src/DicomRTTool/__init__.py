@@ -80,27 +80,21 @@ def contour_worker(A):
 
 
 def worker_def(A):
-    q, key_dict, final_out_dict = A
-    base_class = DicomReaderWriter(**key_dict)
+    q = A[0]
     while True:
         item = q.get()
         if item is None:
             break
         else:
-            path, iteration, index, out_path = item
-            print(path)
+            iteration, index, out_path, key_dict = item
+            base_class = DicomReaderWriter(**key_dict)
             try:
                 base_class.__set_index__(index)
                 base_class.get_images_and_mask()
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
-                if iteration not in final_out_dict['Iteration']:
-                    final_out_dict['PatientID'].append(base_class.ds.PatientID)
-                    final_out_dict['Iteration'].append(iteration)
-                    final_out_dict['Path'].append(path)
-                    final_out_dict['Folder'].append('')
             except:
-                print('failed on {}'.format(path))
+                print('failed on {}'.format(base_class.series_instances_dictionary[index]['Image_Path']))
             q.task_done()
 
 
@@ -440,7 +434,7 @@ class DicomReaderWriter:
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
                     'desc': self.desciption, 'get_dose_output': True}
-        A = [q, key_dict, final_out_dict]
+        A = (q,)
         threads = []
         for worker in range(thread_count):
             t = Thread(target=worker_def, args=(A,))
@@ -477,51 +471,19 @@ class DicomReaderWriter:
             folder = previous_run['Folder'].values[0]
             if pd.isnull(folder):
                 folder = None
+            write_path = out_path
             if folder is not None:
-                write_path = os.path.join(out_path, folder, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption,
-                                                                                               iteration))
-            else:
-                write_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
-        # if os.path.exists(write_path):  # Already written, move on
-        #     continue
-
-        out_dict = {'Path': [], 'Iteration': [], 'SeriesInstanceUIDs': []}
-        no_iterations = []
-        for index in self.indexes_with_contours:
-            iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
-            if iteration_files:
-                file = iteration_files[0]
-                iteration = int(file.split('_')[-1].split('.')[0])
-            elif path in final_out_dict['Path']:
-                iteration = final_out_dict['Iteration'][final_out_dict['Path'].index(path)]
-            else:
-                no_iterations.append(path)
+                write_path = os.path.join(out_path, folder)
+            write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
+            if os.path.exists(write_image):
+                print('Already wrote out at {}'.format(write_path))
                 continue
-            out_dict['Path'].append(path)
-            out_dict['Iteration'].append(iteration)
-
-        for path in no_iterations:
-            iteration = 0
-            while iteration in out_dict['Iteration']:
-                iteration += 1
-            out_dict['Path'].append(path)
-            out_dict['Iteration'].append(iteration)
-        for index in range(len(out_dict['Path'])):
-            path = out_dict['Path'][index]
-            iteration = out_dict['Iteration'][index]
-            item = [path, iteration, index, out_path]
-            if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))):
-                continue
-            if iteration in final_out_dict['Iteration']:
-                if final_out_dict['Folder'][final_out_dict['Iteration'].index(iteration)] in ['Train','Test','Validation']:
-                    continue
+            item = [iteration, index, write_path, key_dict]
             q.put(item)
         for i in range(thread_count):
             q.put(None)
         for t in threads:
             t.join()
-        df = pd.DataFrame(final_out_dict)
-        df.to_excel(excel_file, index=0)
 
     def get_images_and_mask(self):
         assert self.index in self.series_instances_dictionary,\
@@ -648,7 +610,7 @@ class DicomReaderWriter:
         pixel_id = self.annotation_handle.GetPixelIDTypeAsString()
         if pixel_id.find('int') == -1:
             self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
-        sitk.WriteImage(self.annotation_handle,annotation_path)
+        sitk.WriteImage(self.annotation_handle, annotation_path)
         if len(self.dose_handles) > 0:
             for dose_index, dose_handle in enumerate(self.dose_handles):
                 if len(self.dose_handles) > 1:
@@ -659,7 +621,8 @@ class DicomReaderWriter:
                     dose_path = os.path.join(out_path,
                                              'Overall_dose_{}_{}.nii.gz'.format(self.desciption, self.iteration))
                 sitk.WriteImage(dose_handle, dose_path)
-        fid = open(os.path.join(self.PathDicom, self.desciption + '_Iteration_' + self.iteration + '.txt'), 'w+')
+        fid = open(os.path.join(self.series_instances_dictionary[self.index]['Image_Path'],
+                                '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
         fid.close()
 
     def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names):
