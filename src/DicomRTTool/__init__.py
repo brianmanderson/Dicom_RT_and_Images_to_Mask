@@ -89,9 +89,9 @@ def worker_def(A):
             iteration, index, out_path, key_dict = item
             base_class = DicomReaderWriter(**key_dict)
             try:
-                base_class.__set_index__(index)
+                base_class.set_index(index)
                 base_class.get_images_and_mask()
-                base_class.set_iteration(iteration)
+                base_class.__set_iteration__(iteration)
                 base_class.write_images_annotations(out_path)
             except:
                 print('failed on {}'.format(base_class.series_instances_dictionary[index]['Image_Path']))
@@ -182,11 +182,12 @@ def return_template_dictionary():
 
 
 class DicomReaderWriter:
-    def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
+    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
-                 desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
+                 iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
                  series_instances_dictinary={}, **kwargs):
         """
+        :param description: string, description information to add to .nii files
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
         :param delete_previous_rois: delete the previous RTs within the structure
         :param Contour_Names: list of contour nmes
@@ -194,7 +195,6 @@ class DicomReaderWriter:
         :param arg_max: perform argmax on the mask
         :param require_all_contours: Boolean, require all contours present when making nifti files?
         :param associations: dictionary of associations {'liver_bma_program_4': 'liver'}
-        :param desc: description information to add to .nii files
         :param iteration: what iteration for writing .nii files
         :param get_dose_output: boolean, collect dose information
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
@@ -208,9 +208,9 @@ class DicomReaderWriter:
         self.create_new_RT = create_new_RT
         self.associations = associations
         self.set_contour_names(Contour_Names)
-        self.set_associations(associations)
-        self.set_description(desc)
-        self.set_iteration(iteration)
+        self.__set_associations__(associations)
+        self.__set_description__(description)
+        self.__set_iteration__(iteration)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
         self.dose_handles = []
@@ -230,7 +230,7 @@ class DicomReaderWriter:
         self.index = index
         self.__reset__()
 
-    def __set_index__(self, index):
+    def set_index(self, index):
         self.index = index
 
     def __reset__(self):
@@ -240,7 +240,7 @@ class DicomReaderWriter:
         self.indexes_with_contours = []
         self.RS_struct_uid = None
 
-    def set_associations(self, associations={}):
+    def __set_associations__(self, associations={}):
         keys = list(associations.keys())
         for key in keys:
             associations[key.lower()] = associations[key].lower()
@@ -250,9 +250,6 @@ class DicomReaderWriter:
                     associations[name] = name
         self.associations, self.hierarchy = associations, {}
 
-    def set_get_images_and_mask(self, get_images_mask=True):
-        self.get_images_mask = get_images_mask
-
     def set_contour_names(self, Contour_Names=None):
         self.__reset__()
         if Contour_Names is None:
@@ -260,39 +257,16 @@ class DicomReaderWriter:
         else:
             Contour_Names = [i.lower() for i in Contour_Names]
         self.Contour_Names = Contour_Names
-        self.set_associations(self.associations)
-        self.check_if_all_contours_present()
+        self.__set_associations__(self.associations)
+        self.__check_if_all_contours_present__()
 
-    def set_description(self, description):
+    def __set_description__(self, description):
         self.desciption = description
 
-    def set_iteration(self, iteration=0):
+    def __set_iteration__(self, iteration=0):
         self.iteration = str(iteration)
 
-    def down_folder(self, input_path):
-        print('Please move from down_folder() to walk_through_folders()')
-        self.walk_through_folders(input_path=input_path)
-
-    def walk_through_folders(self, input_path):
-        """
-        Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
-        :param input_path: path to walk
-        """
-        for root, dirs, files in os.walk(input_path):
-            dicom_files = [i for i in files if i.endswith('.dcm')]
-            if dicom_files:
-                self.add_dicom_to_dictionary_from_path(root)
-        if self.verbose or len(self.series_instances_dictionary) > 1:
-            for key in self.series_instances_dictionary:
-                print('Index {}, description {} at {}'.format(key,
-                                                              self.series_instances_dictionary[key]['Description'],
-                                                              self.series_instances_dictionary[key]['Image_Path']))
-            print('{} unique series IDs were found. Default is index 0, to change use '
-                  '__set_index__(index)'.format(len(self.series_instances_dictionary)))
-        self.check_if_all_contours_present()
-        return None
-
-    def check_if_all_contours_present(self):
+    def __check_if_all_contours_present__(self):
         self.indexes_with_contours = []
         for index in self.series_instances_dictionary:
             RTs = self.series_instances_dictionary[index]['RTs']
@@ -322,6 +296,29 @@ class DicomReaderWriter:
             if index not in self.indexes_with_contours:
                 if self.all_contours_exist or not self.require_all_contours:
                     self.indexes_with_contours.append(index)  # Add the index that has the contours
+
+    def down_folder(self, input_path):
+        print('Please move from down_folder() to walk_through_folders()')
+        self.walk_through_folders(input_path=input_path)
+
+    def walk_through_folders(self, input_path):
+        """
+        Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
+        :param input_path: path to walk
+        """
+        for root, dirs, files in os.walk(input_path):
+            dicom_files = [i for i in files if i.endswith('.dcm')]
+            if dicom_files:
+                self.add_dicom_to_dictionary_from_path(root)
+        if self.verbose or len(self.series_instances_dictionary) > 1:
+            for key in self.series_instances_dictionary:
+                print('Index {}, description {} at {}'.format(key,
+                                                              self.series_instances_dictionary[key]['Description'],
+                                                              self.series_instances_dictionary[key]['Image_Path']))
+            print('{} unique series IDs were found. Default is index 0, to change use '
+                  'set_index(index)'.format(len(self.series_instances_dictionary)))
+        self.__check_if_all_contours_present__()
+        return None
 
     def where_are_RTs(self, ROIName):
         if ROIName.lower() in self.RTs_with_ROI_Names:
@@ -416,7 +413,7 @@ class DicomReaderWriter:
                         self.series_instances_dictionary[index]['RTs'].update(temp_dict)
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
-        self.check_if_all_contours_present()
+        self.__check_if_all_contours_present__()
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
@@ -487,13 +484,13 @@ class DicomReaderWriter:
 
     def get_images_and_mask(self):
         assert self.index in self.series_instances_dictionary,\
-            'Index is not present in the dictionary! Set it using __set_index__(index)'
+            'Index is not present in the dictionary! Set it using set_index(index)'
         self.get_images()
         self.get_mask()
 
     def get_images(self):
         assert self.index in self.series_instances_dictionary,\
-            'Index is not present in the dictionary! Set it using __set_index__(index)'
+            'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Only load if needed
             if self.verbose:
@@ -517,7 +514,10 @@ class DicomReaderWriter:
 
     def get_mask(self):
         assert self.index in self.series_instances_dictionary,\
-            'Index is not present in the dictionary! Set it using __set_index__(index)'
+            'Index is not present in the dictionary! Set it using set_index(index)'
+        assert self.Contour_Names, 'If you want a mask, you need to set the contour names you are looking ' \
+                                   'for, use set_contour_names(list_of_roi_names).\nIf you just want to look at images ' \
+                                   'use get_images() not get_images_and_mask() or get_mask()'
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             print('Loading images for index {}, since mask was requested but image loading was '
@@ -638,7 +638,7 @@ class DicomReaderWriter:
                                                                  ' equal  to the number or ROI_names minus 1, channel' \
                                                                  ' 0 is background'
         assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using __set_index__(index)'
+            'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             self.get_images()
