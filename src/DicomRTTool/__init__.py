@@ -87,10 +87,11 @@ def worker_def(A):
         if item is None:
             break
         else:
-            path, iteration, out_path = item
+            path, iteration, index, out_path = item
             print(path)
             try:
-                base_class.make_contour_from_directory(dicom_path=path)
+                base_class.__set_index__(index)
+                base_class.get_images_and_mask()
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
                 if iteration not in final_out_dict['Iteration']:
@@ -188,7 +189,7 @@ class DicomReaderWriter:
     def __init__(self, rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
                  desc='', iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
-                 **kwargs):
+                 series_instances_dictinary={}, **kwargs):
         """
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
         :param delete_previous_rois: delete the previous RTs within the structure
@@ -203,7 +204,7 @@ class DicomReaderWriter:
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param kwargs:
         """
-        self.series_instances_dictionary = {}
+        self.series_instances_dictionary = series_instances_dictinary
         self.indexes_with_contours = []
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
@@ -241,6 +242,7 @@ class DicomReaderWriter:
         self.RTs_with_ROI_Names = {}
         self.all_rois = []
         self.indexes_with_contours = []
+        self.RS_struct_uid = None
 
     def set_associations(self, associations={}):
         keys = list(associations.keys())
@@ -272,7 +274,7 @@ class DicomReaderWriter:
         self.iteration = str(iteration)
 
     def down_folder(self, input_path):
-        print('Please move over to walk_through_folders()')
+        print('Please move from down_folder() to walk_through_folders()')
         self.walk_through_folders(input_path=input_path)
 
     def walk_through_folders(self, input_path):
@@ -291,8 +293,6 @@ class DicomReaderWriter:
                                                               self.series_instances_dictionary[key]['Image_Path']))
             print('{} unique series IDs were found. Default is index 0, to change use '
                   '__set_index__(index)'.format(len(self.series_instances_dictionary)))
-        if len(self.series_instances_dictionary) == 1:
-            self.get_images_and_mask()  # If there is only one, load the images and the mask
         self.check_if_all_contours_present()
         return None
 
@@ -424,15 +424,19 @@ class DicomReaderWriter:
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
-        final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
+        final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
         if os.path.exists(excel_file):
             data = pd.read_excel(excel_file)
             data = data.to_dict()
             for key in final_out_dict.keys():
                 for index in data[key]:
                     final_out_dict[key].append(data[key][index])
-        key_dict = {'get_images_mask': True, 'associations': self.associations, 'arg_max': self.arg_max,
-                    'require_all_contours': self.require_all_contours, 'Contour_Names': self.Contour_Names,
+        else:
+            df = pd.DataFrame(final_out_dict)
+            df.to_excel(excel_file)
+        key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
+                    'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
+                    'Contour_Names': self.Contour_Names,
                     'desc': self.desciption, 'get_dose_output': True}
         A = [q, key_dict, final_out_dict]
         threads = []
@@ -440,9 +444,9 @@ class DicomReaderWriter:
             t = Thread(target=worker_def, args=(A,))
             t.start()
             threads.append(t)
-        out_dict = {'Path':[], 'Iteration':[]}
+        out_dict = {'Path': [], 'Iteration': [], 'SeriesInstanceUIDs': []}
         no_iterations = []
-        for path in self.paths_with_contours:
+        for index in self.indexes_with_contours:
             iteration_files = [i for i in os.listdir(path) if i.find('{}_Iteration'.format(self.desciption)) != -1]
             if iteration_files:
                 file = iteration_files[0]
@@ -476,7 +480,7 @@ class DicomReaderWriter:
         for t in threads:
             t.join()
         df = pd.DataFrame(final_out_dict)
-        df.to_excel(excel_file,index=0)
+        df.to_excel(excel_file, index=0)
 
     def get_images_and_mask(self):
         assert self.index in self.series_instances_dictionary,\
@@ -589,13 +593,13 @@ class DicomReaderWriter:
 
     def write_images_annotations(self, out_path):
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
-        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption,self.iteration))
+        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption, self.iteration))
         if os.path.exists(image_path):
             return None
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
         if pixel_id.find('32-bit signed integer') != 0:
             self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
-        sitk.WriteImage(self.dicom_handle,image_path)
+        sitk.WriteImage(self.dicom_handle, image_path)
 
         self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
         self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
