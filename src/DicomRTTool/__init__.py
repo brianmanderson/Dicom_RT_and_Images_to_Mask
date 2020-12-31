@@ -95,7 +95,7 @@ def worker_def(A):
                 base_class.set_iteration(iteration)
                 base_class.write_images_annotations(out_path)
                 if iteration not in final_out_dict['Iteration']:
-                    final_out_dict['MRN'].append(base_class.ds.PatientID)
+                    final_out_dict['PatientID'].append(base_class.ds.PatientID)
                     final_out_dict['Iteration'].append(iteration)
                     final_out_dict['Path'].append(path)
                     final_out_dict['Folder'].append('')
@@ -142,13 +142,15 @@ def add_images_to_dictionary(series_instances_dictionary, sitk_dicom_reader, pat
     :param path: path to the images or structure in question
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
+    patientID = sitk_dicom_reader.GetMetaData("0010|0020")
     description = sitk_dicom_reader.GetMetaData("0008|103e")
     keys = []
     series_instance_uids = []
     for key, value in series_instances_dictionary.items():
         keys.append(key)
         series_instance_uids.append(value['SeriesInstanceUID'])
-    temp_dict = {'Image_Path': path, 'Description': description, 'SeriesInstanceUID': series_instance_uid}
+    temp_dict = {'Image_Path': path, 'Description': description, 'SeriesInstanceUID': series_instance_uid,
+                 'PatientID': patientID}
     if series_instance_uid not in series_instance_uids:
         template_dictionary = return_template_dictionary()
         template_dictionary.update(temp_dict)
@@ -180,8 +182,8 @@ def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
 
 
 def return_template_dictionary():
-    template_dictionary = {'Image_Path': None, 'RTs': {}, 'Description': None, 'SOP_Instance_UIDs': None,
-                           'SeriesInstanceUID': None}
+    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'Description': None,
+                           'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None}
     return template_dictionary
 
 
@@ -394,6 +396,7 @@ class DicomReaderWriter:
                             index += 1
                         temp_dict = return_template_dictionary()
                         temp_dict['SeriesInstanceUID'] = refed_series_instance_uid
+                        temp_dict['PatientID'] = ds.PatientID
                         self.series_instances_dictionary[index] = temp_dict
                     else:
                         index = keys[series_instance_uids.index(refed_series_instance_uid)]
@@ -420,20 +423,19 @@ class DicomReaderWriter:
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
         self.check_if_all_contours_present()
-        out_path = os.path.join(out_path, self.desciption)
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
-        final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
+        final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
         if os.path.exists(excel_file):
-            data = pd.read_excel(excel_file)
-            data = data.to_dict()
+            df = pd.read_excel(excel_file)
+            data = df.to_dict()
             for key in final_out_dict.keys():
                 for index in data[key]:
                     final_out_dict[key].append(data[key][index])
         else:
             df = pd.DataFrame(final_out_dict)
-            df.to_excel(excel_file)
+            df.to_excel(excel_file, index=0)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
@@ -444,6 +446,45 @@ class DicomReaderWriter:
             t = Thread(target=worker_def, args=(A,))
             t.start()
             threads.append(t)
+        rewrite_excel = False
+        '''
+        First, build the excel file that we will use to reference iterations, Series UIDs, and paths
+        '''
+        for index in self.indexes_with_contours:
+            series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
+            if previous_run.shape[0] == 0:
+                rewrite_excel = True
+                iteration = 0
+                while iteration in df['Iteration'].values:
+                    iteration += 1
+                temp_dict = {'PatientID': [self.series_instances_dictionary[index]['PatientID']],
+                             'Path': [self.series_instances_dictionary[index]['Image_Path']],
+                             'Iteration': [iteration], 'Folder': [None], 'SeriesInstanceUID': [series_instance_uid]}
+                temp_df = pd.DataFrame(temp_dict)
+                df = df.append(temp_df)
+        if rewrite_excel:
+            df.to_excel(excel_file, index=0)
+        '''
+        Next, read through the excel sheet and see if the out paths already exist
+        '''
+        for index in self.indexes_with_contours:
+            series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
+            if previous_run.shape[0] == 0:
+                continue
+            iteration = previous_run['Iteration'].values[0]
+            folder = previous_run['Folder'].values[0]
+            if pd.isnull(folder):
+                folder = None
+            if folder is not None:
+                write_path = os.path.join(out_path, folder, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption,
+                                                                                               iteration))
+            else:
+                write_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
+        # if os.path.exists(write_path):  # Already written, move on
+        #     continue
+
         out_dict = {'Path': [], 'Iteration': [], 'SeriesInstanceUIDs': []}
         no_iterations = []
         for index in self.indexes_with_contours:
@@ -468,7 +509,7 @@ class DicomReaderWriter:
         for index in range(len(out_dict['Path'])):
             path = out_dict['Path'][index]
             iteration = out_dict['Iteration'][index]
-            item = [path, iteration, out_path]
+            item = [path, iteration, index, out_path]
             if os.path.exists(os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))):
                 continue
             if iteration in final_out_dict['Iteration']:
