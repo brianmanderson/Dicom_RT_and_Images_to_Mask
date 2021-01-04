@@ -185,6 +185,8 @@ class DicomReaderWriter:
         self.all_rois = []
         self.indexes_with_contours = []
         self.RS_struct_uid = None
+        self.dicom_handle_uid = None
+        self.series_instances_dictionary = {}
 
     def __set_associations__(self, associations={}):
         keys = list(associations.keys())
