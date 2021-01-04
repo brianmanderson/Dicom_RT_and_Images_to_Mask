@@ -189,11 +189,10 @@ class DicomReaderWriter:
         self.series_instances_dictionary = {}
 
     def __reset_RTs__(self):
-        self.all_RTs = {}
-        self.RTs_with_ROI_Names = {}
         self.all_rois = []
         self.indexes_with_contours = []
         self.RS_struct_uid = None
+        self.RTs_with_ROI_Names = {}
 
     def __set_associations__(self, associations={}):
         keys = list(associations.keys())
@@ -231,6 +230,10 @@ class DicomReaderWriter:
                 RT = RTs[RT_key]
                 ROI_Names = RT['ROI_Names']
                 for roi in ROI_Names:
+                    if roi.lower() not in self.RTs_with_ROI_Names:
+                        self.RTs_with_ROI_Names[roi.lower()] = [RT['Path']]
+                    elif RT['Path'] not in self.RTs_with_ROI_Names[roi.lower()]:
+                        self.RTs_with_ROI_Names[roi.lower()].append(RT['Path'])
                     if roi.lower() not in self.rois_in_case:
                         self.rois_in_case.append(roi.lower())
                     if roi.lower() not in self.all_rois:
@@ -359,7 +362,7 @@ class DicomReaderWriter:
                                 rois_in_structure[Structures.ROIName] = Structures.ROINumber
                             if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
                                 self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [path]
-                            else:
+                            elif path not in self.RTs_with_ROI_Names[Structures.ROIName.lower()]:
                                 self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(path)
                         temp_dict = {series_instance_uid: {'Path': path, 'ROI_Names': rois,
                                                            'ROIs_in_structure': rois_in_structure}}
