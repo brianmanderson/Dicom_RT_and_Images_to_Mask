@@ -388,7 +388,7 @@ class DicomReaderWriter:
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
-                    'desc': self.desciption, 'get_dose_output': True}
+                    'description': self.desciption, 'get_dose_output': True}
         A = (q,)
         threads = []
         for worker in range(thread_count):
