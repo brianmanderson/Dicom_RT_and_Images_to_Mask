@@ -83,7 +83,7 @@ def add_images_to_dictionary(series_instances_dictionary, sitk_dicom_reader, pat
     :param path: path to the images or structure in question
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
-    patientID = sitk_dicom_reader.GetMetaData("0010|0020")
+    patientID = sitk_dicom_reader.GetMetaData("0010|0020")[:-1]
     description = sitk_dicom_reader.GetMetaData("0008|103e")
     keys = []
     series_instance_uids = []
