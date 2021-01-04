@@ -13,6 +13,7 @@ import pandas as pd
 import copy
 from .Viewer import plot_scroll_Image
 
+
 def contour_worker(A):
     q, kwargs = A
     point_maker = PointOutputMakerClass(**kwargs)
