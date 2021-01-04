@@ -182,13 +182,16 @@ class DicomReaderWriter:
         self.index = index
 
     def __reset__(self):
+        self.__reset_RTs__()
+        self.dicom_handle_uid = None
+        self.series_instances_dictionary = {}
+
+    def __reset_RTs__(self):
         self.all_RTs = {}
         self.RTs_with_ROI_Names = {}
         self.all_rois = []
         self.indexes_with_contours = []
         self.RS_struct_uid = None
-        self.dicom_handle_uid = None
-        self.series_instances_dictionary = {}
 
     def __set_associations__(self, associations={}):
         keys = list(associations.keys())
@@ -201,7 +204,7 @@ class DicomReaderWriter:
         self.associations, self.hierarchy = associations, {}
 
     def set_contour_names(self, Contour_Names=None):
-        self.__reset__()
+        self.__reset_RTs__()
         if Contour_Names is None:
             Contour_Names = []
         else:
