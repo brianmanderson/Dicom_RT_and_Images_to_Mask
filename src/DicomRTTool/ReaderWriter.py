@@ -149,7 +149,6 @@ class DicomReaderWriter:
         :param kwargs:
         """
         self.series_instances_dictionary = series_instances_dictionary
-        self.indexes_with_contours = []
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
@@ -176,7 +175,10 @@ class DicomReaderWriter:
         self.dicom_handle_uid = None
         self.RS_struct_uid = None
         self.index = index
-        self.__reset__()
+        self.all_RTs = {}
+        self.RTs_with_ROI_Names = {}
+        self.all_rois = []
+        self.indexes_with_contours = []
 
     def set_index(self, index):
         self.index = index
