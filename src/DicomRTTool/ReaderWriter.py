@@ -304,15 +304,17 @@ class DicomReaderWriter:
         for dirName, dirs, fileList in os.walk(PathDicom):
             break
         fileList = [i for i in fileList if i.find('.dcm') != -1]
-        dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom)
-        if dicom_names:
+        series_ids = self.reader.GetGDCMSeriesIDs(self.PathDicom)
+        all_names = []
+        for series_id in series_ids:
+            dicom_names = self.reader.GetGDCMSeriesFileNames(self.PathDicom, series_id)
+            all_names += dicom_names
             self.reader.SetFileNames(dicom_names)
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
             add_images_to_dictionary(series_instances_dictionary=self.series_instances_dictionary,
                                      sitk_dicom_reader=self.image_reader, path=self.PathDicom)
-        image_files = [i.split(PathDicom)[1][1:] for i in dicom_names]
-        RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in image_files]
+        RT_Files = [os.path.join(PathDicom, file) for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
             modality = rt.Modality
@@ -450,13 +452,14 @@ class DicomReaderWriter:
         assert self.index in self.series_instances_dictionary,\
             'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
-        if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Only load if needed
+        series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+        if self.dicom_handle_uid != series_instance_uid:  # Only load if needed
             if self.verbose:
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
                                                                 self.series_instances_dictionary[index]['Image_Path']))
 
             dicom_path = self.series_instances_dictionary[index]['Image_Path']
-            dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path)
+            dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_instance_uid)
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
             self.dicom_handle = self.reader.Execute()
@@ -468,7 +471,7 @@ class DicomReaderWriter:
                 self.dicom_handle = flipimagefilter.Execute(self.dicom_handle)
             self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
             self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
-            self.dicom_handle_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            self.dicom_handle_uid = series_instance_uid
 
     def get_mask(self):
         assert self.index in self.series_instances_dictionary,\
