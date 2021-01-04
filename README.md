@@ -30,21 +30,22 @@ You can see the available contour names with
 
 Example:
 
-    from DicomRTTool import DicomReaderWriter
-    Dicom_reader = DicomReaderWriter(get_images_mask=False)
+    from DicomRTTool.ReaderWriter import DicomReaderWriter
+    Dicom_reader = DicomReaderWriter(description='Example')
     path = 'C:\users\brianmanderson\Patients\'
-    Dicom_reader.down_folder(path)
-    # See all rois in the folders
-    for roi in Dicom_reader.all_rois:
-        print(roi)
+    Dicom_reader.walk_through_folders(path)  # This will walk through all of the folders, and print the indexes for each series instance UID present
+    
+    all_rois = Dicom_reader.return_rois(print_rois=True)  # Return a list of all rois present, and print them
+
     
     
     Contour_Names = ['Liver']
     associations = {'Liver_BMA_Program4':'Liver','Liver':'Liver'}
-    path = 'C:\users\brianmanderson\Patients\Patient_1\CT_1\'
-    Dicom_reader = DicomReaderWriter(get_images_mask=True, Contour_Names=Contour_Names, associations=associations)
+
+    Dicom_reader.set_contour_names(Contour_Names)
+    Dicom_reader.__set_associations__(associations)
+    Dicom_reader.get_images_and_mask()
     
-    Dicom_reader.Make_Contour_From_directory(path)
     image = Dicom_reader.ArrayDicom
     mask = Dicom_reader.mask
 
@@ -52,10 +53,10 @@ Example:
     pred[:,200:300,200:300,1] = 1
     
     output_path= os.path.join('.','Output')
-    Dicom_reader.with_annotations(pred,output_path,ROI_Names=['test'])
+    Dicom_reader.prediction_array_to_RT(prediction_array=pred, output_dir=output_path, ROI_Names=['test'])
     
     '''
     Write the images and annotations as niftii files in parallel!
     '''
-    Dicom_Reader.write_parallel(out_path=export_path,excel_file=os.path.join('.','MRN_Path_To_Iteration.xlsx'))
+    Dicom_Reader.write_parallel(out_path=export_path, excel_file=os.path.join('.','MRN_Path_To_Iteration.xlsx'))
     
