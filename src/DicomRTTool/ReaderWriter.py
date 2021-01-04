@@ -132,7 +132,7 @@ class DicomReaderWriter:
     def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
                  iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
-                 series_instances_dictinary={}, **kwargs):
+                 series_instances_dictionary={}, **kwargs):
         """
         :param description: string, description information to add to .nii files
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
@@ -145,9 +145,10 @@ class DicomReaderWriter:
         :param iteration: what iteration for writing .nii files
         :param get_dose_output: boolean, collect dose information
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
+        :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
         :param kwargs:
         """
-        self.series_instances_dictionary = series_instances_dictinary
+        self.series_instances_dictionary = series_instances_dictionary
         self.indexes_with_contours = []
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
