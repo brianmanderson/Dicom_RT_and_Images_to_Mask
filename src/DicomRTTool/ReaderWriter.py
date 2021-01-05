@@ -223,6 +223,8 @@ class DicomReaderWriter:
     def __check_if_all_contours_present__(self):
         self.indexes_with_contours = []
         for index in self.series_instances_dictionary:
+            if self.series_instances_dictionary[index]['Image_Path'] is None:
+                continue
             RTs = self.series_instances_dictionary[index]['RTs']
             true_rois = []
             self.rois_in_case = []
