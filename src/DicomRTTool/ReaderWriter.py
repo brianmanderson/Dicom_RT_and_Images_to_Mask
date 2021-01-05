@@ -132,7 +132,7 @@ class DicomReaderWriter:
     def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
                  iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
-                 series_instances_dictionary={}, **kwargs):
+                 series_instances_dictionary={}):
         """
         :param description: string, description information to add to .nii files
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
