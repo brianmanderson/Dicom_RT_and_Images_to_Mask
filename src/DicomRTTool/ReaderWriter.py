@@ -259,6 +259,33 @@ class DicomReaderWriter:
                 if self.all_contours_exist or not self.require_all_contours:
                     self.indexes_with_contours.append(index)  # Add the index that has the contours
 
+    def return_rois(self, print_rois=True):
+        if print_rois:
+            print('The following ROIs were found')
+            for roi in self.all_rois:
+                print(roi)
+        return self.all_rois
+
+    def where_are_RTs(self, ROIName):
+        print('Please move over to using .where_is_ROI(), as this better represents the definition')
+        self.where_is_ROI(ROIName=ROIName)
+
+    def where_is_ROI(self, ROIName):
+        if ROIName.lower() in self.RTs_with_ROI_Names:
+            print('Contours of {} are located:'.format(ROIName.lower()))
+            for path in self.RTs_with_ROI_Names[ROIName.lower()]:
+                print(path)
+        else:
+            print('{} was not found within the set, check spelling or list all rois'.format(ROIName))
+
+    def which_indexes_have_all_rois(self):
+        if self.Contour_Names:
+            print('The following indexes have all ROIs present')
+            for index in self.indexes_with_contours:
+                print('Index {}, located at {}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
+        else:
+            print('You need to first define what ROIs you want, please use .set_contour_names(roi_list)')
+
     def down_folder(self, input_path):
         print('Please move from down_folder() to walk_through_folders()')
         self.walk_through_folders(input_path=input_path)
@@ -281,21 +308,6 @@ class DicomReaderWriter:
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
         self.__check_if_all_contours_present__()
         return None
-
-    def where_are_RTs(self, ROIName):
-        if ROIName.lower() in self.RTs_with_ROI_Names:
-            print('Contours of {} are located:'.format(ROIName.lower()))
-            for path in self.RTs_with_ROI_Names[ROIName.lower()]:
-                print(path)
-        else:
-            print('{} was not found within the set, check spelling or list all rois'.format(ROIName))
-
-    def return_rois(self, print_rois=True):
-        if print_rois:
-            print('The following ROIs were found')
-            for roi in self.all_rois:
-                print(roi)
-        return self.all_rois
 
     def add_dicom_to_dictionary_from_path(self, PathDicom):
         self.PathDicom = PathDicom
