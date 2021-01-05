@@ -523,8 +523,8 @@ class DicomReaderWriter:
                     for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                         self.structure_references[
                             self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-                    index = self.structure_references[ROIName_Number[ROI_Name]]
-                    mask = self.contours_to_mask(index)
+                    structure_index = self.structure_references[ROIName_Number[ROI_Name]]
+                    mask = self.contours_to_mask(structure_index)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
@@ -723,7 +723,7 @@ class DicomReaderWriter:
                       'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct}
 
             A = [q,kwargs]
-            # pointer_class = Point_Output_Maker_Class(**kwargs)
+            pointer_class = PointOutputMakerClass(**kwargs)
             for worker in range(thread_count):
                 t = Thread(target=contour_worker, args=(A,))
                 t.start()
@@ -734,8 +734,8 @@ class DicomReaderWriter:
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
                     item = [annotations[index, ...], index]
-                    # pointer_class.make_output(*item)
-                    q.put(item)
+                    pointer_class.make_output(*item)
+                    # q.put(item)
                 for i in range(thread_count):
                     q.put(None)
                 for t in threads:
