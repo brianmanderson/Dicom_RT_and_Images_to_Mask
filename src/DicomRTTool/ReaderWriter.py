@@ -375,7 +375,6 @@ class DicomReaderWriter:
                         self.series_instances_dictionary[index]['RTs'].update(temp_dict)
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
-        self.__check_if_all_contours_present__()
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
