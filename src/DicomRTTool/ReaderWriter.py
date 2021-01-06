@@ -5,12 +5,13 @@ import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
-from skimage.measure import label,regionprops,find_contours
+from skimage.measure import label, regionprops, find_contours, marching_cubes
 from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
 import copy
+import cv2
 from .Viewer import plot_scroll_Image
 
 
@@ -22,7 +23,7 @@ def contour_worker(A):
         if item is None:
             break
         else:
-            point_maker.make_output(*item)
+            point_maker.make_output(**item)
         q.task_done()
 
 
@@ -52,7 +53,7 @@ class PointOutputMakerClass(object):
         self.contour_dict = contour_dict
         self.RS = RS
 
-    def make_output(self, annotation, i):
+    def make_output(self, annotation, i, dicom_handle):
         self.contour_dict[i] = []
         regions = regionprops(label(annotation))
         for ii in range(len(regions)):
@@ -64,8 +65,20 @@ class PointOutputMakerClass(object):
                 rows.append(data[iii][0])
                 cols.append(data[iii][1])
             temp_image[rows, cols] = 1
-            contours = find_contours(temp_image, 0)
+            contours = find_contours(temp_image, level=0.5, fully_connected='low', positive_orientation='high')
             for contour in contours:
+                contour = np.squeeze(contour)
+                slope = contour[:-1, 1] - contour[1:, 1]
+                slope_index = None
+                out_contour = []
+                for index in range(len(slope)):
+                    if slope[index] != slope_index:
+                        out_contour.append(contour[index])
+                    slope_index = slope[index]
+                if out_contour[-1] != contour[0]:
+                    out_contour.append(contour[0])
+                contour = [[float(c[1]), float(c[0]), float(i)] for c in out_contour]
+                contour = np.asarray([dicom_handle.TransformContinuousIndexToPhysicalPoint(zz) for zz in contour])
                 self.contour_dict[i].append(contour)
 
 
@@ -553,7 +566,7 @@ class DicomReaderWriter:
             self.row_val = matrix_points[:, 1]
             z_vals = matrix_points[:, 2]
             temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
-            temp_mask[self.row_val, self.col_val] = 0
+            # temp_mask[self.row_val, self.col_val] = 0
             mask[z_vals[0], temp_mask] += 1
         mask = mask % 2
         return mask
@@ -688,8 +701,6 @@ class DicomReaderWriter:
             allow_slip_in = True
             if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
                 self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
-                # self.RS_struct.ROIContourSequence[0].ContourSequence[0].ContourData = []
-                # self.RS_struct.ROIContourSequence[0].ContourSequence[0].NumberofContourPoints = 0
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
@@ -734,16 +745,15 @@ class DicomReaderWriter:
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
                     item = [annotations[index, ...], index]
-                    pointer_class.make_output(*item)
+                    item = {'annotation': annotations[index], 'i': index, 'dicom_handle': self.dicom_handle}
+                    pointer_class.make_output(**item)
                     # q.put(item)
                 for i in range(thread_count):
                     q.put(None)
                 for t in threads:
                     t.join()
                 for i in contour_dict.keys():
-                    for all_contours in contour_dict[i]:
-                        contours = [[int(contour[1]), int(contour[0]), int(i)] for contour in np.squeeze(all_contours)]
-                        points = [self.dicom_handle.TransformIndexToPhysicalPoint(ii) for ii in contours]
+                    for points in contour_dict[i]:
                         output = np.asarray(points).flatten('C')
                         if contour_num > 0:
                             self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence.append(
