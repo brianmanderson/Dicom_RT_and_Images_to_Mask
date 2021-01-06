@@ -5,13 +5,12 @@ import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage import draw
-from skimage.measure import label, regionprops, find_contours, marching_cubes
+from skimage.measure import label, regionprops, find_contours
 from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
 import copy
-import cv2
 from .Viewer import plot_scroll_Image
 
 
