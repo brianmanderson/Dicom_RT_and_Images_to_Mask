@@ -446,12 +446,6 @@ class DicomReaderWriter:
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
                     'description': self.desciption, 'get_dose_output': True}
-        A = (q,)
-        threads = []
-        for worker in range(thread_count):
-            t = Thread(target=worker_def, args=(A,))
-            t.start()
-            threads.append(t)
         rewrite_excel = False
         '''
         First, build the excel file that we will use to reference iterations, Series UIDs, and paths
@@ -466,7 +460,7 @@ class DicomReaderWriter:
                     iteration += 1
                 temp_dict = {'PatientID': [self.series_instances_dictionary[index]['PatientID']],
                              'Path': [self.series_instances_dictionary[index]['Image_Path']],
-                             'Iteration': [iteration], 'Folder': [None], 'SeriesInstanceUID': [series_instance_uid]}
+                             'Iteration': [int(iteration)], 'Folder': [None], 'SeriesInstanceUID': [series_instance_uid]}
                 temp_df = pd.DataFrame(temp_dict)
                 df = df.append(temp_df)
         if rewrite_excel:
@@ -474,12 +468,18 @@ class DicomReaderWriter:
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
+        A = (q,)
+        threads = []
+        for worker in range(thread_count):
+            t = Thread(target=worker_def, args=(A,))
+            t.start()
+            threads.append(t)
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 continue
-            iteration = previous_run['Iteration'].values[0]
+            iteration = int(previous_run['Iteration'].values[0])
             folder = previous_run['Folder'].values[0]
             if pd.isnull(folder):
                 folder = None
