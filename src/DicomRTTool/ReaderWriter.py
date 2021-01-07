@@ -45,6 +45,18 @@ def worker_def(A):
             q.task_done()
 
 
+def sort_xy(x, y):
+    x -= np.min(x)
+    y -= np.min(y)
+    x0 = np.mean(x)
+    y0 = np.mean(y)
+    r = np.sqrt((x-x0)**2 + (y-y0)**2)
+    angles = np.where((y-y0) > 0, np.arccos((x-x0)/r), 2*np.pi-np.arccos((x-x0)/r))
+    # mask = np.argsort(angles)
+    # mask = np.abs(mask - np.max(mask))
+    return angles
+
+
 class PointOutputMakerClass(object):
     def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
@@ -67,18 +79,28 @@ class PointOutputMakerClass(object):
             contours = find_contours(temp_image, level=0.5, fully_connected='low', positive_orientation='high')
             for contour in contours:
                 contour = np.squeeze(contour)
-                slope = contour[:-1, 1] - contour[1:, 1]
+                slope = (contour[1:, 1] - contour[:-1, 1]) / (contour[1:, 0] - contour[:-1, 0])
                 slope_index = None
                 out_contour = []
                 for index in range(len(slope)):
                     if slope[index] != slope_index:
                         out_contour.append(contour[index])
                     slope_index = slope[index]
-                if out_contour[-1] != contour[0]:
-                    out_contour.append(contour[0])
+                # angles = sort_xy(x=np.asarray(out_contour)[:, 0], y=np.asarray(out_contour)[:, 1])
                 contour = [[float(c[1]), float(c[0]), float(i)] for c in out_contour]
+                # k = [dicom_handle.TransformPhysicalPointToIndex(zz) for zz in k]
                 contour = np.asarray([dicom_handle.TransformContinuousIndexToPhysicalPoint(zz) for zz in contour])
-                self.contour_dict[i].append(contour)
+                # distances = np.sum((contour[1:] - contour[:-1])**2, axis=1)**.5
+                # spacing = dicom_handle.GetSpacing()
+                # spacing_min = np.min(dicom_handle.GetSpacing())
+                # distance = 0
+                # out_contour = []
+                # for index in range(len(distances)):
+                #     distance += distances[index]
+                #     if distance > spacing_min:
+                #         out_contour.append(contour[index])
+                #         distance = 0
+                self.contour_dict[i].append(np.asarray(contour))
 
 
 def poly2mask(vertex_row_coords, vertex_col_coords, shape):
