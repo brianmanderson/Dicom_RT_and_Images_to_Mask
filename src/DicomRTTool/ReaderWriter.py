@@ -47,16 +47,20 @@ def worker_def(A):
             q.task_done()
 
 
-def sort_xy(x, y):
-    x -= np.min(x)
-    y -= np.min(y)
-    x0 = np.mean(x)
-    y0 = np.mean(y)
-    r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
-    angles = np.where((y - y0) > 0, np.arccos((x - x0) / r), 2 * np.pi - np.arccos((x - x0) / r))
-    # mask = np.argsort(angles)
-    # mask = np.abs(mask - np.max(mask))
-    return angles
+def folder_worker(A):
+    q = A[0]
+    while True:
+        item = q.get()
+        if item is None:
+            break
+        else:
+            base_class = DicomReaderWriter(index=item['index'])
+            try:
+                base_class.add_dicom_to_dictionary_from_path(item['path'])
+                item['series_instances_dictionary'].update(base_class.series_instances_dictionary)
+            except:
+                print('failed on {}'.format(item['path']))
+            q.task_done()
 
 
 class PointOutputMakerClass(object):
@@ -88,20 +92,8 @@ class PointOutputMakerClass(object):
                     if slope[index] != slope_index:
                         out_contour.append(contour[index])
                     slope_index = slope[index]
-                # angles = sort_xy(x=np.asarray(out_contour)[:, 0], y=np.asarray(out_contour)[:, 1])
                 contour = [[float(c[1]), float(c[0]), float(i)] for c in out_contour]
-                # k = [dicom_handle.TransformPhysicalPointToIndex(zz) for zz in k]
                 contour = np.asarray([dicom_handle.TransformContinuousIndexToPhysicalPoint(zz) for zz in contour])
-                # distances = np.sum((contour[1:] - contour[:-1])**2, axis=1)**.5
-                # spacing = dicom_handle.GetSpacing()
-                # spacing_min = np.min(dicom_handle.GetSpacing())
-                # distance = 0
-                # out_contour = []
-                # for index in range(len(distances)):
-                #     distance += distances[index]
-                #     if distance > spacing_min:
-                #         out_contour.append(contour[index])
-                #         distance = 0
                 self.contour_dict[i].append(np.asarray(contour))
 
 
@@ -330,15 +322,32 @@ class DicomReaderWriter:
         print('Please move from down_folder() to walk_through_folders()')
         self.walk_through_folders(input_path=input_path)
 
-    def walk_through_folders(self, input_path):
+    def walk_through_folders(self, input_path, thread_count = int(cpu_count() * 0.9 - 1)):
         """
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
         """
+        # paths_with_dicom = []
         for root, dirs, files in os.walk(input_path):
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
+                # paths_with_dicom.append(root)
                 self.add_dicom_to_dictionary_from_path(root)
+        # if paths_with_dicom:
+        #     q = Queue(maxsize=thread_count)
+        #     A = (q,)
+        #     threads = []
+        #     for worker in range(thread_count):
+        #         t = Thread(target=folder_worker, args=(A,))
+        #         t.start()
+        #         threads.append(t)
+        #     for index, path in enumerate(paths_with_dicom):
+        #         item = {'path': path, 'series_instances_dictionary': self.series_instances_dictionary, 'index': index}
+        #         q.put(item)
+        #     for i in range(thread_count):
+        #         q.put(None)
+        #     for t in threads:
+        #         t.join()
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
@@ -431,7 +440,6 @@ class DicomReaderWriter:
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        q = Queue(maxsize=thread_count)
         final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
         if os.path.exists(excel_file):
             df = pd.read_excel(excel_file)
@@ -468,6 +476,7 @@ class DicomReaderWriter:
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
+        q = Queue(maxsize=thread_count)
         A = (q,)
         threads = []
         for worker in range(thread_count):
