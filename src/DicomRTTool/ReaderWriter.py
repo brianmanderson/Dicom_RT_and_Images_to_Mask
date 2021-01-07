@@ -54,12 +54,15 @@ def folder_worker(A):
         if item is None:
             break
         else:
-            base_class = DicomReaderWriter(index=item['index'])
+            dicom_adder = AddDicomToDictionary()
+            dicom_path, images_dictionary, rt_dictionary = item
             try:
-                base_class.add_dicom_to_dictionary_from_path(item['path'])
-                item['series_instances_dictionary'].update(base_class.series_instances_dictionary)
+                print(dicom_path)
+                dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=dicom_path,
+                                                              images_dictionary=images_dictionary,
+                                                              rt_dictionary=rt_dictionary)
             except:
-                print('failed on {}'.format(item['path']))
+                print('failed on {}'.format(dicom_path))
             q.task_done()
 
 
@@ -140,9 +143,8 @@ def add_rt_to_dictionary(ds, path, rt_dictionary):
                         rois.append(Structures.ROIName.lower())
                         if Structures.ROIName not in rois_in_structure:
                             rois_in_structure[Structures.ROIName] = Structures.ROINumber
-                    temp_dict = {series_instance_uid: {'Path': path, 'ROI_Names': rois,
-                                                       'ROIs_in_structure': rois_in_structure,
-                                                       'SeriesInstanceUID': refed_series_instance_uid}}
+                    temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
+                                 'SeriesInstanceUID': refed_series_instance_uid}
                     rt_dictionary[series_instance_uid] = temp_dict
 
 
@@ -371,29 +373,28 @@ class DicomReaderWriter:
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
         """
-        # paths_with_dicom = []
-        dicom_adder = AddDicomToDictionary()
+        paths_with_dicom = []
         for root, dirs, files in os.walk(input_path):
             dicom_files = [i for i in files if i.endswith('.dcm')]
             if dicom_files:
-                # paths_with_dicom.append(root)
-                dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=root, images_dictionary=self.images_dictionary,
-                                                              rt_dictionary=self.rt_dictionary)
-        # if paths_with_dicom:
-        #     q = Queue(maxsize=thread_count)
-        #     A = (q,)
-        #     threads = []
-        #     for worker in range(thread_count):
-        #         t = Thread(target=folder_worker, args=(A,))
-        #         t.start()
-        #         threads.append(t)
-        #     for index, path in enumerate(paths_with_dicom):
-        #         item = {'path': path, 'series_instances_dictionary': self.series_instances_dictionary, 'index': index}
-        #         q.put(item)
-        #     for i in range(thread_count):
-        #         q.put(None)
-        #     for t in threads:
-        #         t.join()
+                paths_with_dicom.append(root)
+                # dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=root, images_dictionary=self.images_dictionary,
+                #                                               rt_dictionary=self.rt_dictionary)
+        if paths_with_dicom:
+            q = Queue(maxsize=thread_count)
+            A = (q,)
+            threads = []
+            for worker in range(thread_count):
+                t = Thread(target=folder_worker, args=(A,))
+                t.start()
+                threads.append(t)
+            for index, path in enumerate(paths_with_dicom):
+                item = [path, self.images_dictionary, self.rt_dictionary]
+                q.put(item)
+            for i in range(thread_count):
+                q.put(None)
+            for t in threads:
+                t.join()
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
