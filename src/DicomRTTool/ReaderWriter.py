@@ -165,16 +165,15 @@ def return_template_dictionary():
 
 
 class DicomReaderWriter:
-    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
-                 verbose=True,
-                 template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
-                 iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
+    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=[],
+                 verbose=True, template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True,
+                 associations={}, iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
                  series_instances_dictionary={}):
         """
         :param description: string, description information to add to .nii files
         :param rewrite_RT_file: Boolean, should we re-write the RT structure
         :param delete_previous_rois: delete the previous RTs within the structure
-        :param Contour_Names: list of contour nmes
+        :param Contour_Names: list of contour names
         :param template_dir: default to None, specifies path to template RT structure
         :param arg_max: perform argmax on the mask
         :param require_all_contours: Boolean, require all contours present when making nifti files?
@@ -190,8 +189,8 @@ class DicomReaderWriter:
         self.flip_axes = flip_axes
         self.create_new_RT = create_new_RT
         self.associations = associations
-        self.set_contour_names(Contour_Names)
-        self.__set_associations__(associations)
+        self.Contour_Names = Contour_Names
+        self.set_contour_names_and_associations(Contour_Names=Contour_Names, associations=associations)
         self.__set_description__(description)
         self.__set_iteration__(iteration)
         self.arg_max = arg_max
@@ -231,10 +230,10 @@ class DicomReaderWriter:
         self.RTs_with_ROI_Names = {}
 
     def set_contour_names_and_associations(self, Contour_Names=None, associations=None):
-        if associations is not None:
-            self.__set_associations__(associations=associations)
         if Contour_Names is not None:
             self.__set_contour_names__(Contour_Names=Contour_Names)
+        if associations is not None:
+            self.__set_associations__(associations=associations)
         self.__check_if_all_contours_present__()
 
     def __set_associations__(self, associations={}):
@@ -247,12 +246,9 @@ class DicomReaderWriter:
                     associations[name] = name
         self.associations, self.hierarchy = associations, {}
 
-    def __set_contour_names__(self, Contour_Names=None):
+    def __set_contour_names__(self, Contour_Names):
         self.__reset_RTs__()
-        if Contour_Names is None:
-            Contour_Names = []
-        else:
-            Contour_Names = [i.lower() for i in Contour_Names]
+        Contour_Names = [i.lower() for i in Contour_Names]
         for name in Contour_Names:
             if name not in self.associations:
                 self.associations[name] = name
