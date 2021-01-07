@@ -789,7 +789,7 @@ class DicomReaderWriter:
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
                             contour_num].ContourData = list(output)
                         self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[
-                            contour_num].NumberofContourPoints = len(output) // 3
+                            contour_num].NumberOfContourPoints = len(output) // 3
                         contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
         if self.template or self.delete_previous_rois:
