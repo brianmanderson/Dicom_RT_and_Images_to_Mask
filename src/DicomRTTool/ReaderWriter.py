@@ -230,25 +230,29 @@ class DicomReaderWriter:
         self.RS_struct_uid = None
         self.RTs_with_ROI_Names = {}
 
+    def set_contour_names_and_associations(self, Contour_Names=None, associations=None):
+        if Contour_Names is not None:
+            self.__set_contour_names__(Contour_Names=Contour_Names)
+        if associations is not None:
+            self.__set_associations__(associations=associations)
+        self.__check_if_all_contours_present__()
+
     def __set_associations__(self, associations={}):
         keys = list(associations.keys())
         for key in keys:
             associations[key.lower()] = associations[key].lower()
-        if self.Contour_Names is not None:
-            for name in self.Contour_Names:
-                if name not in associations:
-                    associations[name] = name
         self.associations, self.hierarchy = associations, {}
 
-    def set_contour_names(self, Contour_Names=None):
+    def __set_contour_names__(self, Contour_Names=None):
         self.__reset_RTs__()
         if Contour_Names is None:
             Contour_Names = []
         else:
             Contour_Names = [i.lower() for i in Contour_Names]
+        for name in Contour_Names:
+            if name not in self.associations:
+                self.associations[name] = name
         self.Contour_Names = Contour_Names
-        self.__set_associations__(self.associations)
-        self.__check_if_all_contours_present__()
 
     def __set_description__(self, description):
         self.desciption = description
