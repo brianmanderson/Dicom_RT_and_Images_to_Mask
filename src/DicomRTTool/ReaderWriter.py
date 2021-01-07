@@ -1,6 +1,8 @@
 __author__ = 'Brian M Anderson'
+
 # Created on 12/31/2020
-import os, pydicom
+import os
+import pydicom
 import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
@@ -50,8 +52,8 @@ def sort_xy(x, y):
     y -= np.min(y)
     x0 = np.mean(x)
     y0 = np.mean(y)
-    r = np.sqrt((x-x0)**2 + (y-y0)**2)
-    angles = np.where((y-y0) > 0, np.arccos((x-x0)/r), 2*np.pi-np.arccos((x-x0)/r))
+    r = np.sqrt((x - x0) ** 2 + (y - y0) ** 2)
+    angles = np.where((y - y0) > 0, np.arccos((x - x0) / r), 2 * np.pi - np.arccos((x - x0) / r))
     # mask = np.argsort(angles)
     # mask = np.abs(mask - np.max(mask))
     return angles
@@ -163,7 +165,8 @@ def return_template_dictionary():
 
 
 class DicomReaderWriter:
-    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None, verbose=True,
+    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=None,
+                 verbose=True,
                  template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True, associations={},
                  iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
                  series_instances_dictionary={}):
@@ -180,7 +183,6 @@ class DicomReaderWriter:
         :param get_dose_output: boolean, collect dose information
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
-        :param kwargs:
         """
         self.series_instances_dictionary = series_instances_dictionary
         self.get_dose_output = get_dose_output
@@ -422,7 +424,7 @@ class DicomReaderWriter:
                         self.RTs_in_case[path] = rois_in_structure
                         self.series_instances_dictionary[index]['RTs'].update(temp_dict)
 
-    def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count()*0.9-1)):
+    def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         q = Queue(maxsize=thread_count)
@@ -492,13 +494,13 @@ class DicomReaderWriter:
             t.join()
 
     def get_images_and_mask(self):
-        assert self.index in self.series_instances_dictionary,\
+        assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         self.get_images()
         self.get_mask()
 
     def get_images(self):
-        assert self.index in self.series_instances_dictionary,\
+        assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
         series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
@@ -523,7 +525,7 @@ class DicomReaderWriter:
             self.dicom_handle_uid = series_instance_uid
 
     def get_mask(self):
-        assert self.index in self.series_instances_dictionary,\
+        assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         assert self.Contour_Names, 'If you want a mask, you need to set the contour names you are looking ' \
                                    'for, use set_contour_names(list_of_roi_names).\nIf you just want to look at images ' \
@@ -580,7 +582,7 @@ class DicomReaderWriter:
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
             as_array = np.asarray(Contour_data[i].ContourData[:])
-            reshaped = np.reshape(as_array, [as_array.shape[0]//3, 3])
+            reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])
             matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
                                         for i in range(reshaped.shape[0])])
             self.col_val = matrix_points[:, 0]
@@ -664,7 +666,7 @@ class DicomReaderWriter:
                 break
 
         prediction_array = np.squeeze(prediction_array)
-        contour_values = np.max(prediction_array, axis=0) # See what the maximum value is across the prediction array
+        contour_values = np.max(prediction_array, axis=0)  # See what the maximum value is across the prediction array
         while len(contour_values.shape) > 1:
             contour_values = np.max(contour_values, axis=0)
         contour_values[0] = 1  # Keep background
@@ -721,7 +723,8 @@ class DicomReaderWriter:
             make_new = 1
             allow_slip_in = True
             if (Name not in current_names and allow_slip_in) or self.delete_previous_rois:
-                self.RS_struct.StructureSetROISequence.insert(0,copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
+                self.RS_struct.StructureSetROISequence.insert(0,
+                                                              copy.deepcopy(self.RS_struct.StructureSetROISequence[0]))
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
@@ -733,7 +736,8 @@ class DicomReaderWriter:
             self.RS_struct.StructureSetROISequence[self.struct_index].ROIGenerationAlgorithm = 'SEMIAUTOMATIC'
             if make_new == 1:
                 self.RS_struct.RTROIObservationsSequence.insert(0,
-                    copy.deepcopy(self.RS_struct.RTROIObservationsSequence[0]))
+                                                                copy.deepcopy(
+                                                                    self.RS_struct.RTROIObservationsSequence[0]))
                 if 'MaterialID' in self.RS_struct.RTROIObservationsSequence[self.struct_index]:
                     del self.RS_struct.RTROIObservationsSequence[self.struct_index].MaterialID
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ObservationNumber = new_ROINumber
@@ -742,20 +746,20 @@ class DicomReaderWriter:
             self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'ORGAN'
 
             if make_new == 1:
-                self.RS_struct.ROIContourSequence.insert(0,copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
+                self.RS_struct.ROIContourSequence.insert(0, copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
             self.RS_struct.ROIContourSequence[self.struct_index].ReferencedROINumber = new_ROINumber
             del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
-            thread_count = int(cpu_count()*0.9-1)
+            thread_count = int(cpu_count() * 0.9 - 1)
             contour_dict = {}
             q = Queue(maxsize=thread_count)
             threads = []
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct}
 
-            A = [q,kwargs]
-            pointer_class = PointOutputMakerClass(**kwargs)
+            A = [q, kwargs]
+            # pointer_class = PointOutputMakerClass(**kwargs)
             for worker in range(thread_count):
                 t = Thread(target=contour_worker, args=(A,))
                 t.start()
@@ -765,10 +769,9 @@ class DicomReaderWriter:
                 image_locations = np.max(annotations, axis=(1, 2))
                 indexes = np.where(image_locations > 0)[0]
                 for index in indexes:
-                    item = [annotations[index, ...], index]
                     item = {'annotation': annotations[index], 'i': index, 'dicom_handle': self.dicom_handle}
-                    pointer_class.make_output(**item)
-                    # q.put(item)
+                    # pointer_class.make_output(**item)
+                    q.put(item)
                 for i in range(thread_count):
                     q.put(None)
                 for t in threads:
@@ -793,11 +796,11 @@ class DicomReaderWriter:
                         contour_num += 1
         self.RS_struct.SOPInstanceUID += '.' + str(np.random.randint(999))
         if self.template or self.delete_previous_rois:
-            for i in range(len(self.RS_struct.StructureSetROISequence),len(self.ROI_Names),-1):
+            for i in range(len(self.RS_struct.StructureSetROISequence), len(self.ROI_Names), -1):
                 del self.RS_struct.StructureSetROISequence[-1]
-            for i in range(len(self.RS_struct.RTROIObservationsSequence),len(self.ROI_Names),-1):
+            for i in range(len(self.RS_struct.RTROIObservationsSequence), len(self.ROI_Names), -1):
                 del self.RS_struct.RTROIObservationsSequence[-1]
-            for i in range(len(self.RS_struct.ROIContourSequence),len(self.ROI_Names),-1):
+            for i in range(len(self.RS_struct.ROIContourSequence), len(self.ROI_Names), -1):
                 del self.RS_struct.ROIContourSequence[-1]
             for i in range(len(self.RS_struct.StructureSetROISequence)):
                 self.RS_struct.StructureSetROISequence[i].ROINumber = i + 1
@@ -841,7 +844,8 @@ class DicomReaderWriter:
             self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
                 0].ContourImageSequence.append(temp_segment)
         del \
-        self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[0].ContourImageSequence[0]
+            self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                0].ContourImageSequence[0]
 
         new_keys = open(self.key_list)
         keys = {}
@@ -870,7 +874,7 @@ class DicomReaderWriter:
                 origin = dose.GetOrigin()
                 direction = dose.GetDirection()
                 scaling_factor = float(reader.GetMetaData("3004|000e"))
-                dose = sitk.GetArrayFromImage(dose)*scaling_factor
+                dose = sitk.GetArrayFromImage(dose) * scaling_factor
                 if output is None:
                     output = dose
                 else:
