@@ -256,7 +256,8 @@ class DicomReaderWriter:
         self.create_new_RT = create_new_RT
         self.associations = associations
         self.Contour_Names = Contour_Names
-        self.set_contour_names_and_associations(Contour_Names=Contour_Names, associations=associations, start=True)
+        self.set_contour_names_and_associations(Contour_Names=Contour_Names, associations=associations,
+                                                check_contours=False)
         self.__set_description__(description)
         self.__set_iteration__(iteration)
         self.arg_max = arg_max
@@ -349,12 +350,12 @@ class DicomReaderWriter:
         self.RS_struct_uid = None
         self.RTs_with_ROI_Names = {}
 
-    def set_contour_names_and_associations(self, Contour_Names=None, associations=None, start=False):
+    def set_contour_names_and_associations(self, Contour_Names=None, associations=None, check_contours=True):
         if Contour_Names is not None:
             self.__set_contour_names__(Contour_Names=Contour_Names)
         if associations is not None:
             self.__set_associations__(associations=associations)
-        if not start:  # I don't want to run this on the first build..
+        if check_contours:  # I don't want to run this on the first build..
             self.__check_if_all_contours_present__()
 
     def __set_associations__(self, associations={}):
