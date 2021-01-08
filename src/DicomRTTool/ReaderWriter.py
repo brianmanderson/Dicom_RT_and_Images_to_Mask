@@ -287,6 +287,7 @@ class DicomReaderWriter:
         """
         The goal of this is to combine image, rt, and dose dictionaries based on the SeriesInstanceUIDs
         """
+        print('Compiling dictionaries together...')
         series_instance_uids = []
         for key, value in self.series_instances_dictionary.items():
             series_instance_uids.append(value['SeriesInstanceUID'])
@@ -477,7 +478,6 @@ class DicomReaderWriter:
                 q.put(None)
             for t in threads:
                 t.join()
-            print('Finished walking through, compiling...')
             self.__compile__()
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
