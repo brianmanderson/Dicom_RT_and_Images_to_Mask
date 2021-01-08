@@ -118,7 +118,7 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")[:-1]
         description = sitk_dicom_reader.GetMetaData("0008|103e")
         temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
-                     'Image_Path': path, 'Description': description}
+                     'Image_Path': path, 'Description': description, 'RTs': {}, 'RDs': {}}
         images_dictionary[series_instance_uid] = temp_dict
 
 
@@ -256,6 +256,40 @@ class DicomReaderWriter:
     def set_index(self, index):
         self.index = index
 
+    def __compile__(self):
+        """
+        The goal of this is to combine image, rt, and dose dictionaries based on the SeriesInstanceUIDs
+        """
+        series_instance_uids = []
+        for key, value in self.series_instances_dictionary.items():
+            series_instance_uids.append(value['SeriesInstanceUID'])
+        index = 0
+        for series_instance_uid in self.images_dictionary:
+            if series_instance_uid not in series_instance_uids:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                self.series_instances_dictionary[index] = self.images_dictionary[series_instance_uid]
+                series_instance_uids.append(series_instance_uid)
+        for rt_series_instance_uid in self.rt_dictionary:
+            series_instance_uid = self.rt_dictionary[rt_series_instance_uid]['SeriesInstanceUID']
+            rt_dictionary = self.rt_dictionary[rt_series_instance_uid]
+            path = rt_dictionary['Path']
+            self.all_RTs[path] = rt_dictionary['ROI_Names']
+            for roi in rt_dictionary['ROI_Names']:
+                if roi not in self.RTs_with_ROI_Names:
+                    self.RTs_with_ROI_Names[roi] = [path]
+                else:
+                    self.RTs_with_ROI_Names[roi].append(path)
+            if series_instance_uid in series_instance_uids:
+                index = series_instance_uids.index(series_instance_uid)
+                self.series_instances_dictionary[index]['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+            else:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+
     def __reset__(self):
         self.__reset_RTs__()
         self.dicom_handle_uid = None
@@ -361,6 +395,7 @@ class DicomReaderWriter:
             print('The following indexes have all ROIs present')
             for index in self.indexes_with_contours:
                 print('Index {}, located at {}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
+            return self.indexes_with_contours
         else:
             print('You need to first define what ROIs you want, please use .set_contour_names(roi_list)')
 
@@ -395,6 +430,7 @@ class DicomReaderWriter:
                 q.put(None)
             for t in threads:
                 t.join()
+            self.__compile__()
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
