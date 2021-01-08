@@ -451,7 +451,8 @@ class DicomReaderWriter:
                 print('Index {}, located at {}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
             return self.indexes_with_contours
         else:
-            print('You need to first define what ROIs you want, please use .set_contour_names(roi_list)')
+            print('You need to first define what ROIs you want, please use'
+                  ' .set_contour_names_and_associations(roi_list)')
 
     def down_folder(self, input_path):
         print('Please move from down_folder() to walk_through_folders()')
@@ -640,8 +641,8 @@ class DicomReaderWriter:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         assert self.Contour_Names, 'If you want a mask, you need to set the contour names you are looking ' \
-                                   'for, use set_contour_names(list_of_roi_names).\nIf you just want to look at images ' \
-                                   'use get_images() not get_images_and_mask() or get_mask()'
+                                   'for, use set_contour_names_and_associations(list_of_roi_names).\nIf you just' \
+                                   ' want to look at images  use get_images() not get_images_and_mask() or get_mask()'
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             print('Loading images for index {}, since mask was requested but image loading was '
