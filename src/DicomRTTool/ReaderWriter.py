@@ -44,6 +44,9 @@ def worker_def(A):
                 base_class.write_images_annotations(out_path)
             except:
                 print('failed on {}'.format(base_class.series_instances_dictionary[index]['Image_Path']))
+                fid = open(os.path.join(base_class.series_instances_dictionary[index]['Image_Path'], 'failed.txt'),
+                           'w+')
+                fid.close()
             q.task_done()
 
 
