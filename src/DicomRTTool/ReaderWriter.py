@@ -55,12 +55,13 @@ def folder_worker(A):
             break
         else:
             dicom_adder = AddDicomToDictionary()
-            dicom_path, images_dictionary, rt_dictionary = item
+            dicom_path, images_dictionary, rt_dictionary, rd_dictionary = item
             try:
                 print('Loading from {}'.format(dicom_path))
                 dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=dicom_path,
                                                               images_dictionary=images_dictionary,
-                                                              rt_dictionary=rt_dictionary)
+                                                              rt_dictionary=rt_dictionary,
+                                                              rd_dictionary=rd_dictionary)
             except:
                 print('failed on {}'.format(dicom_path))
             q.task_done()
@@ -117,8 +118,10 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
     if series_instance_uid not in images_dictionary:
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")[:-1]
         description = sitk_dicom_reader.GetMetaData("0008|103e")
+        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
         temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
-                     'Image_Path': path, 'Description': description, 'RTs': {}, 'RDs': {}}
+                     'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {},
+                     'Image_Path': path, 'Description': description}
         images_dictionary[series_instance_uid] = temp_dict
 
 
@@ -146,6 +149,20 @@ def add_rt_to_dictionary(ds, path, rt_dictionary):
                     temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
                                  'SeriesInstanceUID': refed_series_instance_uid}
                     rt_dictionary[series_instance_uid] = temp_dict
+
+
+def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
+    """
+    :param ds: pydicom data structure
+    :param path: path to the images or structure in question
+    """
+    series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
+    if series_instance_uid not in rd_dictionary:
+        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
+        description = sitk_dicom_reader.GetMetaData("0008|103e")
+        temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
+                     'Description': description}
+        rd_dictionary[series_instance_uid] = temp_dict
 
 
 def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
@@ -180,7 +197,7 @@ class AddDicomToDictionary(object):
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
 
-    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary):
+    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary):
         fileList = []
         for dirName, dirs, fileList in os.walk(dicom_path):
             break
@@ -189,11 +206,16 @@ class AddDicomToDictionary(object):
         all_names = []
         for series_id in series_ids:
             dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_id)
-            all_names += dicom_names
+            all_names += [os.path.split(i)[-1] for i in dicom_names]
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
-            add_images_to_dictionary(images_dictionary=images_dictionary,
-                                     sitk_dicom_reader=self.image_reader, path=dicom_path)
+            modality = self.image_reader.GetMetaData("0008|0060")
+            if modality.lower().find('rtdose') != -1:
+                add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
+                                     rd_dictionary=rd_dictionary)
+            else:
+                add_images_to_dictionary(images_dictionary=images_dictionary,
+                                         sitk_dicom_reader=self.image_reader, path=dicom_path)
         RT_Files = [os.path.join(dicom_path, file) for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
@@ -223,6 +245,7 @@ class DicomReaderWriter:
         """
         self.rt_dictionary = {}
         self.images_dictionary = {}
+        self.rd_dictionary = {}
         self.series_instances_dictionary = series_instances_dictionary
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
@@ -290,6 +313,23 @@ class DicomReaderWriter:
                     index += 1
                 template = return_template_dictionary()
                 template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        study_instance_uids = None
+        for rd_series_instance_uid in self.rd_dictionary:
+            if study_instance_uids is None:
+                study_instance_uids = []
+                for key, value in self.series_instances_dictionary.items():
+                    study_instance_uids.append(value['StudyInstanceUID'])
+            study_instance_uid = self.rd_dictionary[rd_series_instance_uid]['StudyInstanceUID']
+            if study_instance_uid in study_instance_uids:
+                index = study_instance_uids.index(study_instance_uid)
+                self.series_instances_dictionary[index]['RDs'].update({rd_series_instance_uid:
+                                                                           self.rd_dictionary[rd_series_instance_uid]})
+            else:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
     def __reset__(self):
@@ -426,7 +466,7 @@ class DicomReaderWriter:
                 t.start()
                 threads.append(t)
             for index, path in enumerate(paths_with_dicom):
-                item = [path, self.images_dictionary, self.rt_dictionary]
+                item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary]
                 q.put(item)
             for i in range(thread_count):
                 q.put(None)
@@ -442,52 +482,6 @@ class DicomReaderWriter:
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
         self.__check_if_all_contours_present__()
         return None
-
-    def add_rt_to_dictionary(self, ds, path):
-        """
-        :param ds: pydicom data structure
-        :param path: path to the images or structure in question
-        """
-        series_instance_uid = ds.SeriesInstanceUID
-        keys = []
-        series_instance_uids = []
-        for key, value in self.series_instances_dictionary.items():
-            keys.append(key)
-            series_instance_uids.append(value['SeriesInstanceUID'])
-        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
-            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
-                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
-                    refed_series_instance_uid = referred_series.SeriesInstanceUID
-                    if refed_series_instance_uid not in series_instance_uids:
-                        index = 0
-                        while index in self.series_instances_dictionary:
-                            index += 1
-                        temp_dict = return_template_dictionary()
-                        temp_dict['SeriesInstanceUID'] = refed_series_instance_uid
-                        temp_dict['PatientID'] = ds.PatientID
-                        self.series_instances_dictionary[index] = temp_dict
-                    else:
-                        index = keys[series_instance_uids.index(refed_series_instance_uid)]
-                    if series_instance_uid not in self.series_instances_dictionary[index]['RTs']:
-                        if Tag((0x3006, 0x020)) in ds.keys():
-                            ROI_Structure = ds.StructureSetROISequence
-                        else:
-                            ROI_Structure = []
-                        rois_in_structure = {}
-                        rois = []
-                        for Structures in ROI_Structure:
-                            rois.append(Structures.ROIName.lower())
-                            if Structures.ROIName not in rois_in_structure:
-                                rois_in_structure[Structures.ROIName] = Structures.ROINumber
-                            if Structures.ROIName.lower() not in self.RTs_with_ROI_Names:
-                                self.RTs_with_ROI_Names[Structures.ROIName.lower()] = [path]
-                            elif path not in self.RTs_with_ROI_Names[Structures.ROIName.lower()]:
-                                self.RTs_with_ROI_Names[Structures.ROIName.lower()].append(path)
-                        temp_dict = {series_instance_uid: {'Path': path, 'ROI_Names': rois,
-                                                           'ROIs_in_structure': rois_in_structure}}
-                        self.all_RTs[path] = rois_in_structure
-                        self.RTs_in_case[path] = rois_in_structure
-                        self.series_instances_dictionary[index]['RTs'].update(temp_dict)
 
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
@@ -588,6 +582,17 @@ class DicomReaderWriter:
             self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
             self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
             self.dicom_handle_uid = series_instance_uid
+
+    def get_dose(self):
+        assert self.index in self.series_instances_dictionary, \
+            'Index is not present in the dictionary! Set it using set_index(index)'
+        index = self.index
+        if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
+            print('Loading images for index {}, since mask was requested but image loading was '
+                  'previously different\n'.format(index))
+            self.get_images()
+        if self.RS_struct_uid == self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Already loaded
+            return None
 
     def get_mask(self):
         assert self.index in self.series_instances_dictionary, \
