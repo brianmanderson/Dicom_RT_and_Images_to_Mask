@@ -264,7 +264,9 @@ class DicomReaderWriter:
         for key, value in self.series_instances_dictionary.items():
             series_instance_uids.append(value['SeriesInstanceUID'])
         index = 0
-        for series_instance_uid in self.images_dictionary:
+        image_keys = list(self.images_dictionary.keys())
+        image_keys.sort()
+        for series_instance_uid in image_keys:  # Will help keep things in order later
             if series_instance_uid not in series_instance_uids:
                 while index in self.series_instances_dictionary:
                     index += 1
