@@ -117,7 +117,9 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")[:-1]
-        description = sitk_dicom_reader.GetMetaData("0008|103e")
+        description = None
+        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+            description = sitk_dicom_reader.GetMetaData("0008|103e")
         study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
         temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
                      'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {},
@@ -159,7 +161,9 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in rd_dictionary:
         study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-        description = sitk_dicom_reader.GetMetaData("0008|103e")
+        description = None
+        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+            description = sitk_dicom_reader.GetMetaData("0008|103e")
         temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
                      'Description': description}
         rd_dictionary[series_instance_uid] = temp_dict
@@ -193,6 +197,7 @@ class AddDicomToDictionary(object):
     def __init__(self):
         self.image_reader = sitk.ImageFileReader()
         self.image_reader.LoadPrivateTagsOn()
+        self.image_reader.GetMetaDataKeys()
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
@@ -258,7 +263,7 @@ class DicomReaderWriter:
         self.__set_iteration__(iteration)
         self.arg_max = arg_max
         self.rewrite_RT_file = rewrite_RT_file
-        self.dose_handles = []
+        self.dose_handle = None
         if template_dir is None or not os.path.exists(template_dir):
             template_dir = os.path.join(os.path.split(__file__)[0], 'template_RS.dcm')
         self.template_dir = template_dir
@@ -270,6 +275,7 @@ class DicomReaderWriter:
         self.verbose = verbose
         self.dicom_handle_uid = None
         self.RS_struct_uid = None
+        self.rd_study_instance_uid = None
         self.index = index
         self.all_RTs = {}
         self.RTs_with_ROI_Names = {}
@@ -334,6 +340,7 @@ class DicomReaderWriter:
 
     def __reset__(self):
         self.__reset_RTs__()
+        self.rd_study_instance_uid = None
         self.dicom_handle_uid = None
         self.series_instances_dictionary = {}
 
@@ -557,6 +564,8 @@ class DicomReaderWriter:
             'Index is not present in the dictionary! Set it using set_index(index)'
         self.get_images()
         self.get_mask()
+        if self.get_dose_output:
+            self.get_dose()
 
     def get_images(self):
         assert self.index in self.series_instances_dictionary, \
@@ -591,8 +600,36 @@ class DicomReaderWriter:
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
-        if self.RS_struct_uid == self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Already loaded
+        if self.rd_study_instance_uid == self.series_instances_dictionary[index]['StudyInstanceUID']:  # Already loaded
             return None
+        self.rd_study_instance_uid = self.series_instances_dictionary[index]['StudyInstanceUID']
+        RDs = self.series_instances_dictionary[index]['RDs']
+        reader = sitk.ImageFileReader()
+        output, spacing, direction, origin = None, None, None, None
+        self.dose = None
+        self.dose_handle = None
+        for rd_series_instance_uid in RDs:
+            rd = RDs[rd_series_instance_uid]
+            dose_file = rd['Path']
+            reader.SetFileName(dose_file)
+            reader.ReadImageInformation()
+            dose = reader.Execute()
+            spacing = dose.GetSpacing()
+            origin = dose.GetOrigin()
+            direction = dose.GetDirection()
+            scaling_factor = float(reader.GetMetaData("3004|000e"))
+            dose = sitk.GetArrayFromImage(dose) * scaling_factor
+            if output is None:
+                output = dose
+            else:
+                output += dose
+        if output is not None:
+            self.dose = output
+            output = sitk.GetImageFromArray(output)
+            output.SetSpacing(spacing)
+            output.SetDirection(direction)
+            output.SetOrigin(origin)
+            self.dose_handle = output
 
     def get_mask(self):
         assert self.index in self.series_instances_dictionary, \
@@ -693,16 +730,9 @@ class DicomReaderWriter:
         if pixel_id.find('int') == -1:
             self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
         sitk.WriteImage(self.annotation_handle, annotation_path)
-        if len(self.dose_handles) > 0:
-            for dose_index, dose_handle in enumerate(self.dose_handles):
-                if len(self.dose_handles) > 1:
-                    dose_path = os.path.join(out_path,
-                                             'Overall_dose_{}_{}_{}.nii.gz'.format(self.desciption, self.iteration,
-                                                                                   dose_index))
-                else:
-                    dose_path = os.path.join(out_path,
-                                             'Overall_dose_{}_{}.nii.gz'.format(self.desciption, self.iteration))
-                sitk.WriteImage(dose_handle, dose_path)
+        if self.dose_handle is not None:
+            dose_path = os.path.join(out_path, 'Overall_dose_{}_{}.nii.gz'.format(self.desciption, self.iteration))
+            sitk.WriteImage(self.dose_handle, dose_path)
         fid = open(os.path.join(self.series_instances_dictionary[self.index]['Image_Path'],
                                 '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
         fid.close()
@@ -931,37 +961,13 @@ class DicomReaderWriter:
                 continue
         return None
 
-    def get_dose(self):
-        reader = sitk.ImageFileReader()
-        output, spacing, direction, origin = None, None, None, None
-        for dose_file in self.RDs_in_case:
-            if os.path.split(dose_file)[-1].startswith('RTDOSE - PLAN'):
-                reader.SetFileName(dose_file)
-                reader.ReadImageInformation()
-                dose = reader.Execute()
-                spacing = dose.GetSpacing()
-                origin = dose.GetOrigin()
-                direction = dose.GetDirection()
-                scaling_factor = float(reader.GetMetaData("3004|000e"))
-                dose = sitk.GetArrayFromImage(dose) * scaling_factor
-                if output is None:
-                    output = dose
-                else:
-                    output += dose
-        if output is not None:
-            output = sitk.GetImageFromArray(output)
-            output.SetSpacing(spacing)
-            output.SetDirection(direction)
-            output.SetOrigin(origin)
-            self.dose_handles.append(output)
-
     def Make_Contour_From_directory(self, PathDicom):
-        print('Please move over to using add_dicom_to_dictionary_from_path')
-        self.add_dicom_to_dictionary_from_path(PathDicom=PathDicom)
+        print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
+        self.walk_through_folders(input_path=PathDicom)
 
     def make_contour_from_directory(self, dicom_path):
-        print('Please move over to using add_dicom_to_dictionary_from_path')
-        self.add_dicom_to_dictionary_from_path(PathDicom=dicom_path)
+        print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
+        self.walk_through_folders(input_path=dicom_path)
         return None
 
     def rewrite_RT(self, lstRSFile=None):
