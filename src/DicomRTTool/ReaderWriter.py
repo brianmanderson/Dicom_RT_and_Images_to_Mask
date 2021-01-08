@@ -188,7 +188,7 @@ def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
 
 
 def return_template_dictionary():
-    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'Description': None,
+    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'RDs': {}, 'Description': None,
                            'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None}
     return template_dictionary
 
@@ -477,6 +477,7 @@ class DicomReaderWriter:
                 q.put(None)
             for t in threads:
                 t.join()
+            print('Finished walking through, compiling...')
             self.__compile__()
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
