@@ -198,8 +198,7 @@ class AddDicomToDictionary(object):
         self.image_reader = sitk.ImageFileReader()
         self.image_reader.LoadPrivateTagsOn()
         self.reader = sitk.ImageSeriesReader()
-        self.reader.MetaDataDictionaryArrayUpdateOn()
-        self.reader.LoadPrivateTagsOn()
+        self.reader.GlobalWarningDisplayOff()
 
     def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary):
         fileList = []
