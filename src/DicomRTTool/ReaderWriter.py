@@ -197,7 +197,6 @@ class AddDicomToDictionary(object):
     def __init__(self):
         self.image_reader = sitk.ImageFileReader()
         self.image_reader.LoadPrivateTagsOn()
-        self.image_reader.GetMetaDataKeys()
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
