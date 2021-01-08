@@ -92,7 +92,8 @@ class PointOutputMakerClass(object):
             contours = find_contours(temp_image, level=0.5, fully_connected='low', positive_orientation='high')
             for contour in contours:
                 contour = np.squeeze(contour)
-                slope = (contour[1:, 1] - contour[:-1, 1]) / (contour[1:, 0] - contour[:-1, 0])
+                with np.errstate(divide='ignore'):
+                    slope = (contour[1:, 1] - contour[:-1, 1]) / (contour[1:, 0] - contour[:-1, 0])
                 slope_index = None
                 out_contour = []
                 for index in range(len(slope)):
