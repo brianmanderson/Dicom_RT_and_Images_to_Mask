@@ -57,7 +57,7 @@ def folder_worker(A):
             dicom_adder = AddDicomToDictionary()
             dicom_path, images_dictionary, rt_dictionary = item
             try:
-                print(dicom_path)
+                print('Loading from {}'.format(dicom_path))
                 dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=dicom_path,
                                                               images_dictionary=images_dictionary,
                                                               rt_dictionary=rt_dictionary)
@@ -705,7 +705,6 @@ class DicomReaderWriter:
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
         :param ROI_Names: list of ROI names equal to the number of classes
-        :param index: index of the series instance UID to match with
         :return:
         """
         assert ROI_Names is not None, 'You need to provide ROI_Names'
