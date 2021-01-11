@@ -919,7 +919,7 @@ class DicomReaderWriter:
         if os.path.exists(out_name):
             out_name = os.path.join(self.output_dir,
                                     'RS_MRN' + self.RS_struct.PatientID + '_' + self.RS_struct.SeriesInstanceUID + '1.dcm')
-        print('Writing out data...')
+        print('Writing out data...{}'.format(self.output_dir))
         pydicom.write_file(out_name, self.RS_struct)
         fid = open(os.path.join(self.output_dir, 'Completed.txt'), 'w+')
         fid.close()
