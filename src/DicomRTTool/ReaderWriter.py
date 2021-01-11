@@ -501,7 +501,7 @@ class DicomReaderWriter:
             os.makedirs(out_path)
         final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
         if os.path.exists(excel_file):
-            df = pd.read_excel(excel_file)
+            df = pd.read_excel(excel_file, engine='openpyxl')
             data = df.to_dict()
             for key in final_out_dict.keys():
                 for index in data[key]:
