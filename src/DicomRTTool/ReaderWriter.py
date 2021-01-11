@@ -231,7 +231,7 @@ class AddDicomToDictionary(object):
                 add_rt_to_dictionary(ds=rt, path=lstRSFile, rt_dictionary=rt_dictionary)
 
 
-class DicomReaderWriter:
+class DicomReaderWriter(object):
     def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=[],
                  verbose=True, template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True,
                  associations={}, iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
