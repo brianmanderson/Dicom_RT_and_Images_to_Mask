@@ -232,10 +232,10 @@ class AddDicomToDictionary(object):
 
 
 class DicomReaderWriter(object):
-    def __init__(self, description='', delete_previous_rois=True, Contour_Names=[],
-                 verbose=True, template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True,
-                 associations={}, iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
-                 series_instances_dictionary={}):
+    def __init__(self, description='', Contour_Names=[], associations={}, arg_max=True, verbose=True,
+                 create_new_RT=True, template_dir=None, delete_previous_rois=True,
+                 require_all_contours=True, iteration=0, get_dose_output=False,
+                 flip_axes=(False, False, False), index=0, series_instances_dictionary={}):
         """
         :param description: string, description information to add to .nii files
         :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
