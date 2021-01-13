@@ -234,22 +234,23 @@ class AddDicomToDictionary(object):
 
 
 class DicomReaderWriter(object):
-    def __init__(self, description='', rewrite_RT_file=False, delete_previous_rois=True, Contour_Names=[],
-                 verbose=True, template_dir=None, arg_max=True, create_new_RT=True, require_all_contours=True,
-                 associations={}, iteration=0, get_dose_output=False, flip_axes=(False, False, False), index=0,
-                 series_instances_dictionary={}):
+    def __init__(self, description='', Contour_Names=[], associations={}, arg_max=True, verbose=True,
+                 create_new_RT=True, template_dir=None, delete_previous_rois=True,
+                 require_all_contours=True, iteration=0, get_dose_output=False,
+                 flip_axes=(False, False, False), index=0, series_instances_dictionary={}):
         """
         :param description: string, description information to add to .nii files
-        :param rewrite_RT_file: Boolean, should we re-write the RT structure
-        :param delete_previous_rois: delete the previous RTs within the structure
+        :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
         :param Contour_Names: list of contour names
         :param template_dir: default to None, specifies path to template RT structure
         :param arg_max: perform argmax on the mask
+        :param create_new_RT: boolean, if the Dicom-RT writer should create a new RT structure
         :param require_all_contours: Boolean, require all contours present when making nifti files?
         :param associations: dictionary of associations {'liver_bma_program_4': 'liver'}
         :param iteration: what iteration for writing .nii files
         :param get_dose_output: boolean, collect dose information
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
+        :param index: index to reference series_instances_dictionary, default 0
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
         """
         self.rt_dictionary = {}
@@ -267,7 +268,6 @@ class DicomReaderWriter(object):
         self.__set_description__(description)
         self.__set_iteration__(iteration)
         self.arg_max = arg_max
-        self.rewrite_RT_file = rewrite_RT_file
         self.dose_handle = None
         if template_dir is None or not os.path.exists(template_dir):
             template_dir = os.path.join(os.path.split(__file__)[0], 'template_RS.dcm')
