@@ -121,6 +121,8 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")[:-1]
+        while patientID[-1] == '' and len(patientID) > 0:
+            patientID = patientID[:-1]
         description = None
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             description = sitk_dicom_reader.GetMetaData("0008|103e")
