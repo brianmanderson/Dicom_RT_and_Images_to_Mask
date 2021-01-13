@@ -234,10 +234,10 @@ class AddDicomToDictionary(object):
 
 
 class DicomReaderWriter(object):
-    def __init__(self, description='', Contour_Names=[], associations={}, arg_max=True, verbose=True,
+    def __init__(self, description='', Contour_Names=None, associations=None, arg_max=True, verbose=True,
                  create_new_RT=True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
-                 flip_axes=(False, False, False), index=0, series_instances_dictionary={}):
+                 flip_axes=(False, False, False), index=0, series_instances_dictionary=None):
         """
         :param description: string, description information to add to .nii files
         :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
@@ -256,6 +256,12 @@ class DicomReaderWriter(object):
         self.rt_dictionary = {}
         self.images_dictionary = {}
         self.rd_dictionary = {}
+        if Contour_Names is None:
+            Contour_Names = []
+        if associations is None:
+            associations = {}
+        if series_instances_dictionary is None:
+            series_instances_dictionary = {}
         self.series_instances_dictionary = series_instances_dictionary
         self.get_dose_output = get_dose_output
         self.require_all_contours = require_all_contours
