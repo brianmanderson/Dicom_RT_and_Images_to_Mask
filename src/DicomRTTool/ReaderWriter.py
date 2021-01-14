@@ -112,7 +112,7 @@ def poly2mask(vertex_row_coords, vertex_col_coords, shape):
     return mask
 
 
-def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
+def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path, ds):
     """
     :param images_dictionary: dictionary of series instance UIDs for images
     :param sitk_dicom_reader: sitk.ImageFileReader()
@@ -120,9 +120,7 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
-        patientID = sitk_dicom_reader.GetMetaData("0010|0020")
-        while patientID[-1] == '' and len(patientID) > 0:
-            patientID = patientID[:-1]
+        patientID = ds.PatientID
         description = None
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             description = sitk_dicom_reader.GetMetaData("0008|103e")
@@ -218,12 +216,13 @@ class AddDicomToDictionary(object):
             all_names += [os.path.split(i)[-1] for i in dicom_names]
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
+            ds = pydicom.read_file(dicom_names[0])
             modality = self.image_reader.GetMetaData("0008|0060")
             if modality.lower().find('rtdose') != -1:
                 add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
                                      rd_dictionary=rd_dictionary)
             else:
-                add_images_to_dictionary(images_dictionary=images_dictionary,
+                add_images_to_dictionary(images_dictionary=images_dictionary, ds=ds,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path)
         RT_Files = [os.path.join(dicom_path, file) for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
