@@ -355,6 +355,8 @@ class DicomReaderWriter(object):
         self.rd_study_instance_uid = None
         self.dicom_handle_uid = None
         self.series_instances_dictionary = {}
+        self.rt_dictionary = {}
+        self.images_dictionary = {}
 
     def __reset_RTs__(self):
         self.all_rois = []
