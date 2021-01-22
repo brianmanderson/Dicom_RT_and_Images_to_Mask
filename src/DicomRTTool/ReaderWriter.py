@@ -58,9 +58,10 @@ def folder_worker(A):
             break
         else:
             dicom_adder = AddDicomToDictionary()
-            dicom_path, images_dictionary, rt_dictionary, rd_dictionary = item
+            dicom_path, images_dictionary, rt_dictionary, rd_dictionary, verbose = item
             try:
-                print('Loading from {}'.format(dicom_path))
+                if verbose:
+                    print('Loading from {}'.format(dicom_path))
                 dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=dicom_path,
                                                               images_dictionary=images_dictionary,
                                                               rt_dictionary=rt_dictionary,
@@ -300,7 +301,8 @@ class DicomReaderWriter(object):
         """
         The goal of this is to combine image, rt, and dose dictionaries based on the SeriesInstanceUIDs
         """
-        print('Compiling dictionaries together...')
+        if self.verbose:
+            print('Compiling dictionaries together...')
         series_instance_uids = []
         for key, value in self.series_instances_dictionary.items():
             series_instance_uids.append(value['SeriesInstanceUID'])
@@ -428,9 +430,10 @@ class DicomReaderWriter(object):
                     lacking_rois.append(roi)
             if lacking_rois:
                 self.all_contours_exist = False
-                print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
-                                                                             self.series_instances_dictionary[index]
-                                                                             ['Image_Path'], self.rois_in_case))
+                if self.verbose:
+                    print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
+                                                                                 self.series_instances_dictionary[index]
+                                                                                 ['Image_Path'], self.rois_in_case))
             if index not in self.indexes_with_contours:
                 if self.all_contours_exist or not self.require_all_contours:
                     self.indexes_with_contours.append(index)  # Add the index that has the contours
@@ -489,7 +492,7 @@ class DicomReaderWriter(object):
                 t.start()
                 threads.append(t)
             for index, path in enumerate(paths_with_dicom):
-                item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary]
+                item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary, self.verbose]
                 q.put(item)
             for i in range(thread_count):
                 q.put(None)
