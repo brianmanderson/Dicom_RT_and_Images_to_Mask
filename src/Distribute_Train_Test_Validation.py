@@ -9,7 +9,7 @@ import pandas as pd
 def distribute(description,niftii_path,excel_file):
     final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
     if os.path.exists(excel_file):
-        data = pd.read_excel(excel_file)
+        data = pd.read_excel(excel_file, engine='openpyxl')
         data = data.to_dict()
         for key in final_out_dict.keys():
             for index in data[key]:
