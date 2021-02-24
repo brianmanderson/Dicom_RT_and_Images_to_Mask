@@ -6,13 +6,13 @@ import pydicom
 import numpy as np
 from pydicom.tag import Tag
 import SimpleITK as sitk
-from skimage import draw
 from skimage.measure import label, regionprops, find_contours
 from threading import Thread
 from multiprocessing import cpu_count
 from queue import *
 import pandas as pd
 import copy
+import cv2
 from .Viewer import plot_scroll_Image
 
 
@@ -106,11 +106,24 @@ class PointOutputMakerClass(object):
                 self.contour_dict[i].append(np.asarray(contour))
 
 
-def poly2mask(vertex_row_coords, vertex_col_coords, shape):
-    fill_row_coords, fill_col_coords = draw.polygon(vertex_row_coords, vertex_col_coords, shape)
-    mask = np.zeros(shape, dtype=np.bool)
-    mask[fill_row_coords, fill_col_coords] = True
-    return mask
+def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
+              shape: tuple) -> np.array:
+    """[converts polygon coordinates to filled boolean mask]
+
+    Args:
+        vertex_row_coords (np.array): [row image coordinates]
+        vertex_col_coords (np.array): [column image coordinates]
+        shape (tuple): [image dimensions]
+
+    Returns:
+        [np.array]: [filled boolean polygon mask with vertices at
+                     (row, col) coordinates]
+    """
+    xy_coords = np.array([vertex_row_coords, vertex_col_coords])
+    coords = np.expand_dims(xy_coords.T, 0)
+    mask = np.zeros(shape)
+    cv2.fillPoly(mask, coords, 1)
+    return np.array(mask, dtype=np.bool)
 
 
 def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
