@@ -119,7 +119,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
         [np.array]: [filled boolean polygon mask with vertices at
                      (row, col) coordinates]
     """
-    xy_coords = np.array([vertex_row_coords, vertex_col_coords])
+    xy_coords = np.array([vertex_col_coords, vertex_row_coords])
     coords = np.expand_dims(xy_coords.T, 0)
     mask = np.zeros(shape)
     cv2.fillPoly(mask, coords, 1)
