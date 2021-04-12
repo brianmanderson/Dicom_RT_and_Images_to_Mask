@@ -297,6 +297,7 @@ class DicomReaderWriter(object):
         self.reader = sitk.ImageSeriesReader()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
+        self.reader.SetOutputPixelType(sitk.sitkFloat32)
         self.verbose = verbose
         self.dicom_handle_uid = None
         self.RS_struct_uid = None
