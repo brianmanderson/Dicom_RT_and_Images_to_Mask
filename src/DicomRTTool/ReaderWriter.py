@@ -599,7 +599,7 @@ class DicomReaderWriter(object):
                 write_path = os.path.join(out_path, folder)
             write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
             if os.path.exists(write_image):
-                print('Already wrote out {}'.format(write_image))
+                print('Already wrote out index {} at {}'.format(index, write_path))
                 continue
             item = [iteration, index, write_path, key_dict]
             q.put(item)
