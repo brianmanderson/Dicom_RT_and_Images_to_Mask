@@ -479,6 +479,20 @@ class DicomReaderWriter(object):
             return self.indexes_with_contours
         else:
             print('You need to first define what ROIs you want, please use'
+                  ' .set_contour_names_and_associations()')
+
+    def which_indexes_lack_all_rois(self):
+        if self.Contour_Names:
+            print('The following indexes are lacking all ROIs')
+            indexes_lacking_rois = []
+            for index in self.series_instances_dictionary:
+                if index not in self.indexes_with_contours:
+                    indexes_lacking_rois.append(index)
+                    print('Index {}, located at'
+                          '{}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
+            return indexes_lacking_rois
+        else:
+            print('You need to first define what ROIs you want, please use'
                   ' .set_contour_names_and_associations(roi_list)')
 
     def down_folder(self, input_path):
