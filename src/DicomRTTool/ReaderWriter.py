@@ -476,6 +476,7 @@ class DicomReaderWriter(object):
             print('The following indexes have all ROIs present')
             for index in self.indexes_with_contours:
                 print('Index {}, located at {}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
+            print('Finished listing present indexes')
             return self.indexes_with_contours
         else:
             print('You need to first define what ROIs you want, please use'
@@ -490,6 +491,7 @@ class DicomReaderWriter(object):
                     indexes_lacking_rois.append(index)
                     print('Index {}, located at'
                           '{}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
+            print('Finished listing lacking indexes')
             return indexes_lacking_rois
         else:
             print('You need to first define what ROIs you want, please use'
