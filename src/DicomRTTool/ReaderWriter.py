@@ -489,7 +489,7 @@ class DicomReaderWriter(object):
             for index in self.series_instances_dictionary:
                 if index not in self.indexes_with_contours:
                     indexes_lacking_rois.append(index)
-                    print('Index {}, located at'
+                    print('Index {}, located at '
                           '{}'.format(index, self.series_instances_dictionary[index]['Image_Path']))
             print('Finished listing lacking indexes')
             return indexes_lacking_rois
