@@ -891,7 +891,13 @@ class DicomReaderWriter(object):
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ObservationNumber = new_ROINumber
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ReferencedROINumber = new_ROINumber
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ROIObservationLabel = Name
-            self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'ORGAN'
+            
+            if 'ctv' in Name.lower():
+                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'CTV'
+            elif 'ptv' in Name.lower():
+                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'PTV'
+            else:
+                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'ORGAN'
 
             if make_new == 1:
                 self.RS_struct.ROIContourSequence.insert(0, copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
