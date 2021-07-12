@@ -12,7 +12,7 @@ with open('requirements.txt') as f:
 setup(
     name='DicomRTTool',
     author='Brian Mark Anderson',
-    author_email='bmanderson@mdanderson.org',
+    author_email='b5anderson@health.ucsd.edu',
     version='0.3.16',
     description='Tools for reading dicom files, RT structures, and dose files, as well as tools for '
                 'converting numpy prediction masks back to an RT structure',
