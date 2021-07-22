@@ -137,13 +137,20 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")
         while len(patientID) > 0 and patientID[-1] == ' ':
             patientID = patientID[:-1]
-        description = None
-        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+        description, pixel_spacing_x, pixel_spacing_y, slice_thickness = None, None, None, None
+        meta_keys = sitk_dicom_reader.GetMetaDataKeys()
+        if "0008|103e" in meta_keys:
             description = sitk_dicom_reader.GetMetaData("0008|103e")
+        if "0028|0030" in meta_keys:
+            pixel_spacing_x, pixel_spacing_y = sitk_dicom_reader.GetMetaData("0028|0030").strip(' ').split('\\')
+            pixel_spacing_x, pixel_spacing_y = float(pixel_spacing_x), float(pixel_spacing_y)
+        if "0018|0050" in meta_keys:
+            slice_thickness = float(sitk_dicom_reader.GetMetaData("0018|0050"))
         study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
         temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
                      'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {},
-                     'Image_Path': path, 'Description': description}
+                     'Image_Path': path, 'Description': description, 'Pixel_Spacing_X': pixel_spacing_x,
+                     'Pixel_Spacing_Y': pixel_spacing_y, 'Slice_Thickness': slice_thickness}
         images_dictionary[series_instance_uid] = temp_dict
 
 
@@ -542,7 +549,8 @@ class DicomReaderWriter(object):
     def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': []}
+        final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
+                          'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
         if os.path.exists(excel_file):
             df = pd.read_excel(excel_file, engine='openpyxl')
             data = df.to_dict()
@@ -570,7 +578,11 @@ class DicomReaderWriter(object):
                     iteration += 1
                 temp_dict = {'PatientID': [self.series_instances_dictionary[index]['PatientID']],
                              'Path': [self.series_instances_dictionary[index]['Image_Path']],
-                             'Iteration': [int(iteration)], 'Folder': [None], 'SeriesInstanceUID': [series_instance_uid]}
+                             'Iteration': [int(iteration)], 'Folder': [None],
+                             'SeriesInstanceUID': [series_instance_uid],
+                             'Pixel_Spacing_X': [self.series_instances_dictionary[index]['Pixel_Spacing_X']],
+                             'Pixel_Spacing_Y': [self.series_instances_dictionary[index]['Pixel_Spacing_Y']],
+                             'Slice_Thickness': [self.series_instances_dictionary[index]['Slice_Thickness']]}
                 temp_df = pd.DataFrame(temp_dict)
                 df = df.append(temp_df)
         if rewrite_excel:
