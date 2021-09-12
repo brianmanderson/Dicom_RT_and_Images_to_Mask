@@ -749,14 +749,18 @@ class DicomReaderWriter(object):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
+            as_array = np.asarray(Contour_data[i].ContourData[:])
+            reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])
+            matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
+                                        for i in range(reshaped.shape[0])])
+            self.col_val = matrix_points[:, 0]
+            self.row_val = matrix_points[:, 1]
+            z_vals = matrix_points[:, 2]
             if Contour_data[i].ContourGeometricType != 'OPEN_NONPLANAR':
-                as_array = np.asarray(Contour_data[i].ContourData[:])
-                reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])
-                matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
-                                            for i in range(reshaped.shape[0])])
-                self.col_val = matrix_points[:, 0]
-                self.row_val = matrix_points[:, 1]
-                z_vals = matrix_points[:, 2]
+                temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
+                # temp_mask[self.row_val, self.col_val] = 0
+                mask[z_vals[0], temp_mask] += 1
+            else:
                 temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
                 # temp_mask[self.row_val, self.col_val] = 0
                 mask[z_vals[0], temp_mask] += 1
