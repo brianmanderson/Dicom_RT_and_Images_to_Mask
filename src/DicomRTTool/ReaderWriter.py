@@ -771,9 +771,12 @@ class DicomReaderWriter(object):
                     c_stop = self.col_val[point_index - 1]
                     c_slope = (c_stop - c_start) / (z_stop - z_start)
                     for z_value in range(z_start, z_stop):
-                        r_value = int(r_start + r_slope * (z_value - z_start))
-                        c_value = int(c_start + c_slope * (z_value - z_start))
-                        mask[z_value, r_value, c_value] = 1
+                        r_value = r_start + r_slope * (z_value - z_start)
+                        c_value = c_start + c_slope * (z_value - z_start)
+                        mask[z_value, int(np.floor(r_value)), int(np.floor(c_value))] = 1
+                        mask[z_value, int(np.ceil(r_value)), int(np.floor(c_value))] = 1
+                        mask[z_value, int(np.floor(r_value)), int(np.ceil(c_value))] = 1
+                        mask[z_value, int(np.ceil(r_value)), int(np.ceil(c_value))] = 1
         mask = mask % 2
         return mask
 
