@@ -769,7 +769,7 @@ class DicomReaderWriter(object):
                     r_slope = (r_stop - r_start) / (z_stop - z_start)
                     c_start = self.col_val[point_index]
                     c_stop = self.col_val[point_index - 1]
-                    c_slope = (c_start - c_stop) / (z_stop - z_start)
+                    c_slope = (c_stop - c_start) / (z_stop - z_start)
                     for z_value in range(z_start, z_stop):
                         r_value = int(r_start + r_slope * (z_value - z_start))
                         c_value = int(c_start + c_slope * (z_value - z_start))
