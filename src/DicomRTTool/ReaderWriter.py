@@ -761,9 +761,19 @@ class DicomReaderWriter(object):
                 # temp_mask[self.row_val, self.col_val] = 0
                 mask[z_vals[0], temp_mask] += 1
             else:
-                temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
-                # temp_mask[self.row_val, self.col_val] = 0
-                mask[z_vals[0], temp_mask] += 1
+                for point_index in range(len(z_vals)-1, 0, -1):
+                    z_start = z_vals[point_index]
+                    z_stop = z_vals[point_index - 1]
+                    r_start = self.row_val[point_index]
+                    r_stop = self.row_val[point_index - 1]
+                    r_slope = (r_stop - r_start) / (z_stop - z_start)
+                    c_start = self.col_val[point_index]
+                    c_stop = self.col_val[point_index - 1]
+                    c_slope = (c_stop - c_start) / (z_stop - z_start)
+                    for z_value in range(z_start, z_stop):
+                        r_value = int(r_start + r_slope * (z_value - z_start))
+                        c_value = int(c_start + c_slope * (z_value - z_start))
+                        mask[z_value, r_value, c_value] = 1
         mask = mask % 2
         return mask
 
