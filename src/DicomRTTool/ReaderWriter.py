@@ -2,6 +2,8 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
+import typing
+
 import pydicom
 import numpy as np
 from pydicom.tag import Tag
@@ -13,6 +15,8 @@ from queue import *
 import pandas as pd
 import copy
 import cv2
+from typing import List
+
 from .Viewer import plot_scroll_Image
 
 
@@ -72,7 +76,7 @@ def folder_worker(A):
 
 
 class PointOutputMakerClass(object):
-    def __init__(self, image_size_rows, image_size_cols, PixelSize, contour_dict, RS):
+    def __init__(self, image_size_rows: int, image_size_cols: int, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
         self.PixelSize = PixelSize
         self.contour_dict = contour_dict
@@ -126,7 +130,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
     return np.array(mask, dtype=np.bool)
 
 
-def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
+def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike]):
     """
     :param images_dictionary: dictionary of series instance UIDs for images
     :param sitk_dicom_reader: sitk.ImageFileReader()
@@ -154,7 +158,7 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path):
         images_dictionary[series_instance_uid] = temp_dict
 
 
-def add_rt_to_dictionary(ds, path, rt_dictionary):
+def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary):
     """
     :param ds: pydicom data structure
     :param path: path to the images or structure in question
@@ -315,7 +319,7 @@ class DicomReaderWriter(object):
         self.all_rois = []
         self.indexes_with_contours = []
 
-    def set_index(self, index):
+    def set_index(self, index: int):
         self.index = index
 
     def __compile__(self):
@@ -406,7 +410,7 @@ class DicomReaderWriter(object):
                         associations[name] = name
             self.associations, self.hierarchy = associations, {}
 
-    def __set_contour_names__(self, Contour_Names):
+    def __set_contour_names__(self, Contour_Names: List[str]):
         self.__reset_RTs__()
         Contour_Names = [i.lower() for i in Contour_Names]
         for name in Contour_Names:
@@ -414,7 +418,7 @@ class DicomReaderWriter(object):
                 self.associations[name] = name
         self.Contour_Names = Contour_Names
 
-    def __set_description__(self, description):
+    def __set_description__(self, description: str):
         self.desciption = description
 
     def __set_iteration__(self, iteration=0):
@@ -460,18 +464,18 @@ class DicomReaderWriter(object):
                 if self.all_contours_exist or not self.require_all_contours:
                     self.indexes_with_contours.append(index)  # Add the index that has the contours
 
-    def return_rois(self, print_rois=True):
+    def return_rois(self, print_rois=True) -> List[str]:
         if print_rois:
             print('The following ROIs were found')
             for roi in self.all_rois:
                 print(roi)
         return self.all_rois
 
-    def where_are_RTs(self, ROIName):
+    def where_are_RTs(self, ROIName: str) -> None:
         print('Please move over to using .where_is_ROI(), as this better represents the definition')
         self.where_is_ROI(ROIName=ROIName)
 
-    def where_is_ROI(self, ROIName):
+    def where_is_ROI(self, ROIName: str) -> None:
         if ROIName.lower() in self.RTs_with_ROI_Names:
             print('Contours of {} are located:'.format(ROIName.lower()))
             for path in self.RTs_with_ROI_Names[ROIName.lower()]:
@@ -505,11 +509,12 @@ class DicomReaderWriter(object):
             print('You need to first define what ROIs you want, please use'
                   ' .set_contour_names_and_associations(roi_list)')
 
-    def down_folder(self, input_path):
+    def down_folder(self, input_path: typing.Union[str, bytes, os.PathLike]):
         print('Please move from down_folder() to walk_through_folders()')
         self.walk_through_folders(input_path=input_path)
 
-    def walk_through_folders(self, input_path, thread_count = int(cpu_count() * 0.9 - 1)):
+    def walk_through_folders(self, input_path: typing.Union[str, bytes, os.PathLike],
+                             thread_count=int(cpu_count() * 0.9 - 1)):
         """
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
@@ -547,7 +552,9 @@ class DicomReaderWriter(object):
         self.__check_if_all_contours_present__()
         return None
 
-    def write_parallel(self, out_path, excel_file, thread_count=int(cpu_count() * 0.9 - 1)):
+    def write_parallel(self, out_path: typing.Union[str, bytes, os.PathLike],
+                       excel_file: typing.Union[str, bytes, os.PathLike],
+                       thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
         final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
@@ -621,7 +628,7 @@ class DicomReaderWriter(object):
         for t in threads:
             t.join()
 
-    def get_images_and_mask(self):
+    def get_images_and_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         self.get_images()
@@ -629,7 +636,7 @@ class DicomReaderWriter(object):
         if self.get_dose_output:
             self.get_dose()
 
-    def get_images(self):
+    def get_images(self) -> None:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
@@ -654,7 +661,7 @@ class DicomReaderWriter(object):
             self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
             self.dicom_handle_uid = series_instance_uid
 
-    def get_dose(self):
+    def get_dose(self) -> None:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         index = self.index
@@ -693,7 +700,7 @@ class DicomReaderWriter(object):
             output.SetOrigin(origin)
             self.dose_handle = output
 
-    def get_mask(self):
+    def get_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
         assert self.Contour_Names, 'If you want a mask, you need to set the contour names you are looking ' \
@@ -746,7 +753,7 @@ class DicomReaderWriter(object):
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
-    def contours_to_mask(self, index):
+    def contours_to_mask(self, index: int):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
@@ -781,7 +788,7 @@ class DicomReaderWriter(object):
         mask = mask % 2
         return mask
 
-    def use_template(self):
+    def use_template(self) -> None:
         self.template = True
         if not self.template_dir:
             self.template_dir = os.path.join('\\\\mymdafiles', 'ro-admin', 'SHARED', 'Radiation physics', 'BMAnderson',
@@ -793,7 +800,7 @@ class DicomReaderWriter(object):
         print('Running off a template')
         self.change_template()
 
-    def write_images_annotations(self, out_path):
+    def write_images_annotations(self, out_path: typing.Union[str, bytes, os.PathLike]) -> None:
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
         annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption, self.iteration))
         if os.path.exists(image_path):
@@ -817,7 +824,8 @@ class DicomReaderWriter(object):
                                 '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
         fid.close()
 
-    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names):
+    def prediction_array_to_RT(self, prediction_array: np.array, output_dir: typing.Union[str, bytes, os.PathLike],
+                               ROI_Names: List[str]):
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
@@ -869,11 +877,12 @@ class DicomReaderWriter(object):
         self.annotations = prediction_array
         self.mask_to_contours()
 
-    def with_annotations(self, annotations, output_dir, ROI_Names=None):
+    def with_annotations(self, annotations: np.array, output_dir: typing.Union[str, bytes, os.PathLike],
+                         ROI_Names=None) -> None:
         print('Please move over to using prediction_array_to_RT')
         self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
-    def mask_to_contours(self):
+    def mask_to_contours(self) -> None:
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
@@ -1047,11 +1056,11 @@ class DicomReaderWriter(object):
                 continue
         return None
 
-    def Make_Contour_From_directory(self, PathDicom):
+    def Make_Contour_From_directory(self, PathDicom: typing.Union[str, bytes, os.PathLike]):
         print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
         self.walk_through_folders(input_path=PathDicom)
 
-    def make_contour_from_directory(self, dicom_path):
+    def make_contour_from_directory(self, dicom_path: typing.Union[str, bytes, os.PathLike]):
         print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
         self.walk_through_folders(input_path=dicom_path)
         return None
