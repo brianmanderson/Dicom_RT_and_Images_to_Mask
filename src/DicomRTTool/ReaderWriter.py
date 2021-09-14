@@ -224,6 +224,14 @@ def return_template_dictionary():
     return template_dictionary
 
 
+def add_to_mask(mask, z_value, r_value, c_value, mask_value=1):
+    mask[z_value, int(np.floor(r_value)), int(np.floor(c_value))] = mask_value
+    mask[z_value, int(np.ceil(r_value)), int(np.floor(c_value))] = mask_value
+    mask[z_value, int(np.floor(r_value)), int(np.ceil(c_value))] = mask_value
+    mask[z_value, int(np.ceil(r_value)), int(np.ceil(c_value))] = mask_value
+    return None
+
+
 class AddDicomToDictionary(object):
     def __init__(self):
         self.image_reader = sitk.ImageFileReader()
@@ -772,19 +780,37 @@ class DicomReaderWriter(object):
                 for point_index in range(len(z_vals)-1, 0, -1):
                     z_start = z_vals[point_index]
                     z_stop = z_vals[point_index - 1]
+                    z_dif = z_stop - z_start
                     r_start = self.row_val[point_index]
                     r_stop = self.row_val[point_index - 1]
-                    r_slope = (r_stop - r_start) / (z_stop - z_start)
+                    r_dif = r_stop - r_start
                     c_start = self.col_val[point_index]
                     c_stop = self.col_val[point_index - 1]
-                    c_slope = (c_stop - c_start) / (z_stop - z_start)
-                    for z_value in range(z_start, z_stop):
-                        r_value = r_start + r_slope * (z_value - z_start)
-                        c_value = c_start + c_slope * (z_value - z_start)
-                        mask[z_value, int(np.floor(r_value)), int(np.floor(c_value))] = 1
-                        mask[z_value, int(np.ceil(r_value)), int(np.floor(c_value))] = 1
-                        mask[z_value, int(np.floor(r_value)), int(np.ceil(c_value))] = 1
-                        mask[z_value, int(np.ceil(r_value)), int(np.ceil(c_value))] = 1
+                    c_dif = c_stop - c_start
+                    step = 1
+                    if z_dif != 0:
+                        r_slope = r_dif / z_dif
+                        c_slope = c_dif / z_dif
+                        if z_dif < 0:
+                            step = -1
+                        for z_value in range(z_start, z_stop + step, step):
+                            r_value = r_start + r_slope * (z_value - z_start)
+                            c_value = c_start + c_slope * (z_value - z_start)
+                            add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
+                    if r_dif != 0:
+                        c_slope = c_dif / r_dif
+                        if r_dif < 0:
+                            step = -1
+                        for r_value in range(r_start, r_stop + step, step):
+                            c_value = c_start + c_slope * (r_value - r_start)
+                            add_to_mask(mask=mask, z_value=z_start, r_value=r_value, c_value=c_value)
+                    if c_dif != 0:
+                        r_slope = r_dif / c_dif
+                        if c_dif < 0:
+                            step = -1
+                        for c_value in range(c_start, c_stop + step, step):
+                            r_value = r_start + r_slope * (c_value - c_start)
+                            add_to_mask(mask=mask, z_value=z_start, r_value=r_value, c_value=c_value)
         mask = mask % 2
         return mask
 
