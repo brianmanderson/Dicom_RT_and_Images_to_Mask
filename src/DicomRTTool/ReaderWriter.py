@@ -571,7 +571,7 @@ class DicomReaderWriter(object):
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
-                    'description': self.desciption, 'get_dose_output': True}
+                    'description': self.desciption, 'get_dose_output': self.get_dose_output}
         rewrite_excel = False
         '''
         First, build the excel file that we will use to reference iterations, Series UIDs, and paths
