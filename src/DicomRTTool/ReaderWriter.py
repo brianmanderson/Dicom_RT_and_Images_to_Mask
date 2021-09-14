@@ -395,15 +395,16 @@ class DicomReaderWriter(object):
         if check_contours:  # I don't want to run this on the first build..
             self.__check_if_all_contours_present__()
 
-    def __set_associations__(self, associations={}):
-        keys = list(associations.keys())
-        for key in keys:
-            associations[key.lower()] = associations[key].lower()
-        if self.Contour_Names is not None:
-            for name in self.Contour_Names:
-                if name not in associations:
-                    associations[name] = name
-        self.associations, self.hierarchy = associations, {}
+    def __set_associations__(self, associations=None):
+        if associations is not None:
+            keys = list(associations.keys())
+            for key in keys:
+                associations[key.lower()] = associations[key].lower()
+            if self.Contour_Names is not None:
+                for name in self.Contour_Names:
+                    if name not in associations:
+                        associations[name] = name
+            self.associations, self.hierarchy = associations, {}
 
     def __set_contour_names__(self, Contour_Names):
         self.__reset_RTs__()
