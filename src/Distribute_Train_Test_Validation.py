@@ -53,9 +53,13 @@ def define_folders_for_excel_sheet(excel_file: typing.Union[str, bytes, os.PathL
         If this patient was already assigned a folder, assign that folder to the other images and save
         """
         if folder is not None:
+            rewrite = False
             for index in patient_indexes:
-                data_df.Folder[index] = folder
-            data_df.to_excel(excel_file, index=0)
+                if data_df.Folder[index] != folder:
+                    data_df.loc[data_df.index == index, 'Folder'] = folder
+                    rewrite = True
+            if rewrite:
+                data_df.to_excel(excel_file, index=0)
         else:
             not_distributed.append(patient_MRN)
     not_distributed = np.asarray(not_distributed)
@@ -81,7 +85,7 @@ def define_folders_for_excel_sheet(excel_file: typing.Union[str, bytes, os.PathL
                 folder = 'Test'
                 test_mrns.append(patient_MRN)
             for index in patient_indexes:
-                data_df['Folder'][index] = folder
+                data_df.loc[data_df.index == index, 'Folder'] = folder
         data_df.to_excel(excel_file, index=0)
     return data_df
 
@@ -111,47 +115,13 @@ def distribute(niftii_path: typing.Union[str, bytes, os.PathLike],
     '''
     Group all of the images up based on their MRN, we don't want to contaminate other groups
     '''
-    for file in file_list:
-        iteration = file.split('_')[-1].split('.')[0]
-        needed_folder = data_df.Folder[data_df.Iteration == iteration].index.values
-    patient_image_keys = list(image_dict.keys())
-    perm = np.arange(len(patient_image_keys))
-    np.random.shuffle(perm)
-    patient_image_keys = list(np.asarray(patient_image_keys)[perm])
-    total_patients = len(patient_image_keys)
-    split_train = int(total_patients * train_faction)
-    split_validation = int(total_patients * validation_fraction)
-    for xxx in range(split_train):
-        for iteration in image_dict[patient_image_keys[xxx]]:
-            image_file = file_dict[iteration]
-            os.rename(os.path.join(niftii_path,image_file),os.path.join(test_path,image_file))
-            label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
-            os.rename(os.path.join(niftii_path, label_file), os.path.join(test_path, label_file))
-    for xxx in range(split_train, split_train + split_validation):
-        for iteration in image_dict[patient_image_keys[xxx]]:
-            image_file = file_dict[iteration]
-            os.rename(os.path.join(niftii_path,image_file),os.path.join(validation_path,image_file))
-            label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
-            os.rename(os.path.join(niftii_path, label_file), os.path.join(validation_path, label_file))
-    for xxx in range(split_train + split_validation, total_patients):
-        for iteration in image_dict[patient_image_keys[xxx]]:
-            image_file = file_dict[iteration]
-            os.rename(os.path.join(niftii_path,image_file),os.path.join(train_path,image_file))
-            label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
-            os.rename(os.path.join(niftii_path, label_file), os.path.join(train_path, label_file))
-    output_dict = {'MRN':[],'Path':[],'Iteration':[],'Folder':[]}
-    keys = ['MRN','Path','Iteration']
-    for title, folder in zip(['Train','Validation','Test'],[train_path, validation_path, test_path]):
-        file_list = [i for i in os.listdir(folder) if i.find('Overall_Data') == 0]
-        for file in file_list:
-            iteration = file.split('_')[-1].split('.')[0]
-            index = final_out_dict['Iteration'].index(iteration)
-            for key in keys:
-                output_dict[key].append(final_out_dict[key][index])
-            output_dict['Folder'].append(title)
-    output_dict['Iteration'] = [int(i) for i in output_dict['Iteration']]
-    df = pd.DataFrame(output_dict)
-    df.to_excel(excel_file,index=0)
+    for image_file in file_list:
+        iteration = image_file.split('_')[-1].split('.')[0]
+        out_folder = data_df.Folder[data_df.Iteration == int(iteration)].values[0]
+        os.rename(os.path.join(niftii_path, image_file), os.path.join(niftii_path, out_folder, image_file))
+        label_file = image_file.replace('_{}'.format(iteration), '_y{}'.format(iteration)).replace('Overall_Data',
+                                                                                                   'Overall_mask')
+        os.rename(os.path.join(niftii_path, label_file), os.path.join(niftii_path, out_folder, label_file))
     return None
 
 
