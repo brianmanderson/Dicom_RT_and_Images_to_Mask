@@ -6,8 +6,8 @@ import os
 import pandas as pd
 
 
-def distribute(description,niftii_path,excel_file):
-    final_out_dict = {'MRN': [], 'Path': [], 'Iteration': [], 'Folder': []}
+def distribute(niftii_path, excel_file, train_faction, validation_fraction, test_fraction):
+    final_out_dict = {}
     if os.path.exists(excel_file):
         data = pd.read_excel(excel_file, engine='openpyxl')
         data = data.to_dict()
@@ -15,10 +15,10 @@ def distribute(description,niftii_path,excel_file):
             for index in data[key]:
                 final_out_dict[key].append(str(data[key][index]))
 
-    train_path = os.path.join(niftii_path, description,'Train')
-    test_path = os.path.join(niftii_path, description,'Test')
-    validation_path = os.path.join(niftii_path,description,'Validation')
-    for out_path in [train_path,test_path,validation_path]:
+    train_path = os.path.join(niftii_path, 'Train')
+    test_path = os.path.join(niftii_path, 'Test')
+    validation_path = os.path.join(niftii_path, 'Validation')
+    for out_path in [train_path, test_path, validation_path]:
         if not os.path.exists(out_path):
             os.makedirs(out_path)
 
@@ -43,20 +43,22 @@ def distribute(description,niftii_path,excel_file):
     perm = np.arange(len(patient_image_keys))
     np.random.shuffle(perm)
     patient_image_keys = list(np.asarray(patient_image_keys)[perm])
-    split_train = int(len(patient_image_keys)/6)
+    total_patients = len(patient_image_keys)
+    split_train = int(total_patients * train_faction)
+    split_validation = int(total_patients * validation_fraction)
     for xxx in range(split_train):
         for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(test_path,image_file))
             label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
             os.rename(os.path.join(niftii_path, label_file), os.path.join(test_path, label_file))
-    for xxx in range(split_train,int(split_train*2)):
+    for xxx in range(split_train, split_train + split_validation):
         for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(validation_path,image_file))
             label_file = image_file.replace('_{}'.format(iteration),'_y{}'.format(iteration)).replace('Overall_Data','Overall_mask')
             os.rename(os.path.join(niftii_path, label_file), os.path.join(validation_path, label_file))
-    for xxx in range(int(split_train*2),len(perm)):
+    for xxx in range(split_train + split_validation, total_patients):
         for iteration in image_dict[patient_image_keys[xxx]]:
             image_file = file_dict[iteration]
             os.rename(os.path.join(niftii_path,image_file),os.path.join(train_path,image_file))
