@@ -2,6 +2,7 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
+from tqdm import tqdm
 import typing
 from glob import glob
 import pydicom
@@ -55,7 +56,7 @@ def worker_def(A):
 
 
 def folder_worker(A):
-    q = A[0]
+    q, pbar = A
     while True:
         item = q.get()
         if item is None:
@@ -72,6 +73,7 @@ def folder_worker(A):
                                                               rd_dictionary=rd_dictionary)
             except:
                 print('failed on {}'.format(dicom_path))
+            pbar.update()
             q.task_done()
 
 
@@ -537,7 +539,8 @@ class DicomReaderWriter(object):
                 #                                               rt_dictionary=self.rt_dictionary)
         if paths_with_dicom:
             q = Queue(maxsize=thread_count)
-            A = (q,)
+            pbar = tqdm(total=len(paths_with_dicom), desc='Loading through DICOM files')
+            A = (q,pbar)
             threads = []
             for worker in range(thread_count):
                 t = Thread(target=folder_worker, args=(A,))
