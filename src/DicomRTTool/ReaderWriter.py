@@ -3,7 +3,7 @@ __author__ = 'Brian M Anderson'
 # Created on 12/31/2020
 import os
 import typing
-
+from glob import glob
 import pydicom
 import numpy as np
 from pydicom.tag import Tag
@@ -244,10 +244,7 @@ class AddDicomToDictionary(object):
         self.reader.GlobalWarningDisplayOff()
 
     def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary):
-        fileList = []
-        for dirName, dirs, fileList in os.walk(dicom_path):
-            break
-        fileList = [i for i in fileList if i.find('.dcm') != -1]
+        fileList = glob(os.path.join(dicom_path, '*.dcm'))
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
         for series_id in series_ids:
