@@ -2,6 +2,7 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
+from tqdm import tqdm
 import typing
 from glob import glob
 import pydicom
@@ -33,7 +34,7 @@ def contour_worker(A):
 
 
 def worker_def(A):
-    q = A[0]
+    q, pbar = A
     while True:
         item = q.get()
         if item is None:
@@ -51,11 +52,12 @@ def worker_def(A):
                 fid = open(os.path.join(base_class.series_instances_dictionary[index]['Image_Path'], 'failed.txt'),
                            'w+')
                 fid.close()
+            pbar.update()
             q.task_done()
 
 
 def folder_worker(A):
-    q = A[0]
+    q, pbar = A
     while True:
         item = q.get()
         if item is None:
@@ -72,6 +74,7 @@ def folder_worker(A):
                                                               rd_dictionary=rd_dictionary)
             except:
                 print('failed on {}'.format(dicom_path))
+            pbar.update()
             q.task_done()
 
 
@@ -537,7 +540,8 @@ class DicomReaderWriter(object):
                 #                                               rt_dictionary=self.rt_dictionary)
         if paths_with_dicom:
             q = Queue(maxsize=thread_count)
-            A = (q,)
+            pbar = tqdm(total=len(paths_with_dicom), desc='Loading through DICOM files')
+            A = (q, pbar)
             threads = []
             for worker in range(thread_count):
                 t = Thread(target=folder_worker, args=(A,))
@@ -607,13 +611,7 @@ class DicomReaderWriter(object):
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
-        q = Queue(maxsize=thread_count)
-        A = (q,)
-        threads = []
-        for worker in range(thread_count):
-            t = Thread(target=worker_def, args=(A,))
-            t.start()
-            threads.append(t)
+        items = []
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
@@ -631,11 +629,22 @@ class DicomReaderWriter(object):
                 print('Already wrote out index {} at {}'.format(index, write_path))
                 continue
             item = [iteration, index, write_path, key_dict]
-            q.put(item)
-        for i in range(thread_count):
-            q.put(None)
-        for t in threads:
-            t.join()
+            items.append(item)
+        if items:
+            q = Queue(maxsize=thread_count)
+            pbar = tqdm(total=len(items), desc='Writing nifti files...')
+            A = (q, pbar)
+            threads = []
+            for worker in range(thread_count):
+                t = Thread(target=worker_def, args=(A,))
+                t.start()
+                threads.append(t)
+            for item in items:
+                q.put(item)
+            for i in range(thread_count):
+                q.put(None)
+            for t in threads:
+                t.join()
 
     def get_images_and_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
