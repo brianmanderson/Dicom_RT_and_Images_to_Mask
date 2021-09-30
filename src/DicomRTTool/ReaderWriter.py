@@ -572,15 +572,15 @@ class DicomReaderWriter(object):
             os.makedirs(out_path)
         final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
                           'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
-        if os.path.exists(excel_file):
-            df = pd.read_excel(excel_file, engine='openpyxl')
-            data = df.to_dict()
-            for key in final_out_dict.keys():
-                for index in data[key]:
-                    final_out_dict[key].append(data[key][index])
-        else:
+        if not os.path.exists(excel_file):
+            writer = pd.ExcelWriter(excel_file, engine='xlsxwriter')
             df = pd.DataFrame(final_out_dict)
-            df.to_excel(excel_file, index=0)
+            df.to_excel(writer, sheet_name='Main', index=0)
+            volume_dictionary = {'PatientID': [], 'Path': [], 'Iteration': [], 'SeriesInstanceUID': [],
+                                 'Volume [cc]': []}
+            df = pd.DataFrame(volume_dictionary)
+            for roi in self.Contour_Names:
+                df.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
@@ -604,6 +604,8 @@ class DicomReaderWriter(object):
                              'Pixel_Spacing_X': [self.series_instances_dictionary[index]['Pixel_Spacing_X']],
                              'Pixel_Spacing_Y': [self.series_instances_dictionary[index]['Pixel_Spacing_Y']],
                              'Slice_Thickness': [self.series_instances_dictionary[index]['Slice_Thickness']]}
+                for roi in self.Contour_Names:
+                    temp_dict['Volume_{}'.format(roi)] = [-1]
                 temp_df = pd.DataFrame(temp_dict)
                 df = df.append(temp_df)
         if rewrite_excel:
@@ -645,6 +647,7 @@ class DicomReaderWriter(object):
                 q.put(None)
             for t in threads:
                 t.join()
+            xxx = 1
 
     def get_images_and_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
