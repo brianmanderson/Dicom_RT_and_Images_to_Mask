@@ -647,6 +647,7 @@ class DicomReaderWriter(object):
         items = []
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            df = df_dictionary['Main']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 continue
@@ -658,8 +659,18 @@ class DicomReaderWriter(object):
             if folder is not None:
                 write_path = os.path.join(out_path, folder)
             write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
+            rerun = True
             if os.path.exists(write_image):
                 print('Already wrote out index {} at {}'.format(index, write_path))
+                rerun = False
+                for roi in self.Contour_Names:
+                    roi_df = df_dictionary['Volume_{}'.format(roi)]
+                    previous_run = roi_df.loc[roi_df['SeriesInstanceUID'] == series_instance_uid]
+                    if previous_run['Volume [cc]'].values[0] == -1:
+                        rerun = True
+                        print('But volume for {} was not defined.. so rerunning'.format(roi))
+                        break
+            if not rerun:
                 continue
             item = [iteration, index, write_path, key_dict]
             items.append(item)
