@@ -573,14 +573,14 @@ class DicomReaderWriter(object):
         final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
                           'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
         if not os.path.exists(excel_file):
-            writer = pd.ExcelWriter(excel_file, engine='xlsxwriter')
-            df = pd.DataFrame(final_out_dict)
-            df.to_excel(writer, sheet_name='Main', index=0)
-            volume_dictionary = {'PatientID': [], 'Path': [], 'Iteration': [], 'SeriesInstanceUID': [],
-                                 'Volume [cc]': []}
-            df = pd.DataFrame(volume_dictionary)
-            for roi in self.Contour_Names:
-                df.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
+            with pd.ExcelWriter(excel_file) as writer:
+                df = pd.DataFrame(final_out_dict)
+                df.to_excel(writer, sheet_name='Main', index=0)
+                volume_dictionary = {'PatientID': [], 'Path': [], 'Iteration': [], 'SeriesInstanceUID': [],
+                                     'Volume [cc]': []}
+                df = pd.DataFrame(volume_dictionary)
+                for roi in self.Contour_Names:
+                    df.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
