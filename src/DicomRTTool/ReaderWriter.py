@@ -581,6 +581,9 @@ class DicomReaderWriter(object):
                 df = pd.DataFrame(volume_dictionary)
                 for roi in self.Contour_Names:
                     df.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
+            pandas_excel_file = pd.ExcelFile(excel_file)
+        else:
+            pandas_excel_file = pd.ExcelFile(excel_file)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
@@ -589,8 +592,12 @@ class DicomReaderWriter(object):
         '''
         First, build the excel file that we will use to reference iterations, Series UIDs, and paths
         '''
+        df_dictionary = {}
+        for sheet_name in pandas_excel_file.sheet_names:
+            df_dictionary[sheet_name] = pandas_excel_file.parse(sheet_name)
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            df = df_dictionary['Main']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 rewrite_excel = True
@@ -604,12 +611,19 @@ class DicomReaderWriter(object):
                              'Pixel_Spacing_X': [self.series_instances_dictionary[index]['Pixel_Spacing_X']],
                              'Pixel_Spacing_Y': [self.series_instances_dictionary[index]['Pixel_Spacing_Y']],
                              'Slice_Thickness': [self.series_instances_dictionary[index]['Slice_Thickness']]}
-                for roi in self.Contour_Names:
-                    temp_dict['Volume_{}'.format(roi)] = [-1]
                 temp_df = pd.DataFrame(temp_dict)
-                df = df.append(temp_df)
+                df_dictionary['Main'] = df_dictionary['Main'].append(temp_df)
+                temp_dict['Volume [cc]'] = [-1]
+                temp_df = pd.DataFrame(temp_dict)
+                for name in pandas_excel_file.sheet_names:
+                    if name.startswith('Volume'):
+                        df_dictionary[name] = df_dictionary[name].append(temp_df)
         if rewrite_excel:
-            df.to_excel(excel_file, index=0)
+            with pd.ExcelWriter(excel_file) as writer:
+                df_dictionary['Main'].to_excel(writer, sheet_name='Main', index=0)
+                for df_name in df_dictionary:
+                    if df_name != 'Main':
+                        df_dictionary[df_name].to_excel(writer, sheet_name=df_name, index=0)
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
