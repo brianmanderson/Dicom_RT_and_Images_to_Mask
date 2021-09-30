@@ -763,6 +763,9 @@ class DicomReaderWriter(object):
             self.mask = self.mask[:, ::-1, ...]
         if self.flip_axes[2]:
             self.mask = self.mask[::-1, ...]
+        voxel_size = np.prod(self.dicom_handle.GetSpacing())/1000  # volume in cc per voxel
+        volumes = np.sum(self.mask[..., 1:], axis=(0, 1, 2)) * voxel_size  # Volume in cc
+        self.series_instances_dictionary[index]['Volumes'] = volumes
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
