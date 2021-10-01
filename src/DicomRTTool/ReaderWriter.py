@@ -262,7 +262,7 @@ class AddDicomToDictionary(object):
             else:
                 add_images_to_dictionary(images_dictionary=images_dictionary,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path)
-        RT_Files = [os.path.join(dicom_path, file) for file in fileList if file not in all_names]
+        RT_Files = [file for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
             modality = rt.Modality
