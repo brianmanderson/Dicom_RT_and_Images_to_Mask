@@ -570,35 +570,24 @@ class DicomReaderWriter(object):
                        thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
-                          'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
-        df_volume = pd.DataFrame({'PatientID': [], 'Path': [], 'Iteration': [], 'SeriesInstanceUID': [],
-                                  'Volume [cc]': []})
         if not os.path.exists(excel_file):
-            with pd.ExcelWriter(excel_file) as writer:
-                df = pd.DataFrame(final_out_dict)
-                df.to_excel(writer, sheet_name='Main', index=0)
-                for roi in self.Contour_Names:
-                    df_volume.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
-            pandas_excel_file = pd.ExcelFile(excel_file)
+            final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
+                              'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
+            for roi in self.Contour_Names:
+                column_name = 'Volume_{} [cc]'.format(roi)
+                final_out_dict[column_name] = []
+            df = pd.DataFrame(final_out_dict)
+            df.to_excel(excel_file, index=0)
         else:
-            pandas_excel_file = pd.ExcelFile(excel_file)
-        df_dictionary = {}
-        for sheet_name in pandas_excel_file.sheet_names:
-            df_dictionary[sheet_name] = pandas_excel_file.parse(sheet_name)
-        add_sheet = False
+            df = pd.read_excel(excel_file, engine='openpyxl')
+        add_columns = False
         for roi in self.Contour_Names:
-            sheet_name = 'Volume_{}'.format(roi)
-            if sheet_name not in pandas_excel_file.sheet_names:
-                add_sheet = True
-                df_dictionary[sheet_name] = df_volume
-        if add_sheet:
-            with pd.ExcelWriter(excel_file) as writer:
-                df_dictionary['Main'].to_excel(writer, sheet_name='Main', index=0)
-                for sheet_name in df_dictionary.keys():
-                    if sheet_name != 'Main':
-                        df_dictionary[sheet_name].to_excel(writer, sheet_name=sheet_name, index=0)
-                df_volume.to_excel(writer, sheet_name='Volume_{}'.format(roi), index=0)
+            column_name = 'Volume_{} [cc]'.format(roi)
+            if column_name not in df.columns:
+                df[column_name] = np.nan
+                add_columns = True
+        if add_columns:
+            df.to_excel(excel_file, index=0)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
@@ -609,7 +598,6 @@ class DicomReaderWriter(object):
         '''
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
-            df = df_dictionary['Main']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 rewrite_excel = True
@@ -624,30 +612,15 @@ class DicomReaderWriter(object):
                              'Pixel_Spacing_Y': [self.series_instances_dictionary[index]['Pixel_Spacing_Y']],
                              'Slice_Thickness': [self.series_instances_dictionary[index]['Slice_Thickness']]}
                 temp_df = pd.DataFrame(temp_dict)
-                df_dictionary['Main'] = df_dictionary['Main'].append(temp_df)
-
-                volume_dict = {'PatientID': [self.series_instances_dictionary[index]['PatientID']],
-                               'Path': [self.series_instances_dictionary[index]['Image_Path']],
-                               'Iteration': [int(iteration)], 'Folder': [None],
-                               'SeriesInstanceUID': [series_instance_uid],
-                               'Volume [cc]': [-1]}
-                volume_df = pd.DataFrame(volume_dict)
-                for name in pandas_excel_file.sheet_names:
-                    if name.startswith('Volume'):
-                        df_dictionary[name] = df_dictionary[name].append(volume_df)
+                df = df.append(temp_df)
         if rewrite_excel:
-            with pd.ExcelWriter(excel_file) as writer:
-                df_dictionary['Main'].to_excel(writer, sheet_name='Main', index=0)
-                for df_name in df_dictionary:
-                    if df_name != 'Main':
-                        df_dictionary[df_name].to_excel(writer, sheet_name=df_name, index=0)
+            df.to_excel(excel_file, index=0)
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
         items = []
         for index in self.indexes_with_contours:
             series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
-            df = df_dictionary['Main']
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 continue
@@ -664,11 +637,10 @@ class DicomReaderWriter(object):
                 print('Already wrote out index {} at {}'.format(index, write_path))
                 rerun = False
                 for roi in self.Contour_Names:
-                    roi_df = df_dictionary['Volume_{}'.format(roi)]
-                    previous_run = roi_df.loc[roi_df['SeriesInstanceUID'] == series_instance_uid]
-                    if previous_run['Volume [cc]'].values[0] == -1:
+                    column_name = 'Volume_{} [cc]'.format(roi)
+                    if pd.isnull(previous_run[column_name].values[0]):
                         rerun = True
-                        print('But volume for {} was not defined.. so rerunning'.format(roi))
+                        print('Volume for {} was not defined at index {}.. so rerunning'.format(roi, index))
                         break
             if not rerun:
                 continue
@@ -698,15 +670,10 @@ class DicomReaderWriter(object):
                 if 'Volumes' not in self.series_instances_dictionary[index].keys():
                     continue
                 for roi_index, roi in enumerate(self.Contour_Names):
-                    sheet_name = 'Volume_{}'.format(roi)
-                    data_df = df_dictionary[sheet_name]
-                    data_df.loc[data_df.Iteration == iteration, 'Volume [cc]'] = \
+                    column_name = 'Volume_{} [cc]'.format(roi)
+                    df.loc[df.Iteration == iteration, column_name] = \
                         self.series_instances_dictionary[index]['Volumes'][roi_index]
-            with pd.ExcelWriter(excel_file) as writer:
-                df_dictionary['Main'].to_excel(writer, sheet_name='Main', index=0)
-                for df_name in df_dictionary:
-                    if df_name != 'Main':
-                        df_dictionary[df_name].to_excel(writer, sheet_name=df_name, index=0)
+            df.to_excel(excel_file, index=0)
 
     def get_images_and_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
