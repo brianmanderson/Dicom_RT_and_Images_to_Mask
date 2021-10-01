@@ -461,20 +461,25 @@ class DicomReaderWriter(object):
                             true_rois.append(self.associations[roi.lower()])
                         elif roi.lower() in self.Contour_Names:
                             true_rois.append(roi.lower())
-            self.all_contours_exist = True
+            all_contours_exist = True
+            some_contours_exist = False
             lacking_rois = []
             for roi in self.Contour_Names:
                 if roi not in true_rois:
                     lacking_rois.append(roi)
+                else:
+                    some_contours_exist = True
             if lacking_rois:
-                self.all_contours_exist = False
+                all_contours_exist = False
                 if self.verbose:
                     print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
                                                                                  self.series_instances_dictionary[index]
                                                                                  ['Image_Path'], self.rois_in_case))
             if index not in self.indexes_with_contours:
-                if self.all_contours_exist or not self.require_all_contours:
-                    self.indexes_with_contours.append(index)  # Add the index that has the contours
+                if all_contours_exist:
+                    self.indexes_with_contours.append(index)
+                elif some_contours_exist and not self.require_all_contours:
+                    self.indexes_with_contours.append(index)  # Add the index that have at least some of the contours
 
     def return_rois(self, print_rois=True) -> List[str]:
         if print_rois:
