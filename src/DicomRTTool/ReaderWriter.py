@@ -881,8 +881,6 @@ class DicomReaderWriter(object):
     def write_images_annotations(self, out_path: typing.Union[str, bytes, os.PathLike]) -> None:
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
         annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption, self.iteration))
-        if os.path.exists(image_path):
-            return None
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
         if pixel_id.find('32-bit signed integer') != 0:
             self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
