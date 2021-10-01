@@ -262,7 +262,7 @@ class AddDicomToDictionary(object):
             else:
                 add_images_to_dictionary(images_dictionary=images_dictionary,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path)
-        RT_Files = [os.path.join(dicom_path, file) for file in fileList if file not in all_names]
+        RT_Files = [file for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
             modality = rt.Modality
@@ -531,6 +531,7 @@ class DicomReaderWriter(object):
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
         """
+        thread_count = 1
         paths_with_dicom = []
         for root, dirs, files in os.walk(input_path):
             dicom_files = [i for i in files if i.endswith('.dcm')]
