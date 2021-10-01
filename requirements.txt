@@ -11,3 +11,4 @@ SimpleITK
 six
 xlrd
 check-manifest
+tqdm
