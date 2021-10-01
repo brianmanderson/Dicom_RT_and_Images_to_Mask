@@ -531,7 +531,6 @@ class DicomReaderWriter(object):
         Iteratively work down paths to find DICOM files, if they are present, add to the series instance UID dictionary
         :param input_path: path to walk
         """
-        thread_count = 1
         paths_with_dicom = []
         for root, dirs, files in os.walk(input_path):
             dicom_files = [i for i in files if i.endswith('.dcm')]
