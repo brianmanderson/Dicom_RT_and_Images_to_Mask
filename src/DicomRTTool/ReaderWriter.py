@@ -461,20 +461,25 @@ class DicomReaderWriter(object):
                             true_rois.append(self.associations[roi.lower()])
                         elif roi.lower() in self.Contour_Names:
                             true_rois.append(roi.lower())
-            self.all_contours_exist = True
+            all_contours_exist = True
+            some_contours_exist = False
             lacking_rois = []
             for roi in self.Contour_Names:
                 if roi not in true_rois:
                     lacking_rois.append(roi)
+                else:
+                    some_contours_exist = True
             if lacking_rois:
-                self.all_contours_exist = False
+                all_contours_exist = False
                 if self.verbose:
                     print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
                                                                                  self.series_instances_dictionary[index]
                                                                                  ['Image_Path'], self.rois_in_case))
             if index not in self.indexes_with_contours:
-                if self.all_contours_exist or not self.require_all_contours:
-                    self.indexes_with_contours.append(index)  # Add the index that has the contours
+                if all_contours_exist:
+                    self.indexes_with_contours.append(index)
+                elif some_contours_exist and not self.require_all_contours:
+                    self.indexes_with_contours.append(index)  # Add the index that have at least some of the contours
 
     def return_rois(self, print_rois=True) -> List[str]:
         if print_rois:
@@ -570,16 +575,23 @@ class DicomReaderWriter(object):
                        thread_count=int(cpu_count() * 0.9 - 1)):
         if not os.path.exists(out_path):
             os.makedirs(out_path)
-        final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
-                          'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
-        if os.path.exists(excel_file):
-            df = pd.read_excel(excel_file, engine='openpyxl')
-            data = df.to_dict()
-            for key in final_out_dict.keys():
-                for index in data[key]:
-                    final_out_dict[key].append(data[key][index])
-        else:
+        if not os.path.exists(excel_file):
+            final_out_dict = {'PatientID': [], 'Path': [], 'Iteration': [], 'Folder': [], 'SeriesInstanceUID': [],
+                              'Pixel_Spacing_X': [], 'Pixel_Spacing_Y': [], 'Slice_Thickness': []}
+            for roi in self.Contour_Names:
+                column_name = 'Volume_{} [cc]'.format(roi)
+                final_out_dict[column_name] = []
             df = pd.DataFrame(final_out_dict)
+            df.to_excel(excel_file, index=0)
+        else:
+            df = pd.read_excel(excel_file, engine='openpyxl')
+        add_columns = False
+        for roi in self.Contour_Names:
+            column_name = 'Volume_{} [cc]'.format(roi)
+            if column_name not in df.columns:
+                df[column_name] = np.nan
+                add_columns = True
+        if add_columns:
             df.to_excel(excel_file, index=0)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
@@ -625,8 +637,17 @@ class DicomReaderWriter(object):
             if folder is not None:
                 write_path = os.path.join(out_path, folder)
             write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
+            rerun = True
             if os.path.exists(write_image):
                 print('Already wrote out index {} at {}'.format(index, write_path))
+                rerun = False
+                for roi in self.Contour_Names:
+                    column_name = 'Volume_{} [cc]'.format(roi)
+                    if pd.isnull(previous_run[column_name].values[0]):
+                        rerun = True
+                        print('Volume for {} was not defined at index {}.. so rerunning'.format(roi, index))
+                        break
+            if not rerun:
                 continue
             item = [iteration, index, write_path, key_dict]
             items.append(item)
@@ -645,6 +666,19 @@ class DicomReaderWriter(object):
                 q.put(None)
             for t in threads:
                 t.join()
+            """
+            Now, take the volumes that have been calculated during this process and add them to the excel sheet
+            """
+            for item in items:
+                index = item[1]
+                iteration = item[0]
+                if 'Volumes' not in self.series_instances_dictionary[index].keys():
+                    continue
+                for roi_index, roi in enumerate(self.Contour_Names):
+                    column_name = 'Volume_{} [cc]'.format(roi)
+                    df.loc[df.Iteration == iteration, column_name] = \
+                        self.series_instances_dictionary[index]['Volumes'][roi_index]
+            df.to_excel(excel_file, index=0)
 
     def get_images_and_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
@@ -763,6 +797,9 @@ class DicomReaderWriter(object):
             self.mask = self.mask[:, ::-1, ...]
         if self.flip_axes[2]:
             self.mask = self.mask[::-1, ...]
+        voxel_size = np.prod(self.dicom_handle.GetSpacing())/1000  # volume in cc per voxel
+        volumes = np.sum(self.mask[..., 1:], axis=(0, 1, 2)) * voxel_size  # Volume in cc
+        self.series_instances_dictionary[index]['Volumes'] = volumes
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
         self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
@@ -844,8 +881,6 @@ class DicomReaderWriter(object):
     def write_images_annotations(self, out_path: typing.Union[str, bytes, os.PathLike]) -> None:
         image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
         annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption, self.iteration))
-        if os.path.exists(image_path):
-            return None
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
         if pixel_id.find('32-bit signed integer') != 0:
             self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
