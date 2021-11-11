@@ -13,4 +13,4 @@
 ![multiple_rings.png](./Images/multiple_rings.png)
 
 
-##### Works on oblique images for masks and predictions*
+#### Works on oblique images for masks and predictions*
