@@ -161,6 +161,18 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.
         images_dictionary[series_instance_uid] = temp_dict
 
 
+def add_rp_to_dictionary(sitk_dicom_reader, rp_dictionary):
+    series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
+    if series_instance_uid not in rp_dictionary:
+        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
+        description = None
+        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+            description = sitk_dicom_reader.GetMetaData("0008|103e")
+        temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
+                     'Description': description}
+        rp_dictionary[series_instance_uid] = temp_dict
+
+
 def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary):
     """
     :param ds: pydicom data structure
@@ -222,7 +234,7 @@ def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
 
 
 def return_template_dictionary():
-    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'RDs': {}, 'Description': None,
+    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'RDs': {}, 'RPs': {}, 'Description': None,
                            'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None}
     return template_dictionary
 
@@ -252,7 +264,7 @@ class AddDicomToDictionary(object):
         all_names = []
         for series_id in series_ids:
             dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_id)
-            all_names += [os.path.split(i)[-1] for i in dicom_names]
+            all_names += dicom_names
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.Execute()
             modality = self.image_reader.GetMetaData("0008|0060")
@@ -293,6 +305,7 @@ class DicomReaderWriter(object):
         self.rt_dictionary = {}
         self.images_dictionary = {}
         self.rd_dictionary = {}
+        self.rp_dictionary = {}
         if Contour_Names is None:
             Contour_Names = []
         if associations is None:
@@ -387,6 +400,22 @@ class DicomReaderWriter(object):
                     index += 1
                 template = return_template_dictionary()
                 template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        for rp_series_instance_uid in self.rp_dictionary:
+            if study_instance_uids is None:
+                study_instance_uids = []
+                for key, value in self.series_instances_dictionary.items():
+                    study_instance_uids.append(value['StudyInstanceUID'])
+            study_instance_uid = self.rp_dictionary[rp_series_instance_uid]['StudyInstanceUID']
+            if study_instance_uid in study_instance_uids:
+                index = study_instance_uids.index(study_instance_uid)
+                self.series_instances_dictionary[index]['RDs'].update({rp_series_instance_uid:
+                                                                           self.rp_dictionary[rp_series_instance_uid]})
+            else:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
     def __reset__(self):
@@ -487,6 +516,30 @@ class DicomReaderWriter(object):
             for roi in self.all_rois:
                 print(roi)
         return self.all_rois
+
+    def return_files_from_UID(self, UID: str) -> List[str]:
+        """
+        Args:
+            UID: A string UID found in images_dictionary.
+
+        Returns:
+            file_list: A list of file paths that are associated with that UID, being images, RTs, RDs, and RPs
+        """
+        out_file_paths = list()
+        if UID not in self.images_dictionary:
+            print(UID + " Not found in dictionary")
+            return out_file_paths
+        image_dictionary = self.images_dictionary[UID]
+        dicom_path = image_dictionary['Image_Path']
+        image_reader = sitk.ImageFileReader()
+        image_reader.LoadPrivateTagsOn()
+        reader = sitk.ImageSeriesReader()
+        reader.GlobalWarningDisplayOff()
+        out_file_paths += reader.GetGDCMSeriesFileNames(dicom_path, UID)
+        for key in ['RTs', 'RDs', 'RPs']:
+            for structure_key in image_dictionary[key]:
+                out_file_paths += [image_dictionary[key][structure_key]['Path']]
+        return out_file_paths
 
     def where_are_RTs(self, ROIName: str) -> None:
         print('Please move over to using .where_is_ROI(), as this better represents the definition')
