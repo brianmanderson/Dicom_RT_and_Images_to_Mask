@@ -585,6 +585,20 @@ class DicomReaderWriter(object):
                 out_file_paths += [image_dictionary[key][structure_key]['Path']]
         return out_file_paths
 
+    def return_files_from_patientID(self, patientID: str) -> List[str]:
+        """
+        Args:
+            index: An integer index found in images_dictionary.
+
+        Returns:
+            file_list: A list of file paths that are associated with that index, being images, RTs, RDs, and RPs
+        """
+        out_file_paths = list()
+        for index in self.series_instances_dictionary:
+            if self.series_instances_dictionary[index]['PatientID'] == patientID:
+                out_file_paths += self.return_files_from_index(index)
+        return out_file_paths
+
     def where_are_RTs(self, ROIName: str) -> None:
         print('Please move over to using .where_is_ROI(), as this better represents the definition')
         self.where_is_ROI(ROIName=ROIName)
