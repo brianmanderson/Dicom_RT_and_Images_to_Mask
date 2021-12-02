@@ -177,6 +177,7 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
     :param path: path to the images or structure in question
     """
     series_instance_uid = ds.SeriesInstanceUID
+    sop_instance_uid = ds.SOPInstanceUID
     if series_instance_uid not in rt_dictionary:
         for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
             for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
@@ -193,7 +194,8 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                         if Structures.ROIName not in rois_in_structure:
                             rois_in_structure[Structures.ROIName] = Structures.ROINumber
                     temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
-                                 'SeriesInstanceUID': refed_series_instance_uid, 'Plans': []}
+                                 'SeriesInstanceUID': refed_series_instance_uid, 'Plans': [],
+                                 'SOPInstanceUID': sop_instance_uid}
                     rt_dictionary[series_instance_uid] = temp_dict
 
 
