@@ -64,14 +64,15 @@ def folder_worker(A):
             break
         else:
             dicom_adder = AddDicomToDictionary()
-            dicom_path, images_dictionary, rt_dictionary, rd_dictionary, verbose = item
+            dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary, verbose = item
             try:
                 if verbose:
                     print('Loading from {}'.format(dicom_path))
                 dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=dicom_path,
                                                               images_dictionary=images_dictionary,
                                                               rt_dictionary=rt_dictionary,
-                                                              rd_dictionary=rd_dictionary)
+                                                              rd_dictionary=rd_dictionary,
+                                                              rp_dictionary=rp_dictionary)
             except:
                 print('failed on {}'.format(dicom_path))
             pbar.update()
@@ -161,16 +162,13 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.
         images_dictionary[series_instance_uid] = temp_dict
 
 
-def add_rp_to_dictionary(sitk_dicom_reader, rp_dictionary):
-    series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
+def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary):
+    series_instance_uid = ds.SeriesInstanceUID
     if series_instance_uid not in rp_dictionary:
-        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-        description = None
-        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
-            description = sitk_dicom_reader.GetMetaData("0008|103e")
-        temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
-                     'Description': description}
-        rp_dictionary[series_instance_uid] = temp_dict
+        for referenced_structureset in ds.ReferencedStructureSetSequence:
+            refed_structure_uid = referenced_structureset.ReferencedSOPInstanceUID
+            temp_dict = {'Path': path, 'ReferencedStructureUID': refed_structure_uid}
+            rp_dictionary[series_instance_uid] = temp_dict
 
 
 def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary):
@@ -195,7 +193,7 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                         if Structures.ROIName not in rois_in_structure:
                             rois_in_structure[Structures.ROIName] = Structures.ROINumber
                     temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
-                                 'SeriesInstanceUID': refed_series_instance_uid}
+                                 'SeriesInstanceUID': refed_series_instance_uid, 'Plans': []}
                     rt_dictionary[series_instance_uid] = temp_dict
 
 
@@ -258,7 +256,7 @@ class AddDicomToDictionary(object):
         self.reader = sitk.ImageSeriesReader()
         self.reader.GlobalWarningDisplayOff()
 
-    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary):
+    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary):
         fileList = glob(os.path.join(dicom_path, '*.dcm'))
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
@@ -280,6 +278,8 @@ class AddDicomToDictionary(object):
             modality = rt.Modality
             if modality.lower().find('struct') != -1:
                 add_rt_to_dictionary(ds=rt, path=lstRSFile, rt_dictionary=rt_dictionary)
+            elif modality.lower().find('plan') != -1:
+                add_rp_to_dictionary(ds=rt, path=lstRSFile, rp_dictionary=rp_dictionary)
 
 
 class DicomReaderWriter(object):
@@ -400,22 +400,6 @@ class DicomReaderWriter(object):
                     index += 1
                 template = return_template_dictionary()
                 template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
-                self.series_instances_dictionary[index] = template
-        for rp_series_instance_uid in self.rp_dictionary:
-            if study_instance_uids is None:
-                study_instance_uids = []
-                for key, value in self.series_instances_dictionary.items():
-                    study_instance_uids.append(value['StudyInstanceUID'])
-            study_instance_uid = self.rp_dictionary[rp_series_instance_uid]['StudyInstanceUID']
-            if study_instance_uid in study_instance_uids:
-                index = study_instance_uids.index(study_instance_uid)
-                self.series_instances_dictionary[index]['RDs'].update({rp_series_instance_uid:
-                                                                           self.rp_dictionary[rp_series_instance_uid]})
-            else:
-                while index in self.series_instances_dictionary:
-                    index += 1
-                template = return_template_dictionary()
-                template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
     def __reset__(self):
@@ -606,7 +590,8 @@ class DicomReaderWriter(object):
                 t.start()
                 threads.append(t)
             for index, path in enumerate(paths_with_dicom):
-                item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary, self.verbose]
+                item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary, self.rp_dictionary,
+                        self.verbose]
                 q.put(item)
             for i in range(thread_count):
                 q.put(None)
