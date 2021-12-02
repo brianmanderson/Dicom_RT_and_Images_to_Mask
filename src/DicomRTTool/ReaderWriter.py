@@ -163,12 +163,15 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.
 
 
 def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary):
-    series_instance_uid = ds.SeriesInstanceUID
-    if series_instance_uid not in rp_dictionary:
-        for referenced_structureset in ds.ReferencedStructureSetSequence:
-            refed_structure_uid = referenced_structureset.ReferencedSOPInstanceUID
-            temp_dict = {'Path': path, 'ReferencedStructureUID': refed_structure_uid}
-            rp_dictionary[series_instance_uid] = temp_dict
+    try:
+        series_instance_uid = ds.SeriesInstanceUID
+        if series_instance_uid not in rp_dictionary:
+            for referenced_structureset in ds.ReferencedStructureSetSequence:
+                refed_structure_uid = referenced_structureset.ReferencedSOPInstanceUID
+                temp_dict = {'Path': path, 'ReferencedStructureUID': refed_structure_uid}
+                rp_dictionary[series_instance_uid] = temp_dict
+    except:
+        print("Had an error loading " + path)
 
 
 def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary):
@@ -176,27 +179,30 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
     :param ds: pydicom data structure
     :param path: path to the images or structure in question
     """
-    series_instance_uid = ds.SeriesInstanceUID
-    sop_instance_uid = ds.SOPInstanceUID
-    if series_instance_uid not in rt_dictionary:
-        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
-            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
-                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
-                    refed_series_instance_uid = referred_series.SeriesInstanceUID
-                    if Tag((0x3006, 0x020)) in ds.keys():
-                        ROI_Structure = ds.StructureSetROISequence
-                    else:
-                        ROI_Structure = []
-                    rois_in_structure = {}
-                    rois = []
-                    for Structures in ROI_Structure:
-                        rois.append(Structures.ROIName.lower())
-                        if Structures.ROIName not in rois_in_structure:
-                            rois_in_structure[Structures.ROIName] = Structures.ROINumber
-                    temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
-                                 'SeriesInstanceUID': refed_series_instance_uid, 'Plans': [],
-                                 'SOPInstanceUID': sop_instance_uid}
-                    rt_dictionary[series_instance_uid] = temp_dict
+    try:
+        series_instance_uid = ds.SeriesInstanceUID
+        sop_instance_uid = ds.SOPInstanceUID
+        if series_instance_uid not in rt_dictionary:
+            for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
+                for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
+                    for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
+                        refed_series_instance_uid = referred_series.SeriesInstanceUID
+                        if Tag((0x3006, 0x020)) in ds.keys():
+                            ROI_Structure = ds.StructureSetROISequence
+                        else:
+                            ROI_Structure = []
+                        rois_in_structure = {}
+                        rois = []
+                        for Structures in ROI_Structure:
+                            rois.append(Structures.ROIName.lower())
+                            if Structures.ROIName not in rois_in_structure:
+                                rois_in_structure[Structures.ROIName] = Structures.ROINumber
+                        temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
+                                     'SeriesInstanceUID': refed_series_instance_uid, 'Plans': [], 'Doses': [],
+                                     'SOPInstanceUID': sop_instance_uid}
+                        rt_dictionary[series_instance_uid] = temp_dict
+    except:
+        print("Had an error loading " + path)
 
 
 def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
@@ -204,15 +210,22 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
     :param ds: pydicom data structure
     :param path: path to the images or structure in question
     """
-    series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
-    if series_instance_uid not in rd_dictionary:
-        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-        description = None
-        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
-            description = sitk_dicom_reader.GetMetaData("0008|103e")
-        temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
-                     'Description': description}
-        rd_dictionary[series_instance_uid] = temp_dict
+    try:
+        ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
+        series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
+        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+        rp_sopinstance_uid = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
+        if series_instance_uid not in rd_dictionary:
+            study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
+            description = None
+            if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+                description = sitk_dicom_reader.GetMetaData("0008|103e")
+            temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
+                         'Description': description, 'ReferencedStructureSetSOPInstanceUID': rt_sopinstance_uid,
+                         'ReferencedPlanSOPInstanceUID': rp_sopinstance_uid}
+            rd_dictionary[series_instance_uid] = temp_dict
+    except:
+        print("Had an error loading " + sitk_dicom_reader.GetFileName())
 
 
 def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
