@@ -520,7 +520,7 @@ class DicomReaderWriter(object):
         reader = sitk.ImageSeriesReader()
         reader.GlobalWarningDisplayOff()
         out_file_paths += reader.GetGDCMSeriesFileNames(dicom_path, UID)
-        for key in ['RTs', 'RDs', 'RPs']:
+        for key in ['RTs', 'RDs']:
             for structure_key in image_dictionary[key]:
                 out_file_paths += [image_dictionary[key][structure_key]['Path']]
         return out_file_paths
