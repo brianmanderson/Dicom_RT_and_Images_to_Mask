@@ -156,7 +156,7 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.
             slice_thickness = float(sitk_dicom_reader.GetMetaData("0018|0050"))
         study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
         temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
-                     'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {},
+                     'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {}, 'RPs': {},
                      'Image_Path': path, 'Description': description, 'Pixel_Spacing_X': pixel_spacing_x,
                      'Pixel_Spacing_Y': pixel_spacing_y, 'Slice_Thickness': slice_thickness}
         images_dictionary[series_instance_uid] = temp_dict
@@ -169,7 +169,7 @@ def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dic
             refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
             refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
             temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID,
-                         'ReferencedStructureSOPUID': refed_structure_uid,
+                         'ReferencedStructureSetSOPInstanceUID': refed_structure_uid,
                          'ReferencedDoseSOPUID': refed_dose_uid, 'Description': ds.StudyDescription}
             rp_dictionary[series_instance_uid] = temp_dict
     except:
@@ -200,7 +200,7 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                             if Structures.ROIName not in rois_in_structure:
                                 rois_in_structure[Structures.ROIName] = Structures.ROINumber
                         temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
-                                     'SeriesInstanceUID': refed_series_instance_uid, 'Plans': [], 'Doses': [],
+                                     'SeriesInstanceUID': refed_series_instance_uid, 'Plans': {}, 'Doses': {},
                                      'SOPInstanceUID': sop_instance_uid}
                         rt_dictionary[series_instance_uid] = temp_dict
     except:
@@ -403,22 +403,41 @@ class DicomReaderWriter(object):
                 template = return_template_dictionary()
                 template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
-        study_instance_uids = None
         for rd_series_instance_uid in self.rd_dictionary:
-            if study_instance_uids is None:
-                study_instance_uids = []
-                for key, value in self.series_instances_dictionary.items():
-                    study_instance_uids.append(value['StudyInstanceUID'])
-            study_instance_uid = self.rd_dictionary[rd_series_instance_uid]['StudyInstanceUID']
-            if study_instance_uid in study_instance_uids:
-                index = study_instance_uids.index(study_instance_uid)
-                self.series_instances_dictionary[index]['RDs'].update({rd_series_instance_uid:
-                                                                           self.rd_dictionary[rd_series_instance_uid]})
-            else:
+            added = False
+            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            for image_series_key in self.series_instances_dictionary:
+                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                for rt_key in rts:
+                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    if struct_ref == structure_sop_uid:
+                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
+                                                                                              self.rd_dictionary[rd_series_instance_uid]})
+                    added = True
+            if not added:
                 while index in self.series_instances_dictionary:
                     index += 1
                 template = return_template_dictionary()
                 template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        for rp_series_instance_uid in self.rp_dictionary:
+            added = False
+            struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            for image_series_key in self.series_instances_dictionary:
+                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                for rt_key in rts:
+                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    if struct_ref == structure_sop_uid:
+                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rd_dictionary[rp_series_instance_uid]
+                        self.series_instances_dictionary[image_series_key]['RPs'].update({rp_series_instance_uid:
+                                                                                              self.rd_dictionary[rp_series_instance_uid]})
+                    added = True
+            if not added:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
     def __reset__(self):
