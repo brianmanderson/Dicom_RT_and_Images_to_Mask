@@ -563,6 +563,28 @@ class DicomReaderWriter(object):
                 out_file_paths += [image_dictionary[key][structure_key]['Path']]
         return out_file_paths
 
+    def return_files_from_index(self, index: int) -> List[str]:
+        """
+        Args:
+            index: An integer index found in images_dictionary.
+
+        Returns:
+            file_list: A list of file paths that are associated with that index, being images, RTs, RDs, and RPs
+        """
+        out_file_paths = list()
+        image_dictionary = self.series_instances_dictionary[index]
+        UID = image_dictionary['SeriesInstanceUID']
+        dicom_path = image_dictionary['Image_Path']
+        image_reader = sitk.ImageFileReader()
+        image_reader.LoadPrivateTagsOn()
+        reader = sitk.ImageSeriesReader()
+        reader.GlobalWarningDisplayOff()
+        out_file_paths += reader.GetGDCMSeriesFileNames(dicom_path, UID)
+        for key in ['RTs', 'RDs', 'RPs']:
+            for structure_key in image_dictionary[key]:
+                out_file_paths += [image_dictionary[key][structure_key]['Path']]
+        return out_file_paths
+
     def where_are_RTs(self, ROIName: str) -> None:
         print('Please move over to using .where_is_ROI(), as this better represents the definition')
         self.where_is_ROI(ROIName=ROIName)
