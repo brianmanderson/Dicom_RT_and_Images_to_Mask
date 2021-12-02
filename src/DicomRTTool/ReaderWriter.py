@@ -429,7 +429,7 @@ class DicomReaderWriter(object):
                 for rt_key in rts:
                     structure_sop_uid = rts[rt_key]['SOPInstanceUID']
                     if struct_ref == structure_sop_uid:
-                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rd_dictionary[rp_series_instance_uid]
+                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
                         self.series_instances_dictionary[image_series_key]['RPs'].update({rp_series_instance_uid:
                                                                                               self.rd_dictionary[rp_series_instance_uid]})
                     added = True
