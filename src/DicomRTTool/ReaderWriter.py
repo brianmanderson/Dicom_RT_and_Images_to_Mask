@@ -166,10 +166,12 @@ def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dic
     try:
         series_instance_uid = ds.SeriesInstanceUID
         if series_instance_uid not in rp_dictionary:
-            for referenced_structureset in ds.ReferencedStructureSetSequence:
-                refed_structure_uid = referenced_structureset.ReferencedSOPInstanceUID
-                temp_dict = {'Path': path, 'ReferencedStructureUID': refed_structure_uid}
-                rp_dictionary[series_instance_uid] = temp_dict
+            refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+            refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
+            temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID,
+                         'ReferencedStructureSOPUID': refed_structure_uid,
+                         'ReferencedDoseSOPUID': refed_dose_uid, 'Description': ds.StudyDescription}
+            rp_dictionary[series_instance_uid] = temp_dict
     except:
         print("Had an error loading " + path)
 
@@ -221,6 +223,7 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
             if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
                 description = sitk_dicom_reader.GetMetaData("0008|103e")
             temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
+                         'SOPInstanceUID': sitk_dicom_reader.GetMetaData("0008|0018"),
                          'Description': description, 'ReferencedStructureSetSOPInstanceUID': rt_sopinstance_uid,
                          'ReferencedPlanSOPInstanceUID': rp_sopinstance_uid}
             rd_dictionary[series_instance_uid] = temp_dict
@@ -295,6 +298,7 @@ class AddDicomToDictionary(object):
                 add_rt_to_dictionary(ds=rt, path=lstRSFile, rt_dictionary=rt_dictionary)
             elif modality.lower().find('plan') != -1:
                 add_rp_to_dictionary(ds=rt, path=lstRSFile, rp_dictionary=rp_dictionary)
+        xxx = 1
 
 
 class DicomReaderWriter(object):
