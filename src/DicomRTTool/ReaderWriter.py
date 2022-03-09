@@ -351,11 +351,14 @@ class DicomReaderWriter(object):
         self.template = True
         self.delete_previous_rois = delete_previous_rois
         self.reader = sitk.ImageSeriesReader()
+        self.image_reader = sitk.ImageFileReader()
+        self.image_reader.LoadPrivateTagsOn()
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
         self.reader.SetOutputPixelType(sitk.sitkFloat32)
         self.verbose = verbose
         self.dicom_handle_uid = None
+        self.dicom_info_uid = None
         self.RS_struct_uid = None
         self.rd_study_instance_uid = None
         self.index = index
@@ -445,6 +448,7 @@ class DicomReaderWriter(object):
         self.__reset_RTs__()
         self.rd_study_instance_uid = None
         self.dicom_handle_uid = None
+        self.dicom_info_uid = None
         self.series_instances_dictionary = {}
         self.rt_dictionary = {}
         self.images_dictionary = {}
@@ -800,6 +804,39 @@ class DicomReaderWriter(object):
         self.get_mask()
         if self.get_dose_output:
             self.get_dose()
+
+    def get_all_info(self) -> None:
+        """
+        Print all of the keys and their respective values
+        :return:
+        """
+        self.load_key_information_only()
+        for key in self.image_reader.GetMetaDataKeys():
+            print("{} is {}".format(key, self.image_reader.GetMetaData(key)))
+
+    def return_key_info(self, key) -> None:
+        """
+        Return the dicom information for a particular key
+        Example: "0008|0022" will return the date acquired in YYYYMMDD format
+        :param key: dicom key "0008|0022"
+        :return: value associated with the key
+        """
+        self.load_key_information_only()
+        if not self.image_reader.HasMetaDataKey(key):
+            print("{} is not present in the reader".format(key))
+            return None
+        return self.image_reader.GetMetaData(key)
+
+    def load_key_information_only(self) -> None:
+        assert self.index in self.series_instances_dictionary, \
+            'Index is not present in the dictionary! Set it using set_index(index)'
+        index = self.index
+        series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+        if self.dicom_info_uid != series_instance_uid:  # Only load if needed
+            dicom_names = self.series_instances_dictionary[index]['Files']
+            self.image_reader.SetFileName(dicom_names[0])
+            self.image_reader.ReadImageInformation()
+            self.dicom_info_uid = series_instance_uid
 
     def get_images(self) -> None:
         assert self.index in self.series_instances_dictionary, \
