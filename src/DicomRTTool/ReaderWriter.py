@@ -134,7 +134,8 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
     return np.array(mask, dtype=np.bool)
 
 
-def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike]):
+def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
+                             path: typing.Union[str, bytes, os.PathLike]):
     """
     :param images_dictionary: dictionary of series instance UIDs for images
     :param sitk_dicom_reader: sitk.ImageFileReader()
@@ -155,7 +156,7 @@ def add_images_to_dictionary(images_dictionary, sitk_dicom_reader, path: typing.
         if "0018|0050" in meta_keys:
             slice_thickness = float(sitk_dicom_reader.GetMetaData("0018|0050"))
         study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-        temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid,
+        temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid, 'Files': dicom_names,
                      'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {}, 'RPs': {},
                      'Image_Path': path, 'Description': description, 'Pixel_Spacing_X': pixel_spacing_x,
                      'Pixel_Spacing_Y': pixel_spacing_y, 'Slice_Thickness': slice_thickness}
@@ -288,7 +289,7 @@ class AddDicomToDictionary(object):
                 add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
                                      rd_dictionary=rd_dictionary)
             else:
-                add_images_to_dictionary(images_dictionary=images_dictionary,
+                add_images_to_dictionary(images_dictionary=images_dictionary, dicom_names=dicom_names,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path)
         RT_Files = [file for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
@@ -809,9 +810,7 @@ class DicomReaderWriter(object):
             if self.verbose:
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
                                                                 self.series_instances_dictionary[index]['Image_Path']))
-
-            dicom_path = self.series_instances_dictionary[index]['Image_Path']
-            dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_instance_uid)
+            dicom_names = self.series_instances_dictionary[index]['Files']
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
             self.dicom_handle = self.reader.Execute()
