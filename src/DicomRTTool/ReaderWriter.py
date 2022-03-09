@@ -252,7 +252,7 @@ def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
 
 def return_template_dictionary():
     template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'RDs': {}, 'RPs': {}, 'Description': None,
-                           'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None}
+                           'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None, 'Files': None}
     return template_dictionary
 
 
