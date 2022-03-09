@@ -814,7 +814,7 @@ class DicomReaderWriter(object):
         for key in self.image_reader.GetMetaDataKeys():
             print("{} is {}".format(key, self.image_reader.GetMetaData(key)))
 
-    def return_key_info(self, key) -> None:
+    def return_key_info(self, key):
         """
         Return the dicom information for a particular key
         Example: "0008|0022" will return the date acquired in YYYYMMDD format
