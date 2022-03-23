@@ -1,4 +1,4 @@
-# We're published! Please check out the Technical Note here: https://authors.elsevier.com/a/1cls76hRQmkvKb and reference this work if you find it useful
+# We're published! Please check out the Technical Note here: https://www.sciencedirect.com/science/article/abs/pii/S1879850021000485 and reference this work if you find it useful
 ### DOI:https://doi.org/10.1016/j.prro.2021.02.003
 
 ## This code provides functionality for turning dicom images and RT structures into nifti files as well as turning prediction masks back into RT structures
