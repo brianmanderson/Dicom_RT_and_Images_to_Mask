@@ -444,6 +444,83 @@ class DicomReaderWriter(object):
                 template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
+    def __manual_compile_based_on_folders__(self):
+        """
+        The goal of this is to combine image, rt, and dose dictionaries based on folder location
+        :return:
+        """
+        if self.verbose:
+            print('Compiling dictionaries together...')
+        folders = []
+        for key, value in self.series_instances_dictionary.items():
+            folders.append(value['Image_Path'])
+        index = 0
+        image_keys = list(self.images_dictionary.keys())
+        image_keys.sort()
+        for series_instance_uid in image_keys:  # Will help keep things in order later
+            folder = self.images_dictionary[series_instance_uid]['Image_Path']
+            if folder not in folders:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                self.series_instances_dictionary[index] = self.images_dictionary[series_instance_uid]
+                folders.append(folder)
+        for rt_series_instance_uid in self.rt_dictionary:
+            series_instance_uid = self.rt_dictionary[rt_series_instance_uid]['SeriesInstanceUID']
+            rt_path = os.path.split(self.rt_dictionary[rt_series_instance_uid]['Path'])[0]
+            rt_dictionary = self.rt_dictionary[rt_series_instance_uid]
+            path = rt_dictionary['Path']
+            self.all_RTs[path] = rt_dictionary['ROI_Names']
+            for roi in rt_dictionary['ROI_Names']:
+                if roi not in self.RTs_with_ROI_Names:
+                    self.RTs_with_ROI_Names[roi] = [path]
+                else:
+                    self.RTs_with_ROI_Names[roi].append(path)
+            if rt_path in folders:
+                index = folders.index(rt_path)
+                self.series_instances_dictionary[index]['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+            else:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        for rd_series_instance_uid in self.rd_dictionary:
+            added = False
+            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            for image_series_key in self.series_instances_dictionary:
+                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                for rt_key in rts:
+                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    if struct_ref == structure_sop_uid:
+                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
+                                                                                              self.rd_dictionary[rd_series_instance_uid]})
+                    added = True
+            if not added:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        for rp_series_instance_uid in self.rp_dictionary:
+            added = False
+            struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            for image_series_key in self.series_instances_dictionary:
+                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                for rt_key in rts:
+                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    if struct_ref == structure_sop_uid:
+                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
+                        self.series_instances_dictionary[image_series_key]['RPs'].update({rp_series_instance_uid:
+                                                                                              self.rp_dictionary[rp_series_instance_uid]})
+                    added = True
+            if not added:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+
     def __reset__(self):
         self.__reset_RTs__()
         self.rd_study_instance_uid = None
