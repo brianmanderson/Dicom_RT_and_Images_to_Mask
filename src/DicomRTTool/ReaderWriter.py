@@ -447,8 +447,10 @@ class DicomReaderWriter(object):
     def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
         """
         The goal of this is to combine image, rt, and dose dictionaries based on folder location
+        AKA, if the RT structure and images are in the same folder
         :return:
         """
+        print("Don't use this unless you know why you're doing it...")
         if reset_series_instances_dict:
             self.series_instances_dictionary = {}
         if self.verbose:
