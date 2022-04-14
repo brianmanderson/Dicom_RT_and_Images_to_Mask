@@ -444,11 +444,13 @@ class DicomReaderWriter(object):
                 template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
-    def __manual_compile_based_on_folders__(self):
+    def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
         """
         The goal of this is to combine image, rt, and dose dictionaries based on folder location
         :return:
         """
+        if reset_series_instances_dict:
+            self.series_instances_dictionary = {}
         if self.verbose:
             print('Compiling dictionaries together...')
         folders = []
@@ -465,7 +467,6 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = self.images_dictionary[series_instance_uid]
                 folders.append(folder)
         for rt_series_instance_uid in self.rt_dictionary:
-            series_instance_uid = self.rt_dictionary[rt_series_instance_uid]['SeriesInstanceUID']
             rt_path = os.path.split(self.rt_dictionary[rt_series_instance_uid]['Path'])[0]
             rt_dictionary = self.rt_dictionary[rt_series_instance_uid]
             path = rt_dictionary['Path']
@@ -520,6 +521,7 @@ class DicomReaderWriter(object):
                 template = return_template_dictionary()
                 template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
+        self.__check_if_all_contours_present__()
 
     def __reset__(self):
         self.__reset_RTs__()
