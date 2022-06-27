@@ -1041,8 +1041,9 @@ class DicomReaderWriter(object):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
-            as_array = np.asarray(Contour_data[i].ContourData[:])
-            reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])
+            as_array = np.asarray(Contour_data[i].ContourData[:])  # Just make a list of the contour data
+            reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])  # Now, reshape it into [N, 3]
+            # Transform those physical points to indexes for the mask
             matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
                                         for i in range(reshaped.shape[0])])
             self.col_val = matrix_points[:, 0]
