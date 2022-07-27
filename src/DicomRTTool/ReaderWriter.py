@@ -981,6 +981,11 @@ class DicomReaderWriter(object):
             output.SetOrigin(origin)
             self.dose_handle = output
 
+    def __mask_empty_mask__(self) -> None:
+        self.mask = np.zeros(
+            [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+            dtype='int8')
+
     def get_mask(self) -> None:
         assert self.index in self.series_instances_dictionary, \
             'Index is not present in the dictionary! Set it using set_index(index)'
@@ -994,9 +999,7 @@ class DicomReaderWriter(object):
             self.get_images()
         if self.RS_struct_uid == self.series_instances_dictionary[index]['SeriesInstanceUID']:  # Already loaded
             return None
-        self.mask = np.zeros(
-            [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-            dtype='int8')
+        self.__mask_empty_mask__()
         RTs = self.series_instances_dictionary[index]['RTs']
         for RT_key in RTs:
             RT = RTs[RT_key]
@@ -1037,62 +1040,70 @@ class DicomReaderWriter(object):
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
         return None
 
+    def reshape_contour_data(self, as_array: np.array):
+        as_array = np.asarray(as_array)
+        if as_array.shape[-1] != 3:
+            as_array = np.reshape(as_array, [as_array.shape[0] // 3, 3])
+        matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(as_array[i])
+                                    for i in range(as_array.shape[0])])
+        return matrix_points
+
+    def return_mask(self, mask: np.array, matrix_points: np.array, geometric_type: str):
+        col_val = matrix_points[:, 0]
+        row_val = matrix_points[:, 1]
+        z_vals = matrix_points[:, 2]
+        if geometric_type != "OPEN_NONPLANAR":
+            temp_mask = poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
+            # temp_mask[self.row_val, self.col_val] = 0
+            mask[z_vals[0], temp_mask] += 1
+        else:
+            for point_index in range(len(z_vals) - 1, 0, -1):
+                z_start = z_vals[point_index]
+                z_stop = z_vals[point_index - 1]
+                z_dif = z_stop - z_start
+                r_start = row_val[point_index]
+                r_stop = row_val[point_index - 1]
+                r_dif = r_stop - r_start
+                c_start = col_val[point_index]
+                c_stop = col_val[point_index - 1]
+                c_dif = c_stop - c_start
+
+                step = 1
+                if z_dif != 0:
+                    r_slope = r_dif / z_dif
+                    c_slope = c_dif / z_dif
+                    if z_dif < 0:
+                        step = -1
+                    for z_value in range(z_start, z_stop + step, step):
+                        r_value = r_start + r_slope * (z_value - z_start)
+                        c_value = c_start + c_slope * (z_value - z_start)
+                        add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
+                if r_dif != 0:
+                    c_slope = c_dif / r_dif
+                    z_slope = z_dif / r_dif
+                    if r_dif < 0:
+                        step = -1
+                    for r_value in range(r_start, r_stop + step, step):
+                        c_value = c_start + c_slope * (r_value - r_start)
+                        z_value = z_start + z_slope * (r_value - r_start)
+                        add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
+                if c_dif != 0:
+                    r_slope = r_dif / c_dif
+                    z_slope = z_dif / c_dif
+                    if c_dif < 0:
+                        step = -1
+                    for c_value in range(c_start, c_stop + step, step):
+                        r_value = r_start + r_slope * (c_value - c_start)
+                        z_value = z_start + z_slope * (c_value - c_start)
+                        add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
+        return mask
+
     def contours_to_mask(self, index: int):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
         for i in range(len(Contour_data)):
-            as_array = np.asarray(Contour_data[i].ContourData[:])  # Just make a list of the contour data
-            reshaped = np.reshape(as_array, [as_array.shape[0] // 3, 3])  # Now, reshape it into [N, 3]
-            # Transform those physical points to indexes for the mask
-            matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(reshaped[i])
-                                        for i in range(reshaped.shape[0])])
-            self.col_val = matrix_points[:, 0]
-            self.row_val = matrix_points[:, 1]
-            z_vals = matrix_points[:, 2]
-            if Contour_data[i].ContourGeometricType != 'OPEN_NONPLANAR':
-                temp_mask = poly2mask(self.row_val, self.col_val, [self.image_size_rows, self.image_size_cols])
-                # temp_mask[self.row_val, self.col_val] = 0
-                mask[z_vals[0], temp_mask] += 1
-            else:
-                for point_index in range(len(z_vals)-1, 0, -1):
-                    z_start = z_vals[point_index]
-                    z_stop = z_vals[point_index - 1]
-                    z_dif = z_stop - z_start
-                    r_start = self.row_val[point_index]
-                    r_stop = self.row_val[point_index - 1]
-                    r_dif = r_stop - r_start
-                    c_start = self.col_val[point_index]
-                    c_stop = self.col_val[point_index - 1]
-                    c_dif = c_stop - c_start
-
-                    step = 1
-                    if z_dif != 0:
-                        r_slope = r_dif / z_dif
-                        c_slope = c_dif / z_dif
-                        if z_dif < 0:
-                            step = -1
-                        for z_value in range(z_start, z_stop + step, step):
-                            r_value = r_start + r_slope * (z_value - z_start)
-                            c_value = c_start + c_slope * (z_value - z_start)
-                            add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
-                    if r_dif != 0:
-                        c_slope = c_dif / r_dif
-                        z_slope = z_dif / r_dif
-                        if r_dif < 0:
-                            step = -1
-                        for r_value in range(r_start, r_stop + step, step):
-                            c_value = c_start + c_slope * (r_value - r_start)
-                            z_value = z_start + z_slope * (r_value - r_start)
-                            add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
-                    if c_dif != 0:
-                        r_slope = r_dif / c_dif
-                        z_slope = z_dif / c_dif
-                        if c_dif < 0:
-                            step = -1
-                        for c_value in range(c_start, c_stop + step, step):
-                            r_value = r_start + r_slope * (c_value - c_start)
-                            z_value = z_start + z_slope * (c_value - c_start)
-                            add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
+            matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
+            mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
         mask = mask % 2
         return mask
 
