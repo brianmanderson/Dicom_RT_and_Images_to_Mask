@@ -1098,8 +1098,9 @@ class DicomReaderWriter(object):
                         add_to_mask(mask=mask, z_value=z_value, r_value=r_value, c_value=c_value)
         return mask
 
-    def contour_points_to_mask(self, contour_points):
-        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
+    def contour_points_to_mask(self, contour_points, mask=None):
+        if mask is None:
+            mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         matrix_points = self.reshape_contour_data(contour_points)
         mask = self.return_mask(mask, matrix_points, geometric_type="CLOSED_PLANAR")
         return mask
