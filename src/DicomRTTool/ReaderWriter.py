@@ -131,7 +131,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
     coords = np.expand_dims(xy_coords.T, 0)
     mask = np.zeros(shape)
     cv2.fillPoly(mask, coords, 1)
-    return np.array(mask, dtype=np.bool)
+    return np.array(mask, dtype=bool)
 
 
 def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
