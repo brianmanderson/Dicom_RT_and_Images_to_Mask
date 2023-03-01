@@ -216,7 +216,8 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
     try:
         ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
         series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
-        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
+            if "ReferencedStructureSetSequence" in ds.values() else None
         rp_sopinstance_uid = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
         if series_instance_uid not in rd_dictionary:
             study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
@@ -408,8 +409,9 @@ class DicomReaderWriter(object):
                 template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
-            added = False
             struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            if struct_ref is None:
+                continue
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key]['RTs']
                 for rt_key in rts:
@@ -418,13 +420,6 @@ class DicomReaderWriter(object):
                         rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
                                                                                               self.rd_dictionary[rd_series_instance_uid]})
-                    added = True
-            if not added:
-                while index in self.series_instances_dictionary:
-                    index += 1
-                template = return_template_dictionary()
-                template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
-                self.series_instances_dictionary[index] = template
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
             struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
@@ -442,6 +437,29 @@ class DicomReaderWriter(object):
                     index += 1
                 template = return_template_dictionary()
                 template['RPs'].update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
+                self.series_instances_dictionary[index] = template
+        for rd_series_instance_uid in self.rd_dictionary:
+            added = False
+            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            if struct_ref is not None:
+                continue
+            plan_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedPlanSOPInstanceUID']
+            for image_series_key in self.series_instances_dictionary:
+                rps = self.series_instances_dictionary[image_series_key]['RPs']
+                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                for rp_key in rps:
+                    plan_sop_uid = rps[rp_key]['SOPInstanceUID']
+                    if plan_ref == plan_sop_uid:
+                        rt_key = rps[rp_key]['ReferencedStructureSetSOPInstanceUID']
+                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
+                                                                                              self.rd_dictionary[rd_series_instance_uid]})
+                    added = True
+            if not added:
+                while index in self.series_instances_dictionary:
+                    index += 1
+                template = return_template_dictionary()
+                template['RDs'].update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
 
     def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
