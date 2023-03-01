@@ -431,7 +431,7 @@ class DicomReaderWriter(object):
                         rts[rt_key]['Plans'][rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
                         self.series_instances_dictionary[image_series_key]['RPs'].update({rp_series_instance_uid:
                                                                                               self.rp_dictionary[rp_series_instance_uid]})
-                    added = True
+                        added = True
             if not added:
                 while index in self.series_instances_dictionary:
                     index += 1
@@ -450,11 +450,13 @@ class DicomReaderWriter(object):
                 for rp_key in rps:
                     plan_sop_uid = rps[rp_key]['SOPInstanceUID']
                     if plan_ref == plan_sop_uid:
-                        rt_key = rps[rp_key]['ReferencedStructureSetSOPInstanceUID']
-                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        rt_key_sopinstanceUID = rps[rp_key]['ReferencedStructureSetSOPInstanceUID']
+                        for rt_key in rts:
+                            if rts[rt_key]['SOPInstanceUID'] == rt_key_sopinstanceUID:
+                                rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
                                                                                               self.rd_dictionary[rd_series_instance_uid]})
-                    added = True
+                        added = True
             if not added:
                 while index in self.series_instances_dictionary:
                     index += 1
