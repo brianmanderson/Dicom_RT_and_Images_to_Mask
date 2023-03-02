@@ -169,7 +169,10 @@ def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dic
         if series_instance_uid not in rp_dictionary:
             refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
             refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
-            temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID,
+            plan_label = None
+            if Tag((0x300a, 0x002)) in ds.keys():
+                plan_label = ds.RTPlanLabel
+            temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID, 'PlanLabel': plan_label,
                          'ReferencedStructureSetSOPInstanceUID': refed_structure_uid,
                          'ReferencedDoseSOPUID': refed_dose_uid, 'Description': ds.StudyDescription}
             rp_dictionary[series_instance_uid] = temp_dict
