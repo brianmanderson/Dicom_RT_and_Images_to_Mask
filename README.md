@@ -6,6 +6,26 @@
     pip install DicomRTTool
 ### Highly recommend to go through the jupyter notebook in the Examples folder and to read the Wiki
 
+### Quick use guide
+    from DicomRTTool.ReaderWriter import DicomReaderWriter
+    Dicom_path = r'.some_path_to_dicom'
+    Dicom_reader = DicomReaderWriter(description='Examples', arg_max=True)
+    Dicom_reader.walk_through_folders(Dicom_path) # This will parse through all DICOM present in the folder and subfolders
+    all_rois = Dicom_reader.return_rois(print_rois=True) # Return a list of all rois present
+    
+    Contour_names = ['tumor'] # Define what rois you want
+    associations = {'tumor_mr': 'tumor', 'tumor_ct': 'tumor'} # Any roi associations
+    Dicom_reader.set_contour_names_and_assocations(Contour_Names=Contour_names, associations=associations)
+    
+    Dicom_reader.get_images_and_mask()
+    
+    image_numpy = Dicom_reader.ArrayDicom
+    mask_numpy = Dicom_reader.mask
+    image_sitk_handle = Dicom_reader.dicom_handle
+    mask_sitk_handle = Dicom_reader.annotation_handle
+    
+    
+
 ##### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
 
 ###### Ring update allows for multiple rings to be represented correctly
