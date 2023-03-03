@@ -7,7 +7,7 @@ import typing
 from glob import glob
 import pydicom
 import numpy as np
-from pydicom.tag import Tag
+from pydicom.tag import Tag, BaseTag
 import SimpleITK as sitk
 from skimage.measure import label, regionprops, find_contours
 from threading import Thread
@@ -16,10 +16,12 @@ from queue import *
 import pandas as pd
 import copy
 import cv2
-from typing import List
+from typing import List, Dict
 
 from .Viewer import plot_scroll_Image
 
+PyDicomKeys = Dict[str, BaseTag]
+SitkDicomKeys = Dict[str, str]
 
 def contour_worker(A):
     q, kwargs = A
@@ -63,8 +65,9 @@ def folder_worker(A):
         if item is None:
             break
         else:
-            dicom_adder = AddDicomToDictionary()
-            dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary, verbose = item
+            dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary, verbose, strings = item
+            plan_strings, structure_strings, image_strings, dose_strings = strings
+            dicom_adder = AddDicomToDictionary(plan_strings, structure_strings, image_strings, dose_strings)
             try:
                 if verbose:
                     print('Loading from {}'.format(dicom_path))
@@ -135,7 +138,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
 
 
 def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
-                             path: typing.Union[str, bytes, os.PathLike]):
+                             path: typing.Union[str, bytes, os.PathLike], sitk_string_keys: SitkDicomKeys = None):
     """
     :param images_dictionary: dictionary of series instance UIDs for images
     :param sitk_dicom_reader: sitk.ImageFileReader()
@@ -160,10 +163,19 @@ def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
                      'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {}, 'RPs': {},
                      'Image_Path': path, 'Description': description, 'Pixel_Spacing_X': pixel_spacing_x,
                      'Pixel_Spacing_Y': pixel_spacing_y, 'Slice_Thickness': slice_thickness}
+        if sitk_string_keys is not None:
+            for string in sitk_string_keys:
+                key = sitk_string_keys[string]
+                if key in sitk_dicom_reader.GetMetaDataKeys():
+                    try:
+                        temp_dict[string] = sitk_dicom_reader.GetMetaData(key)
+                    except:
+                        continue
         images_dictionary[series_instance_uid] = temp_dict
 
 
-def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary):
+def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary,
+                         pydicom_string_keys: PyDicomKeys = None):
     try:
         series_instance_uid = ds.SeriesInstanceUID
         if series_instance_uid not in rp_dictionary:
@@ -175,12 +187,21 @@ def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dic
             temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID, 'PlanLabel': plan_label,
                          'ReferencedStructureSetSOPInstanceUID': refed_structure_uid,
                          'ReferencedDoseSOPUID': refed_dose_uid, 'Description': ds.StudyDescription}
+            if pydicom_string_keys is not None:
+                for string in pydicom_string_keys:
+                    key = pydicom_string_keys[string]
+                    if key in ds.keys():
+                        try:
+                            temp_dict[string] = ds[key].value
+                        except:
+                            continue
             rp_dictionary[series_instance_uid] = temp_dict
     except:
         print("Had an error loading " + path)
 
 
-def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary):
+def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary,
+                         pydicom_string_keys: PyDicomKeys = None):
     """
     :param ds: pydicom data structure
     :param path: path to the images or structure in question
@@ -206,12 +227,20 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                         temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
                                      'SeriesInstanceUID': refed_series_instance_uid, 'Plans': {}, 'Doses': {},
                                      'SOPInstanceUID': sop_instance_uid}
+                        if pydicom_string_keys is not None:
+                            for string in pydicom_string_keys:
+                                key = pydicom_string_keys[string]
+                                if key in ds.keys():
+                                    try:
+                                        temp_dict[string] = ds[key].value
+                                    except:
+                                        continue
                         rt_dictionary[series_instance_uid] = temp_dict
     except:
         print("Had an error loading " + path)
 
 
-def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
+def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary, sitk_string_keys: SitkDicomKeys = None):
     """
     :param ds: pydicom data structure
     :param path: path to the images or structure in question
@@ -231,6 +260,14 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary):
                          'SOPInstanceUID': sitk_dicom_reader.GetMetaData("0008|0018"),
                          'Description': description, 'ReferencedStructureSetSOPInstanceUID': rt_sopinstance_uid,
                          'ReferencedPlanSOPInstanceUID': rp_sopinstance_uid}
+            if sitk_string_keys is not None:
+                for string in sitk_string_keys:
+                    key = sitk_string_keys[string]
+                    if key in sitk_dicom_reader.GetMetaDataKeys():
+                        try:
+                            temp_dict[string] = sitk_dicom_reader.GetMetaData(key)
+                        except:
+                            continue
             rd_dictionary[series_instance_uid] = temp_dict
     except:
         print("Had an error loading " + sitk_dicom_reader.GetFileName())
@@ -273,11 +310,18 @@ def add_to_mask(mask, z_value, r_value, c_value, mask_value=1):
 
 
 class AddDicomToDictionary(object):
-    def __init__(self):
+    def __init__(self, plan_pydicom_string_keys: PyDicomKeys = Dict or None,
+                 struct_pydicom_string_keys: PyDicomKeys = Dict or None,
+                 image_sitk_string_keys: SitkDicomKeys = Dict or None,
+                 dose_sitk_string_keys: SitkDicomKeys = Dict or None):
         self.image_reader = sitk.ImageFileReader()
         self.image_reader.LoadPrivateTagsOn()
         self.reader = sitk.ImageSeriesReader()
         self.reader.GlobalWarningDisplayOff()
+        self.plan_pydicom_string_keys = plan_pydicom_string_keys
+        self.struct_pydicom_string_keys = struct_pydicom_string_keys
+        self.image_sitk_string_keys = image_sitk_string_keys
+        self.dose_sitk_string_keys = dose_sitk_string_keys
 
     def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary):
         fileList = glob(os.path.join(dicom_path, '*.dcm'))
@@ -291,10 +335,11 @@ class AddDicomToDictionary(object):
             modality = self.image_reader.GetMetaData("0008|0060")
             if modality.lower().find('rtdose') != -1:
                 add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
-                                     rd_dictionary=rd_dictionary)
+                                     rd_dictionary=rd_dictionary, sitk_string_keys=self.dose_sitk_string_keys)
             else:
                 add_images_to_dictionary(images_dictionary=images_dictionary, dicom_names=dicom_names,
-                                         sitk_dicom_reader=self.image_reader, path=dicom_path)
+                                         sitk_dicom_reader=self.image_reader, path=dicom_path,
+                                         sitk_string_keys=self.image_sitk_string_keys)
         RT_Files = [file for file in fileList if file not in all_names]
         for lstRSFile in RT_Files:
             rt = pydicom.read_file(lstRSFile)
@@ -302,7 +347,8 @@ class AddDicomToDictionary(object):
             if modality.lower().find('struct') != -1:
                 add_rt_to_dictionary(ds=rt, path=lstRSFile, rt_dictionary=rt_dictionary)
             elif modality.lower().find('plan') != -1:
-                add_rp_to_dictionary(ds=rt, path=lstRSFile, rp_dictionary=rp_dictionary)
+                add_rp_to_dictionary(ds=rt, path=lstRSFile, rp_dictionary=rp_dictionary,
+                                     pydicom_string_keys=self.plan_pydicom_string_keys)
         xxx = 1
 
 
@@ -310,7 +356,11 @@ class DicomReaderWriter(object):
     def __init__(self, description='', Contour_Names=None, associations=None, arg_max=True, verbose=True,
                  create_new_RT=True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
-                 flip_axes=(False, False, False), index=0, series_instances_dictionary=None):
+                 flip_axes=(False, False, False), index=0, series_instances_dictionary=None,
+                 plan_pydicom_string_keys: PyDicomKeys = None,
+                 struct_pydicom_string_keys: PyDicomKeys = None,
+                 image_sitk_string_keys: SitkDicomKeys = None,
+                 dose_sitk_string_keys: SitkDicomKeys = None):
         """
         :param description: string, description information to add to .nii files
         :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
@@ -327,6 +377,10 @@ class DicomReaderWriter(object):
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
         """
         self.rt_dictionary = {}
+        self.plan_pydicom_string_keys = plan_pydicom_string_keys
+        self.struct_pydicom_string_keys = struct_pydicom_string_keys
+        self.image_sitk_string_keys = image_sitk_string_keys
+        self.dose_sitk_string_keys = dose_sitk_string_keys
         self.images_dictionary = {}
         self.rd_dictionary = {}
         self.rp_dictionary = {}
@@ -774,7 +828,8 @@ class DicomReaderWriter(object):
                 threads.append(t)
             for index, path in enumerate(paths_with_dicom):
                 item = [path, self.images_dictionary, self.rt_dictionary, self.rd_dictionary, self.rp_dictionary,
-                        self.verbose]
+                        self.verbose, (self.plan_pydicom_string_keys, self.struct_pydicom_string_keys,
+                                       self.image_sitk_string_keys, self.dose_sitk_string_keys)]
                 q.put(item)
             for i in range(thread_count):
                 q.put(None)
