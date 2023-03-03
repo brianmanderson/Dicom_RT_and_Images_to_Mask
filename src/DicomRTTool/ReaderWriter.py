@@ -957,8 +957,9 @@ class DicomReaderWriter(object):
             df.to_excel(excel_file, index=0)
 
     def get_images_and_mask(self) -> None:
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
+        if self.index not in self.series_instances_dictionary:
+            print("Index is not preset in the dictionary! Set it using set_index(index)")
+            return None
         self.get_images()
         self.get_mask()
         if self.get_dose_output:
@@ -987,8 +988,9 @@ class DicomReaderWriter(object):
         return self.image_reader.GetMetaData(key)
 
     def load_key_information_only(self) -> None:
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
+        if self.index not in self.series_instances_dictionary:
+            print('Index is not present in the dictionary! Set it using set_index(index)')
+            return None
         index = self.index
         series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
         if self.dicom_info_uid != series_instance_uid:  # Only load if needed
@@ -998,8 +1000,9 @@ class DicomReaderWriter(object):
             self.dicom_info_uid = series_instance_uid
 
     def get_images(self) -> None:
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
+        if self.index not in self.series_instances_dictionary:
+            print('Index is not present in the dictionary! Set it using set_index(index)')
+            return None
         index = self.index
         series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
         if self.dicom_handle_uid != series_instance_uid:  # Only load if needed
@@ -1021,8 +1024,9 @@ class DicomReaderWriter(object):
             self.dicom_handle_uid = series_instance_uid
 
     def get_dose(self) -> None:
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
+        if self.index not in self.series_instances_dictionary:
+            print('Index is not present in the dictionary! Set it using set_index(index)')
+            return None
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             print('Loading images for index {}, since mask was requested but image loading was '
@@ -1065,11 +1069,14 @@ class DicomReaderWriter(object):
             dtype='int8')
 
     def get_mask(self) -> None:
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
-        assert self.Contour_Names, 'If you want a mask, you need to set the contour names you are looking ' \
-                                   'for, use set_contour_names_and_associations(list_of_roi_names).\nIf you just' \
-                                   ' want to look at images  use get_images() not get_images_and_mask() or get_mask()'
+        if self.index not in self.series_instances_dictionary:
+            print('Index is not present in the dictionary! Set it using set_index(index)')
+            return None
+        if not self.Contour_Names:
+            print('If you want a mask, you need to set the contour names you are looking for, use '
+                  'set_contour_names_and_associations(list_of_roi_names).\nIf you just '
+                  'want to look at images  use get_images() not get_images_and_mask() or get_mask()')
+            return None
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             print('Loading images for index {}, since mask was requested but image loading was '
@@ -1227,19 +1234,23 @@ class DicomReaderWriter(object):
         fid.close()
 
     def prediction_array_to_RT(self, prediction_array: np.array, output_dir: typing.Union[str, bytes, os.PathLike],
-                               ROI_Names: List[str]):
+                               ROI_Names: List[str]) -> None:
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
         :param ROI_Names: list of ROI names equal to the number of classes
         :return:
         """
-        assert ROI_Names is not None, 'You need to provide ROI_Names'
-        assert prediction_array.shape[-1] == len(ROI_Names) + 1, 'Your last dimension of prediction array should be' \
-                                                                 ' equal  to the number or ROI_names minus 1, channel' \
-                                                                 ' 0 is background'
-        assert self.index in self.series_instances_dictionary, \
-            'Index is not present in the dictionary! Set it using set_index(index)'
+        if ROI_Names is None:
+            print("You need to provide ROI_Names")
+            return None
+        if prediction_array.shape[-1] != (len(ROI_Names) + 1):
+            print("Your last dimension of prediction array should be equal  to the number or ROI_names minus 1,"
+                  "channel. 0 is for background")
+            return None
+        if self.index not in self.series_instances_dictionary:
+            print("Index is not present in the dictionary! Set it using set_index(index)")
+            return None
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index]['SeriesInstanceUID']:
             self.get_images()
