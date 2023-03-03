@@ -1005,6 +1005,9 @@ class DicomReaderWriter(object):
             return None
         index = self.index
         series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+        if series_instance_uid is None:
+            print("This index does not have an associated image within the loaded folders")
+            return None
         if self.dicom_handle_uid != series_instance_uid:  # Only load if needed
             if self.verbose:
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index]['Description'],
