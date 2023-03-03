@@ -23,7 +23,13 @@
     mask_numpy = Dicom_reader.mask
     image_sitk_handle = Dicom_reader.dicom_handle
     mask_sitk_handle = Dicom_reader.annotation_handle
-    
+
+### Other interesting additions
+### Adding information to the Dicom_reader.series_instances_dictionary
+    from DicomRTTool.ReaderWriter import Tag
+    plan_pydicom_string_keys = {"MyNamedRTPlan": Tag((0x300a, 0x002))}
+    image_sitk_string_keys = {"MyPatientName": "0010|0010"}
+    Dicom_reader = DicomReaderWriter(description='Examples', arg_max=True, plan_pydicom_string_keys=plan_pydicom_string_keys, image_sitk_string_keys=image_sitk_string_keys)
     
 
 ##### If you find this code useful, please provide a reference to my github page for others www.github.com/brianmanderson , thank you!
