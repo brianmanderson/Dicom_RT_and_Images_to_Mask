@@ -137,6 +137,32 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
     return np.array(mask, dtype=bool)
 
 
+class DICOMBase(object):
+    def __init__(self, patient_id: str, series_instance_uid: str, files: typing.List[str], image_path: str):
+        self.PatientID = patient_id
+        self.SeriesInstanceUID = series_instance_uid
+        self.files = files
+        self.image_path = image_path
+
+
+class ImageBase(DICOMBase):
+    description: str
+    slice_thickness: float
+    pixel_spacing_x: float
+    pixel_spacing_y: float
+    additional_tags: dict
+
+    def __add_description__(self, description: str):
+        self.description = description
+
+    def __add_slicethickness__(self, slicethickness: float):
+        self.slice_thickness = slicethickness
+
+    def __add_x_y_pixel__(self, pixel_spacing_x: float, pixel_spacing_y: float):
+        self.pixel_spacing_x = pixel_spacing_x
+        self.pixel_spacing_y = pixel_spacing_y
+
+
 def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
                              path: typing.Union[str, bytes, os.PathLike], sitk_string_keys: SitkDicomKeys = None):
     """
