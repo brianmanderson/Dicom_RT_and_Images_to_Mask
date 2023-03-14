@@ -148,12 +148,10 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
 
 
 class DICOMBase(object):
-    def __init__(self, patient_id: str, series_instance_uid: str, file: str,
-                 image_path: typing.Union[str, bytes, os.PathLike]):
-        self.PatientID = patient_id
-        self.SeriesInstanceUID = series_instance_uid
-        self.file = file
-        self.image_path = image_path
+    PatientID: str
+    SeriesInstanceUID: str
+    file: str
+    image_path: typing.Union[str, bytes, os.PathLike]
 
 
 class RTBase(DICOMBase):
@@ -161,27 +159,50 @@ class RTBase(DICOMBase):
     referenced_series_instance_uid: str
     rois_in_structure: Dict[str, str]
 
+
 class ImageBase(DICOMBase):
-    description: str
-    slice_thickness: float
-    pixel_spacing_x: float
-    pixel_spacing_y: float
+    description: str = None
+    slice_thickness: float = None
+    pixel_spacing_x: float = None
+    pixel_spacing_y: float = None
     additional_tags: dict
     study_instance_uid: str
     files: typing.List[str]
-
-    def __add_description__(self, description: str):
-        self.description = description
-
-    def __add_slicethickness__(self, slicethickness: float):
-        self.slice_thickness = slicethickness
-
-    def __add_x_y_pixel__(self, pixel_spacing_x: float, pixel_spacing_y: float):
-        self.pixel_spacing_x = pixel_spacing_x
-        self.pixel_spacing_y = pixel_spacing_y
-
-    def __add_studyinstance_uid__(self, study_instance_uid: str):
-        self.study_instance_uid = study_instance_uid
+    RTs: dict
+    RDs: dict
+    RPs: dict
+    other_attributes: dict
+    def __init__(self, dicom_names, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike],
+                 sitk_string_keys: SitkDicomKeys = None):
+        """
+        :param images_dictionary: dictionary of series instance UIDs for images
+        :param sitk_dicom_reader: sitk.ImageFileReader()
+        :param path: path to the images or structure in question
+        """
+        self.SeriesInstanceUID = sitk_dicom_reader.GetMetaData("0020|000e")
+        patientID = sitk_dicom_reader.GetMetaData("0010|0020")
+        while len(patientID) > 0 and patientID[-1] == ' ':
+            patientID = patientID[:-1]
+        self.PatientID = patientID
+        meta_keys = sitk_dicom_reader.GetMetaDataKeys()
+        self.files = dicom_names
+        if "0008|103e" in meta_keys:
+            self.description = sitk_dicom_reader.GetMetaData("0008|103e")
+        if "0028|0030" in meta_keys:
+            pixel_spacing_x, pixel_spacing_y = sitk_dicom_reader.GetMetaData("0028|0030").strip(' ').split('\\')
+            self.pixel_spacing_x, self.pixel_spacing_y = float(pixel_spacing_x), float(pixel_spacing_y)
+        if "0018|0050" in meta_keys:
+            self.slice_thickness = float(sitk_dicom_reader.GetMetaData("0018|0050"))
+        self.study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
+        self.image_path = path
+        if sitk_string_keys is not None:
+            for string in sitk_string_keys:
+                key = sitk_string_keys[string]
+                if key in sitk_dicom_reader.GetMetaDataKeys():
+                    try:
+                        self.other_attributes[string] = sitk_dicom_reader.GetMetaData(key)
+                    except:
+                        continue
 
 
 def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
@@ -193,39 +214,8 @@ def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
-        patientID = sitk_dicom_reader.GetMetaData("0010|0020")
-        while len(patientID) > 0 and patientID[-1] == ' ':
-            patientID = patientID[:-1]
-        description, pixel_spacing_x, pixel_spacing_y, slice_thickness = None, None, None, None
-        meta_keys = sitk_dicom_reader.GetMetaDataKeys()
-        new_image = ImageBase(patient_id=patientID, series_instance_uid=series_instance_uid,
-                              file=dicom_names[0], image_path=path)
-        new_image.files = dicom_names
-        if "0008|103e" in meta_keys:
-            description = sitk_dicom_reader.GetMetaData("0008|103e")
-            new_image.__add_description__(description)
-        if "0028|0030" in meta_keys:
-            pixel_spacing_x, pixel_spacing_y = sitk_dicom_reader.GetMetaData("0028|0030").strip(' ').split('\\')
-            pixel_spacing_x, pixel_spacing_y = float(pixel_spacing_x), float(pixel_spacing_y)
-            new_image.__add_x_y_pixel__(pixel_spacing_x, pixel_spacing_y)
-        if "0018|0050" in meta_keys:
-            slice_thickness = float(sitk_dicom_reader.GetMetaData("0018|0050"))
-            new_image.__add_slicethickness__(slice_thickness)
-        study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-        new_image.__add_studyinstance_uid__(study_instance_uid)
-        temp_dict = {'PatientID': patientID, 'SeriesInstanceUID': series_instance_uid, 'Files': dicom_names,
-                     'StudyInstanceUID': study_instance_uid, 'RTs': {}, 'RDs': {}, 'RPs': {},
-                     'Image_Path': path, 'Description': description, 'Pixel_Spacing_X': pixel_spacing_x,
-                     'Pixel_Spacing_Y': pixel_spacing_y, 'Slice_Thickness': slice_thickness}
-        if sitk_string_keys is not None:
-            for string in sitk_string_keys:
-                key = sitk_string_keys[string]
-                if key in sitk_dicom_reader.GetMetaDataKeys():
-                    try:
-                        temp_dict[string] = sitk_dicom_reader.GetMetaData(key)
-                    except:
-                        continue
-        images_dictionary[series_instance_uid] = temp_dict
+        new_image = ImageBase(dicom_names, sitk_dicom_reader, path, sitk_string_keys)
+        images_dictionary[series_instance_uid] = new_image
 
 
 def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary,
