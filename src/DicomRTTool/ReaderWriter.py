@@ -228,16 +228,32 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                             ROI_Structure = ds.StructureSetROISequence
                         else:
                             ROI_Structure = []
+                        if Tag((0x3006, 0x080)) in ds.keys():
+                            ROI_Observation = ds.RTROIObservationsSequence
+                        else:
+                            ROI_Observation = []
+                        code_strings = {}
+                        for Observation in ROI_Observation:
+                            if Tag((0x3006, 0x086)) in Observation:
+                                code_strings[Observation.ReferencedROINumber] = Observation.RTROIIdentificationCodeSequence[0].CodeValue
                         rois_in_structure = {}
                         roi_structure_code_and_names = {}
                         rois = []
                         for Structures in ROI_Structure:
-                            rois.append(Structures.ROIName.lower())
+                            roi_name = Structures.ROIName.lower()
+                            rois.append(roi_name)
+                            roi_number = Structures.ROINumber
+                            if roi_number in code_strings:
+                                structure_code = code_strings[roi_number]
+                                if structure_code not in roi_structure_code_and_names:
+                                    roi_structure_code_and_names[structure_code] = []
+                                if roi_name not in roi_structure_code_and_names[structure_code]:
+                                    roi_structure_code_and_names[structure_code].append(roi_name)
                             if Structures.ROIName not in rois_in_structure:
-                                rois_in_structure[Structures.ROIName] = Structures.ROINumber
+                                rois_in_structure[Structures.ROIName] = roi_number
                         temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
                                      'SeriesInstanceUID': refed_series_instance_uid, 'Plans': {}, 'Doses': {},
-                                     'SOPInstanceUID': sop_instance_uid}
+                                     'SOPInstanceUID': sop_instance_uid, 'CodeAssociations': roi_structure_code_and_names}
                         if pydicom_string_keys is not None:
                             for string in pydicom_string_keys:
                                 key = pydicom_string_keys[string]
