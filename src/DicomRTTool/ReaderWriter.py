@@ -84,12 +84,12 @@ def folder_worker(A):
 
 class ROIAssociationClass(object):
     def __init__(self, roi_name: str, other_names: List[str]):
-        self.roi_name = roi_name
-        self.other_names = other_names
+        self.roi_name = roi_name.lower()
+        self.other_names = list(set([i.lower() for i in other_names]))
 
     def add_name(self, roi_name: str):
         if roi_name not in self.other_names:
-            self.other_names.append(roi_name)
+            self.other_names.append(roi_name.lower())
 
 
 class PointOutputMakerClass(object):
@@ -744,10 +744,11 @@ class DicomReaderWriter(object):
                     if roi.lower() not in self.all_rois:
                         self.all_rois.append(roi.lower())
                     if self.Contour_Names:
-                        if roi.lower() in self.associations:
-                            true_rois.append(self.associations[roi.lower()])
-                        elif roi.lower() in self.Contour_Names:
-                            true_rois.append(roi.lower())
+                        for association in self.associations:
+                            if roi.lower() in association.other_names:
+                                true_rois.append(association.roi_name)
+                            elif roi.lower() in self.Contour_Names:
+                                true_rois.append(roi.lower())
             all_contours_exist = True
             some_contours_exist = False
             lacking_rois = []
