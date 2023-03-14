@@ -469,7 +469,7 @@ class DicomReaderWriter(object):
         self.create_new_RT = create_new_RT
         self.associations = associations
         self.Contour_Names = Contour_Names
-        self.set_contour_names_and_associations(Contour_Names=Contour_Names, associations=associations,
+        self.set_contour_names_and_associations(contour_names=Contour_Names, associations=associations,
                                                 check_contours=False)
         self.__set_description__(description)
         self.__set_iteration__(iteration)
