@@ -82,6 +82,16 @@ def folder_worker(A):
             q.task_done()
 
 
+class ROIAssociationClass(object):
+    def __init__(self, roi_name: str, other_names: List[str]):
+        self.roi_name = roi_name
+        self.other_names = other_names
+
+    def add_name(self, roiname:str):
+        if roiname not in self.other_names:
+            self.other_names.append(roiname)
+
+
 class PointOutputMakerClass(object):
     def __init__(self, image_size_rows: int, image_size_cols: int, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
@@ -263,15 +273,32 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                             ROI_Structure = ds.StructureSetROISequence
                         else:
                             ROI_Structure = []
+                        if Tag((0x3006, 0x080)) in ds.keys():
+                            ROI_Observation = ds.RTROIObservationsSequence
+                        else:
+                            ROI_Observation = []
+                        code_strings = {}
+                        for Observation in ROI_Observation:
+                            if Tag((0x3006, 0x086)) in Observation:
+                                code_strings[Observation.ReferencedROINumber] = Observation.RTROIIdentificationCodeSequence[0].CodeValue
                         rois_in_structure = {}
+                        roi_structure_code_and_names = {}
                         rois = []
                         for Structures in ROI_Structure:
-                            rois.append(Structures.ROIName.lower())
+                            roi_name = Structures.ROIName.lower()
+                            rois.append(roi_name)
+                            roi_number = Structures.ROINumber
+                            if roi_number in code_strings:
+                                structure_code = code_strings[roi_number]
+                                if structure_code not in roi_structure_code_and_names:
+                                    roi_structure_code_and_names[structure_code] = []
+                                if roi_name not in roi_structure_code_and_names[structure_code]:
+                                    roi_structure_code_and_names[structure_code].append(roi_name)
                             if Structures.ROIName not in rois_in_structure:
-                                rois_in_structure[Structures.ROIName] = Structures.ROINumber
+                                rois_in_structure[Structures.ROIName] = roi_number
                         temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
                                      'SeriesInstanceUID': refed_series_instance_uid, 'Plans': {}, 'Doses': {},
-                                     'SOPInstanceUID': sop_instance_uid}
+                                     'SOPInstanceUID': sop_instance_uid, 'CodeAssociations': roi_structure_code_and_names}
                         if pydicom_string_keys is not None:
                             for string in pydicom_string_keys:
                                 key = pydicom_string_keys[string]
@@ -468,6 +495,7 @@ class DicomReaderWriter(object):
         self.all_RTs = {}
         self.RTs_with_ROI_Names = {}
         self.all_rois = []
+        self.roi_groups = {}
         self.indexes_with_contours = []
 
     def set_index(self, index: int):
@@ -658,6 +686,7 @@ class DicomReaderWriter(object):
 
     def __reset_RTs__(self):
         self.all_rois = []
+        self.roi_groups = {}
         self.indexes_with_contours = []
         self.RS_struct_uid = None
         self.RTs_with_ROI_Names = {}
@@ -705,6 +734,11 @@ class DicomReaderWriter(object):
             self.rois_in_case = []
             for RT_key in RTs:
                 RT = RTs[RT_key]
+                for code_key in RT['CodeAssociations']:
+                    if code_key not in self.roi_groups:
+                        self.roi_groups[code_key] = RT['CodeAssociations'][code_key]
+                    else:
+                        self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT['CodeAssociations'][code_key]))
                 ROI_Names = RT['ROI_Names']
                 for roi in ROI_Names:
                     if roi.lower() not in self.RTs_with_ROI_Names:
@@ -746,6 +780,15 @@ class DicomReaderWriter(object):
             for roi in self.all_rois:
                 print(roi)
         return self.all_rois
+
+    def return_found_rois_with_same_code(self, print_rois=True) -> Dict[str, List[str]]:
+        if print_rois:
+            print('The following ROIs were found to have the same structure code')
+            for code in self.roi_groups:
+                print(f"For code {code} we found:")
+                for roi in self.roi_groups[code]:
+                    print(roi)
+        return self.roi_groups
 
     def return_files_from_UID(self, UID: str) -> List[str]:
         """
