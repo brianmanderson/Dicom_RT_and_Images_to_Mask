@@ -691,32 +691,26 @@ class DicomReaderWriter(object):
         self.RS_struct_uid = None
         self.RTs_with_ROI_Names = {}
 
-    def set_contour_names_and_associations(self, Contour_Names=None, associations=None, check_contours=True):
-        if Contour_Names is not None:
-            self.__set_contour_names__(Contour_Names=Contour_Names)
+    def set_contour_names_and_associations(self, contour_names: List[str] = None,
+                                           associations: List[ROIAssociationClass] = None, check_contours=True):
+        if contour_names is not None:
+            self.__set_contour_names__(contour_names=contour_names)
         if associations is not None:
             self.__set_associations__(associations=associations)
         if check_contours:  # I don't want to run this on the first build..
             self.__check_if_all_contours_present__()
 
-    def __set_associations__(self, associations: Dict[str, str] = None):
+    def __set_associations__(self, associations: List[ROIAssociationClass] = None):
         if associations is not None:
-            keys = list(associations.keys())
-            for key in keys:
-                associations[key.lower()] = associations[key].lower()
-            if self.Contour_Names is not None:
-                for name in self.Contour_Names:
-                    if name not in associations:
-                        associations[name] = name
             self.associations, self.hierarchy = associations, {}
 
-    def __set_contour_names__(self, Contour_Names: List[str]):
+    def __set_contour_names__(self, contour_names: List[str]):
         self.__reset_RTs__()
-        Contour_Names = [i.lower() for i in Contour_Names]
-        for name in Contour_Names:
+        contour_names = [i.lower() for i in contour_names]
+        for name in contour_names:
             if name not in self.associations:
                 self.associations[name] = name
-        self.Contour_Names = Contour_Names
+        self.Contour_Names = contour_names
 
     def __set_description__(self, description: str):
         self.desciption = description
