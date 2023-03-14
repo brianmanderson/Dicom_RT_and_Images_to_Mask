@@ -450,6 +450,7 @@ class DicomReaderWriter(object):
         self.all_RTs = {}
         self.RTs_with_ROI_Names = {}
         self.all_rois = []
+        self.roi_groups = {}
         self.indexes_with_contours = []
 
     def set_index(self, index: int):
@@ -640,6 +641,7 @@ class DicomReaderWriter(object):
 
     def __reset_RTs__(self):
         self.all_rois = []
+        self.roi_groups = {}
         self.indexes_with_contours = []
         self.RS_struct_uid = None
         self.RTs_with_ROI_Names = {}
@@ -687,6 +689,11 @@ class DicomReaderWriter(object):
             self.rois_in_case = []
             for RT_key in RTs:
                 RT = RTs[RT_key]
+                for code_key in RT['CodeAssociations']:
+                    if code_key not in self.roi_groups:
+                        self.roi_groups[code_key] = RT['CodeAssociations'][code_key]
+                    else:
+                        self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT['CodeAssociations'][code_key]))
                 ROI_Names = RT['ROI_Names']
                 for roi in ROI_Names:
                     if roi.lower() not in self.RTs_with_ROI_Names:
@@ -728,6 +735,15 @@ class DicomReaderWriter(object):
             for roi in self.all_rois:
                 print(roi)
         return self.all_rois
+
+    def return_found_rois_with_same_code(self, print_rois=True) -> Dict[str, List[str]]:
+        if print_rois:
+            print('The following ROIs were found to have the same structure code')
+            for code in self.roi_groups:
+                print(f"For code {code} we found:")
+                for roi in self.roi_groups[code]:
+                    print(roi)
+        return self.roi_groups
 
     def return_files_from_UID(self, UID: str) -> List[str]:
         """
