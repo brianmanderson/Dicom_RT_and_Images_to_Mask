@@ -82,6 +82,16 @@ def folder_worker(A):
             q.task_done()
 
 
+class ROIAssociationClass(object):
+    def __init__(self, roi_name: str, other_names: List[str]):
+        self.roi_name = roi_name
+        self.other_names = other_names
+
+    def add_name(self, roiname:str):
+        if roiname not in self.other_names:
+            self.other_names.append(roiname)
+
+
 class PointOutputMakerClass(object):
     def __init__(self, image_size_rows: int, image_size_cols: int, PixelSize, contour_dict, RS):
         self.image_size_rows, self.image_size_cols = image_size_rows, image_size_cols
@@ -219,6 +229,7 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
                         else:
                             ROI_Structure = []
                         rois_in_structure = {}
+                        roi_structure_code_and_names = {}
                         rois = []
                         for Structures in ROI_Structure:
                             rois.append(Structures.ROIName.lower())
