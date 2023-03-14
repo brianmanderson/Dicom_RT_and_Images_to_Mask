@@ -87,9 +87,9 @@ class ROIAssociationClass(object):
         self.roi_name = roi_name
         self.other_names = other_names
 
-    def add_name(self, roiname:str):
-        if roiname not in self.other_names:
-            self.other_names.append(roiname)
+    def add_name(self, roi_name: str):
+        if roi_name not in self.other_names:
+            self.other_names.append(roi_name)
 
 
 class PointOutputMakerClass(object):
@@ -699,7 +699,7 @@ class DicomReaderWriter(object):
         if check_contours:  # I don't want to run this on the first build..
             self.__check_if_all_contours_present__()
 
-    def __set_associations__(self, associations=None):
+    def __set_associations__(self, associations: Dict[str, str] = None):
         if associations is not None:
             keys = list(associations.keys())
             for key in keys:
