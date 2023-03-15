@@ -1342,8 +1342,7 @@ class DicomReaderWriter(object):
         index = self.index
         if self.dicom_handle_uid != self.series_instances_dictionary[index].SeriesInstanceUID:
             self.get_images()
-        self.SOPInstanceUIDs = self.series_instances_dictionary[index]['SOP_Instance_UIDs']
-
+        self.SOPInstanceUIDs = self.series_instances_dictionary[index].SOPs
         if self.create_new_RT or len(self.series_instances_dictionary[index].RTs) == 0:
             self.use_template()
         elif self.RS_struct_uid != self.series_instances_dictionary[index].SeriesInstanceUID:
