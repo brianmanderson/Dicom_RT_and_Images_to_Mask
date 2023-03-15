@@ -20,8 +20,8 @@ from typing import List, Dict
 
 from .Viewer import plot_scroll_Image
 
-PyDicomKeys = Dict[str, BaseTag]
-SitkDicomKeys = Dict[str, str]
+PyDicomKeys = Dict[str, BaseTag]  # Example: {"MyNamedRTPlan": Tag((0x300a, 0x002))}
+SitkDicomKeys = Dict[str, str]  # Example: {"MyPatientName": "0010|0010"}
 
 def contour_worker(A):
     q, kwargs = A
