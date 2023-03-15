@@ -180,7 +180,8 @@ class ImageBase(DICOMBase):
         self.RDs = dict()
         self.additional_tags = dict()
 
-    def load_info(self, dicom_names, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike],
+    def load_info(self, dicom_names: typing.List[str], sitk_dicom_reader: sitk.ImageFileReader,
+                  path: typing.Union[str, bytes, os.PathLike],
                   sitk_string_keys: SitkDicomKeys = None):
         """
         :param images_dictionary: dictionary of series instance UIDs for images
@@ -234,7 +235,7 @@ def add_images_to_dictionary(images_dictionary: Dict[str, ImageBase], dicom_name
         images_dictionary[series_instance_uid] = new_image
 
 
-def add_rp_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rp_dictionary,
+def add_rp_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike], rp_dictionary,
                          pydicom_string_keys: PyDicomKeys = None):
     try:
         series_instance_uid = ds.SeriesInstanceUID
