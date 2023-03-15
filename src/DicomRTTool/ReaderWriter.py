@@ -165,15 +165,21 @@ class ImageBase(DICOMBase):
     slice_thickness: float = None
     pixel_spacing_x: float = None
     pixel_spacing_y: float = None
-    additional_tags: dict
     study_instance_uid: str
     files: typing.List[str]
-    RTs: dict
-    RDs: dict
-    RPs: dict
-    other_attributes: dict
-    def __init__(self, dicom_names, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike],
-                 sitk_string_keys: SitkDicomKeys = None):
+    RTs: Dict
+    RDs: Dict
+    RPs: Dict
+    additional_tags: Dict
+
+    def __init__(self):
+        self.RTs = dict()
+        self.RPs = dict()
+        self.RDs = dict()
+        self.additional_tags = dict()
+
+    def load_info(self, dicom_names, sitk_dicom_reader, path: typing.Union[str, bytes, os.PathLike],
+                  sitk_string_keys: SitkDicomKeys = None):
         """
         :param images_dictionary: dictionary of series instance UIDs for images
         :param sitk_dicom_reader: sitk.ImageFileReader()
@@ -200,7 +206,7 @@ class ImageBase(DICOMBase):
                 key = sitk_string_keys[string]
                 if key in sitk_dicom_reader.GetMetaDataKeys():
                     try:
-                        self.other_attributes[string] = sitk_dicom_reader.GetMetaData(key)
+                        self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
                     except:
                         continue
 
@@ -214,7 +220,8 @@ def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
-        new_image = ImageBase(dicom_names, sitk_dicom_reader, path, sitk_string_keys)
+        new_image = ImageBase()
+        new_image.load_info(dicom_names, sitk_dicom_reader, path, sitk_string_keys)
         images_dictionary[series_instance_uid] = new_image
 
 
@@ -251,7 +258,6 @@ def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dic
     :param path: path to the images or structure in question
     """
     try:
-        newRT = RTBase(ds.PatientID, ds.SeriesInstanceUID, file=path, image_path=path)
         series_instance_uid = ds.SeriesInstanceUID
         sop_instance_uid = ds.SOPInstanceUID
         if series_instance_uid not in rt_dictionary:
@@ -354,8 +360,7 @@ def add_sops_to_dictionary(sitk_dicom_reader, series_instances_dictionary):
 
 
 def return_template_dictionary():
-    template_dictionary = {'Image_Path': None, 'PatientID': None, 'RTs': {}, 'RDs': {}, 'RPs': {}, 'Description': None,
-                           'SOP_Instance_UIDs': None, 'SeriesInstanceUID': None, 'Files': None}
+    template_dictionary = ImageBase()
     return template_dictionary
 
 
@@ -415,10 +420,10 @@ class AddDicomToDictionary(object):
 
 
 class DicomReaderWriter(object):
-    def __init__(self, description='', Contour_Names=None, associations=None, arg_max=True, verbose=True,
-                 create_new_RT=True, template_dir=None, delete_previous_rois=True,
+    def __init__(self, description='', Contour_Names = None, associations: List[ROIAssociationClass] = None,
+                 arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
-                 flip_axes=(False, False, False), index=0, series_instances_dictionary=None,
+                 flip_axes=(False, False, False), index=0, series_instances_dictionary: Dict[int, ImageBase] = None,
                  plan_pydicom_string_keys: PyDicomKeys = None,
                  struct_pydicom_string_keys: PyDicomKeys = None,
                  image_sitk_string_keys: SitkDicomKeys = None,
@@ -521,30 +526,30 @@ class DicomReaderWriter(object):
                     self.RTs_with_ROI_Names[roi].append(path)
             if series_instance_uid in series_instance_uids:
                 index = series_instance_uids.index(series_instance_uid)
-                self.series_instances_dictionary[index]['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+                self.series_instances_dictionary[index].RTs.update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
             else:
                 while index in self.series_instances_dictionary:
                     index += 1
                 template = return_template_dictionary()
-                template['RTs'].update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
+                template.RTs.update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
             struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
             if struct_ref is None:
                 continue
             for image_series_key in self.series_instances_dictionary:
-                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
                     structure_sop_uid = rts[rt_key]['SOPInstanceUID']
                     if struct_ref == structure_sop_uid:
                         rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
-                        self.series_instances_dictionary[image_series_key]['RDs'].update({rd_series_instance_uid:
-                                                                                              self.rd_dictionary[rd_series_instance_uid]})
+                        self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
+                                                                                           self.rd_dictionary[rd_series_instance_uid]})
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
             struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
             for image_series_key in self.series_instances_dictionary:
-                rts = self.series_instances_dictionary[image_series_key]['RTs']
+                rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
                     structure_sop_uid = rts[rt_key]['SOPInstanceUID']
                     if struct_ref == structure_sop_uid:
