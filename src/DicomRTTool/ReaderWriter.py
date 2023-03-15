@@ -213,12 +213,19 @@ class ImageBase(DICOMBase):
                         continue
 
 
-def add_images_to_dictionary(images_dictionary, dicom_names, sitk_dicom_reader,
-                             path: typing.Union[str, bytes, os.PathLike], sitk_string_keys: SitkDicomKeys = None):
+def add_images_to_dictionary(images_dictionary: Dict[str, ImageBase], dicom_names: typing.List[str],
+                             sitk_dicom_reader: sitk.ImageFileReader, path: typing.Union[str, bytes, os.PathLike],
+                             sitk_string_keys: SitkDicomKeys = None):
     """
-    :param images_dictionary: dictionary of series instance UIDs for images
-    :param sitk_dicom_reader: sitk.ImageFileReader()
-    :param path: path to the images or structure in question
+    Args:
+        images_dictionary:
+        dicom_names:
+        sitk_dicom_reader:
+        path:
+        sitk_string_keys:
+
+    Returns:
+
     """
     series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
     if series_instance_uid not in images_dictionary:
