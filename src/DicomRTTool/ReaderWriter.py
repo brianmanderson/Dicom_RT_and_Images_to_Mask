@@ -1201,7 +1201,7 @@ class DicomReaderWriter(object):
                         self.structure_references[
                             self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
                     structure_index = self.structure_references[ROIName_Number[ROI_Name]]
-                    mask = self.contours_to_mask(structure_index)
+                    mask = self.contours_to_mask(structure_index, true_name)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
@@ -1286,14 +1286,18 @@ class DicomReaderWriter(object):
         mask = self.return_mask(mask, matrix_points, geometric_type="CLOSED_PLANAR")
         return mask
 
-    def contours_to_mask(self, index: int):
+    def contours_to_mask(self, index: int, true_name: str):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
         if Tag((0x3006, 0x0039)) in self.RS_struct.keys():
-            Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
-            for i in range(len(Contour_data)):
-                matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
-                mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
-            mask = mask % 2
+            Contour_sequence = self.RS_struct.ROIContourSequence[index]
+            if Tag((0x3006, 0x0040)) in Contour_sequence:
+                Contour_data = Contour_sequence.ContourSequence
+                for i in range(len(Contour_data)):
+                    matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
+                    mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
+                mask = mask % 2
+            else:
+                print(f"This structure set had no data present for {true_name}! Returning a blank mask")
         else:
             print("This structure set had no data present! Returning a blank mask")
         return mask
