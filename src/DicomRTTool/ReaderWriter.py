@@ -1178,10 +1178,13 @@ class DicomReaderWriter(object):
             self.structure_references = {}
             for ROI_Name in ROIName_Number.keys():
                 true_name = None
-                if ROI_Name in self.associations:
-                    true_name = self.associations[ROI_Name].lower()
-                elif ROI_Name.lower() in self.associations:
-                    true_name = self.associations[ROI_Name.lower()]
+                if ROI_Name.lower() in self.Contour_Names:
+                    true_name = ROI_Name.lower()
+                else:
+                    for assocation in self.associations:
+                        if ROI_Name.lower() in assocation.other_names:
+                            true_name = assocation.roi_name
+                            break  # Found the name we wanted
                 if true_name and true_name in self.Contour_Names:
                     if RS_struct is None:
                         self.RS_struct = RS_struct = pydicom.read_file(RT['Path'])
