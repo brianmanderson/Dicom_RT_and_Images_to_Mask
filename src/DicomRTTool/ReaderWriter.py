@@ -1288,11 +1288,14 @@ class DicomReaderWriter(object):
 
     def contours_to_mask(self, index: int):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
-        Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
-        for i in range(len(Contour_data)):
-            matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
-            mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
-        mask = mask % 2
+        if Tag((0x3006, 0x0039)) in self.RS_struct.keys():
+            Contour_data = self.RS_struct.ROIContourSequence[index].ContourSequence
+            for i in range(len(Contour_data)):
+                matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
+                mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
+            mask = mask % 2
+        else:
+            print("This structure set had no data present! Returning a blank mask")
         return mask
 
     def use_template(self) -> None:
