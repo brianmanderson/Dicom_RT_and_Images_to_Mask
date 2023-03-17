@@ -155,6 +155,9 @@ class DICOMBase(object):
     path: typing.Union[str, bytes, os.PathLike] = None
     additional_tags: Dict
 
+    def load_info(self, *args, **kwargs):
+        pass
+
 
 class RTBase(DICOMBase):
     SOPInstanceUID: str
@@ -170,6 +173,56 @@ class RTBase(DICOMBase):
         self.Plans = dict()
         self.Doses = dict()
         self.additional_tags = dict()
+        self.ROI_Names = []
+        self.ROIs_In_Structure = {}
+
+    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
+                  pydicom_string_keys: PyDicomKeys = None):
+        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
+            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
+                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
+                    refed_series_instance_uid = referred_series.SeriesInstanceUID
+                    if Tag((0x3006, 0x020)) in ds.keys():
+                        ROI_Structure = ds.StructureSetROISequence
+                    else:
+                        ROI_Structure = []
+                    if Tag((0x3006, 0x080)) in ds.keys():
+                        ROI_Observation = ds.RTROIObservationsSequence
+                    else:
+                        ROI_Observation = []
+                    code_strings = {}
+                    for Observation in ROI_Observation:
+                        if Tag((0x3006, 0x086)) in Observation:
+                            code_strings[Observation.ReferencedROINumber] = Observation.RTROIIdentificationCodeSequence[0].CodeValue
+                    rois_in_structure = {}
+                    roi_structure_code_and_names = {}
+                    rois = []
+                    for Structures in ROI_Structure:
+                        roi_name = Structures.ROIName.lower()
+                        rois.append(roi_name)
+                        roi_number = Structures.ROINumber
+                        if roi_number in code_strings:
+                            structure_code = code_strings[roi_number]
+                            if structure_code not in roi_structure_code_and_names:
+                                roi_structure_code_and_names[structure_code] = []
+                            if roi_name not in roi_structure_code_and_names[structure_code]:
+                                roi_structure_code_and_names[structure_code].append(roi_name)
+                        if Structures.ROIName not in rois_in_structure:
+                            rois_in_structure[Structures.ROIName] = roi_number
+                    self.path = path
+                    self.ROI_Names = rois
+                    self.ROIs_In_Structure = rois_in_structure
+                    self.SeriesInstanceUID = refed_series_instance_uid
+                    self.SOPInstanceUID = ds.SOPInstanceUID
+                    self.CodeAssociations = roi_structure_code_and_names
+                    if pydicom_string_keys is not None:
+                        for string in pydicom_string_keys:
+                            key = pydicom_string_keys[string]
+                            if key in ds.keys():
+                                try:
+                                    self.additional_tags[string] = ds[key].value
+                                except:
+                                    continue
 
 
 class ImageBase(DICOMBase):
@@ -180,7 +233,7 @@ class ImageBase(DICOMBase):
     StudyInstanceUID: str
     SOPs: typing.List[str]
     files: typing.List[str]
-    RTs: Dict
+    RTs: Dict[str, RTBase]
     RDs: Dict
     RPs: Dict
 
@@ -276,7 +329,7 @@ def add_rp_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.
         print("Had an error loading " + path)
 
 
-def add_rt_to_dictionary(ds, path: typing.Union[str, bytes, os.PathLike], rt_dictionary,
+def add_rt_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike], rt_dictionary: Dict[str, RTBase],
                          pydicom_string_keys: PyDicomKeys = None):
     """
     :param ds: pydicom data structure
