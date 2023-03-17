@@ -153,12 +153,23 @@ class DICOMBase(object):
     SeriesInstanceUID: str = None
     file: str = None
     path: typing.Union[str, bytes, os.PathLike] = None
+    additional_tags: Dict
 
 
 class RTBase(DICOMBase):
-    sop_instance_uid: str
+    SOPInstanceUID: str
+    ROI_Names: List[str]
+    ROIs_In_Structure: Dict[str, str]
     referenced_series_instance_uid: str
     rois_in_structure: Dict[str, str]
+    Plans: Dict
+    Doses: Dict
+    CodeAssociations: Dict[str, List[str]]
+
+    def __init__(self):
+        self.Plans = dict()
+        self.Doses = dict()
+        self.additional_tags = dict()
 
 
 class ImageBase(DICOMBase):
@@ -172,7 +183,6 @@ class ImageBase(DICOMBase):
     RTs: Dict
     RDs: Dict
     RPs: Dict
-    additional_tags: Dict
 
     def __init__(self):
         self.RTs = dict()
@@ -184,9 +194,14 @@ class ImageBase(DICOMBase):
                   path: typing.Union[str, bytes, os.PathLike],
                   sitk_string_keys: SitkDicomKeys = None):
         """
-        :param images_dictionary: dictionary of series instance UIDs for images
-        :param sitk_dicom_reader: sitk.ImageFileReader()
-        :param path: path to the images or structure in question
+        Args:
+            dicom_names:
+            sitk_dicom_reader:
+            path:
+            sitk_string_keys:
+
+        Returns:
+
         """
         self.SeriesInstanceUID = sitk_dicom_reader.GetMetaData("0020|000e")
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")
@@ -1125,7 +1140,7 @@ class DicomReaderWriter(object):
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
-        if self.rd_study_instance_uid == self.series_instances_dictionary[index].study_instance_uid:  # Already loaded
+        if self.rd_study_instance_uid == self.series_instances_dictionary[index].StudyInstanceUID:  # Already loaded
             return None
         self.rd_study_instance_uid = self.series_instances_dictionary[index].StudyInstanceUID
         RDs = self.series_instances_dictionary[index].RDs
