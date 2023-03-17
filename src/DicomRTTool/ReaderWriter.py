@@ -339,58 +339,14 @@ def add_rt_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.
         series_instance_uid = ds.SeriesInstanceUID
         sop_instance_uid = ds.SOPInstanceUID
         if series_instance_uid not in rt_dictionary:
-            for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
-                for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
-                    for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
-                        refed_series_instance_uid = referred_series.SeriesInstanceUID
-                        if Tag((0x3006, 0x020)) in ds.keys():
-                            ROI_Structure = ds.StructureSetROISequence
-                        else:
-                            ROI_Structure = []
-                        if Tag((0x3006, 0x080)) in ds.keys():
-                            ROI_Observation = ds.RTROIObservationsSequence
-                        else:
-                            ROI_Observation = []
-                        code_strings = {}
-                        for Observation in ROI_Observation:
-                            if Tag((0x3006, 0x086)) in Observation:
-                                code_strings[Observation.ReferencedROINumber] = Observation.RTROIIdentificationCodeSequence[0].CodeValue
-                        rois_in_structure = {}
-                        roi_structure_code_and_names = {}
-                        rois = []
-                        for Structures in ROI_Structure:
-                            roi_name = Structures.ROIName.lower()
-                            rois.append(roi_name)
-                            roi_number = Structures.ROINumber
-                            if roi_number in code_strings:
-                                structure_code = code_strings[roi_number]
-                                if structure_code not in roi_structure_code_and_names:
-                                    roi_structure_code_and_names[structure_code] = []
-                                if roi_name not in roi_structure_code_and_names[structure_code]:
-                                    roi_structure_code_and_names[structure_code].append(roi_name)
-                            if Structures.ROIName not in rois_in_structure:
-                                rois_in_structure[Structures.ROIName] = roi_number
-                        temp_dict = {'Path': path, 'ROI_Names': rois, 'ROIs_in_structure': rois_in_structure,
-                                     'SeriesInstanceUID': refed_series_instance_uid, 'Plans': {}, 'Doses': {},
-                                     'SOPInstanceUID': sop_instance_uid, 'CodeAssociations': roi_structure_code_and_names}
-                        if pydicom_string_keys is not None:
-                            for string in pydicom_string_keys:
-                                key = pydicom_string_keys[string]
-                                if key in ds.keys():
-                                    try:
-                                        temp_dict[string] = ds[key].value
-                                    except:
-                                        continue
-                        rt_dictionary[series_instance_uid] = temp_dict
+            new_RT = RTBase()
+            new_RT.load_info(ds, path, pydicom_string_keys)
+            rt_dictionary[series_instance_uid] = new_RT
     except:
         print("Had an error loading " + path)
 
 
 def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary, sitk_string_keys: SitkDicomKeys = None):
-    """
-    :param ds: pydicom data structure
-    :param path: path to the images or structure in question
-    """
     try:
         ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
         series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
@@ -498,6 +454,7 @@ class AddDicomToDictionary(object):
 
 class DicomReaderWriter(object):
     images_dictionary: Dict[str, ImageBase]
+    rt_dictionary: Dict[str, RTBase]
 
     def __init__(self, description='', Contour_Names = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -594,11 +551,11 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = self.images_dictionary[series_instance_uid]
                 series_instance_uids.append(series_instance_uid)
         for rt_series_instance_uid in self.rt_dictionary:
-            series_instance_uid = self.rt_dictionary[rt_series_instance_uid]['SeriesInstanceUID']
+            series_instance_uid = self.rt_dictionary[rt_series_instance_uid].SeriesInstanceUID
             rt_dictionary = self.rt_dictionary[rt_series_instance_uid]
-            path = rt_dictionary['Path']
-            self.all_RTs[path] = rt_dictionary['ROI_Names']
-            for roi in rt_dictionary['ROI_Names']:
+            path = rt_dictionary.path
+            self.all_RTs[path] = rt_dictionary.ROI_Names
+            for roi in rt_dictionary.ROI_Names:
                 if roi not in self.RTs_with_ROI_Names:
                     self.RTs_with_ROI_Names[roi] = [path]
                 else:
@@ -619,9 +576,9 @@ class DicomReaderWriter(object):
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
-                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    structure_sop_uid = rts[rt_key].SOPInstanceUID
                     if struct_ref == structure_sop_uid:
-                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
         for rp_series_instance_uid in self.rp_dictionary:
@@ -630,9 +587,9 @@ class DicomReaderWriter(object):
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
-                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    structure_sop_uid = rts[rt_key].SOPInstanceUID
                     if struct_ref == structure_sop_uid:
-                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
+                        rts[rt_key].Plans[rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RPs.update({rp_series_instance_uid:
                                                                                               self.rp_dictionary[rp_series_instance_uid]})
                         added = True
@@ -656,8 +613,8 @@ class DicomReaderWriter(object):
                     if plan_ref == plan_sop_uid:
                         rt_key_sopinstanceUID = rps[rp_key]['ReferencedStructureSetSOPInstanceUID']
                         for rt_key in rts:
-                            if rts[rt_key]['SOPInstanceUID'] == rt_key_sopinstanceUID:
-                                rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                            if rts[rt_key].SOPInstanceUID == rt_key_sopinstanceUID:
+                                rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                               self.rd_dictionary[rd_series_instance_uid]})
                         added = True
@@ -693,11 +650,11 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = self.images_dictionary[series_instance_uid]
                 folders.append(folder)
         for rt_series_instance_uid in self.rt_dictionary:
-            rt_path = os.path.split(self.rt_dictionary[rt_series_instance_uid]['Path'])[0]
+            rt_path = os.path.split(self.rt_dictionary[rt_series_instance_uid].path)[0]
             rt_dictionary = self.rt_dictionary[rt_series_instance_uid]
-            path = rt_dictionary['Path']
-            self.all_RTs[path] = rt_dictionary['ROI_Names']
-            for roi in rt_dictionary['ROI_Names']:
+            path = rt_dictionary.path
+            self.all_RTs[path] = rt_dictionary.ROI_Names
+            for roi in rt_dictionary.ROI_Names:
                 if roi not in self.RTs_with_ROI_Names:
                     self.RTs_with_ROI_Names[roi] = [path]
                 else:
@@ -718,9 +675,9 @@ class DicomReaderWriter(object):
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
-                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    structure_sop_uid = rts[rt_key].SOPInstanceUID
                     if struct_ref == structure_sop_uid:
-                        rts[rt_key]['Doses'][rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
+                        rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                               self.rd_dictionary[rd_series_instance_uid]})
                     added = True
@@ -736,9 +693,9 @@ class DicomReaderWriter(object):
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
-                    structure_sop_uid = rts[rt_key]['SOPInstanceUID']
+                    structure_sop_uid = rts[rt_key].SOPInstanceUID
                     if struct_ref == structure_sop_uid:
-                        rts[rt_key]['Plans'][rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
+                        rts[rt_key].Plans[rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RPs.update({rp_series_instance_uid:
                                                                                               self.rp_dictionary[rp_series_instance_uid]})
                     added = True
@@ -800,17 +757,17 @@ class DicomReaderWriter(object):
             self.rois_in_case = []
             for RT_key in RTs:
                 RT = RTs[RT_key]
-                for code_key in RT['CodeAssociations']:
+                for code_key in RT.CodeAssociations:
                     if code_key not in self.roi_groups:
-                        self.roi_groups[code_key] = RT['CodeAssociations'][code_key]
+                        self.roi_groups[code_key] = RT.CodeAssociations[code_key]
                     else:
-                        self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT['CodeAssociations'][code_key]))
-                ROI_Names = RT['ROI_Names']
+                        self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT.CodeAssociations[code_key]))
+                ROI_Names = RT.ROI_Names
                 for roi in ROI_Names:
                     if roi.lower() not in self.RTs_with_ROI_Names:
-                        self.RTs_with_ROI_Names[roi.lower()] = [RT['Path']]
-                    elif RT['Path'] not in self.RTs_with_ROI_Names[roi.lower()]:
-                        self.RTs_with_ROI_Names[roi.lower()].append(RT['Path'])
+                        self.RTs_with_ROI_Names[roi.lower()] = [RT.path]
+                    elif RT.path not in self.RTs_with_ROI_Names[roi.lower()]:
+                        self.RTs_with_ROI_Names[roi.lower()].append(RT.path)
                     if roi.lower() not in self.rois_in_case:
                         self.rois_in_case.append(roi.lower())
                     if roi.lower() not in self.all_rois:
@@ -876,9 +833,9 @@ class DicomReaderWriter(object):
         reader.GlobalWarningDisplayOff()
         out_file_paths += reader.GetGDCMSeriesFileNames(dicom_path, UID)
         for structure_key in image_dictionary.RTs:
-            out_file_paths += [image_dictionary.RTs[structure_key]['Path']]
+            out_file_paths += [image_dictionary.RTs[structure_key].path]
         for structure_key in image_dictionary.RDs:
-            out_file_paths += [image_dictionary.RDs[structure_key]['Path']]
+            out_file_paths += [image_dictionary.RDs[structure_key].path]
         return out_file_paths
 
     def return_files_from_index(self, index: int) -> List[str]:
@@ -899,7 +856,7 @@ class DicomReaderWriter(object):
         reader.GlobalWarningDisplayOff()
         out_file_paths += reader.GetGDCMSeriesFileNames(dicom_path, UID)
         for structure_key in image_dictionary.RTs:
-            out_file_paths += [image_dictionary.RTs[structure_key]['Path']]
+            out_file_paths += [image_dictionary.RTs[structure_key].path]
         for structure_key in image_dictionary.RPs:
             out_file_paths += [image_dictionary.RPs[structure_key]['Path']]
         for structure_key in image_dictionary.RDs:
@@ -909,10 +866,10 @@ class DicomReaderWriter(object):
     def return_files_from_patientID(self, patientID: str) -> List[str]:
         """
         Args:
-            index: An integer index found in images_dictionary.
+            patientID:
 
         Returns:
-            file_list: A list of file paths that are associated with that index, being images, RTs, RDs, and RPs
+
         """
         out_file_paths = list()
         for index in self.series_instances_dictionary:
@@ -1016,7 +973,7 @@ class DicomReaderWriter(object):
                 column_name = 'Volume_{} [cc]'.format(roi)
                 final_out_dict[column_name] = []
             df = pd.DataFrame(final_out_dict)
-            df.to_excel(excel_file, index=0)
+            df.to_excel(excel_file, index=False)
         else:
             df = pd.read_excel(excel_file, engine='openpyxl')
         add_columns = False
@@ -1026,7 +983,7 @@ class DicomReaderWriter(object):
                 df[column_name] = np.nan
                 add_columns = True
         if add_columns:
-            df.to_excel(excel_file, index=0)
+            df.to_excel(excel_file, index=False)
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
@@ -1036,7 +993,7 @@ class DicomReaderWriter(object):
         First, build the excel file that we will use to reference iterations, Series UIDs, and paths
         '''
         for index in self.indexes_with_contours:
-            series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            series_instance_uid = self.series_instances_dictionary[index].SeriesInstanceUID
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 rewrite_excel = True
@@ -1053,13 +1010,13 @@ class DicomReaderWriter(object):
                 temp_df = pd.DataFrame(temp_dict)
                 df = df.append(temp_df)
         if rewrite_excel:
-            df.to_excel(excel_file, index=0)
+            df.to_excel(excel_file, index=False)
         '''
         Next, read through the excel sheet and see if the out paths already exist
         '''
         items = []
         for index in self.indexes_with_contours:
-            series_instance_uid = self.series_instances_dictionary[index]['SeriesInstanceUID']
+            series_instance_uid = self.series_instances_dictionary[index].SeriesInstanceUID
             previous_run = df.loc[df['SeriesInstanceUID'] == series_instance_uid]
             if previous_run.shape[0] == 0:
                 continue
@@ -1112,7 +1069,7 @@ class DicomReaderWriter(object):
                     column_name = 'Volume_{} [cc]'.format(roi)
                     df.loc[df.Iteration == iteration, column_name] = \
                         self.series_instances_dictionary[index].additional_tags['Volumes'][roi_index]
-            df.to_excel(excel_file, index=0)
+            df.to_excel(excel_file, index=False)
 
     def get_images_and_mask(self) -> None:
         if self.index not in self.series_instances_dictionary:
@@ -1249,7 +1206,7 @@ class DicomReaderWriter(object):
         RTs = self.series_instances_dictionary[index].RTs
         for RT_key in RTs:
             RT = RTs[RT_key]
-            ROIName_Number = RT['ROIs_in_structure']
+            ROIName_Number = RT.ROIs_In_Structure
             RS_struct = None
             self.structure_references = {}
             for ROI_Name in ROIName_Number.keys():
@@ -1263,7 +1220,7 @@ class DicomReaderWriter(object):
                             break  # Found the name we wanted
                 if true_name and true_name in self.Contour_Names:
                     if RS_struct is None:
-                        self.RS_struct = RS_struct = pydicom.read_file(RT['Path'])
+                        self.RS_struct = RS_struct = pydicom.read_file(RT.path)
                         self.RS_struct_uid = self.series_instances_dictionary[index].SeriesInstanceUID
                     for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                         self.structure_references[
@@ -1302,7 +1259,7 @@ class DicomReaderWriter(object):
         row_val = matrix_points[:, 1]
         z_vals = matrix_points[:, 2]
         if geometric_type != "OPEN_NONPLANAR":
-            temp_mask = poly2mask(row_val, col_val, [self.image_size_rows, self.image_size_cols])
+            temp_mask = poly2mask(row_val, col_val, (self.image_size_rows, self.image_size_cols))
             # temp_mask[self.row_val, self.col_val] = 0
             mask[z_vals[0], temp_mask] += 1
         else:
@@ -1431,7 +1388,7 @@ class DicomReaderWriter(object):
         elif self.RS_struct_uid != self.series_instances_dictionary[index].SeriesInstanceUID:
             RTs = self.series_instances_dictionary[index].RTs
             for uid_key in RTs:
-                self.RS_struct = pydicom.read_file(RTs[uid_key]['Path'])
+                self.RS_struct = pydicom.read_file(RTs[uid_key].path)
                 self.RS_struct_uid = self.series_instances_dictionary[index].SeriesInstanceUID
                 break
 
@@ -1647,7 +1604,7 @@ class DicomReaderWriter(object):
         self.walk_through_folders(input_path=dicom_path)
         return None
 
-    def rewrite_RT(self, lstRSFile=None):
+    def rewrite_RT(self, lstRSFile: typing.Union[str, bytes, os.PathLike] = None):
         if lstRSFile is not None:
             self.RS_struct = pydicom.read_file(lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
@@ -1668,7 +1625,7 @@ class DicomReaderWriter(object):
             if ObsSequence.ROIObservationLabel in self.associations:
                 new_name = self.associations[ObsSequence.ROIObservationLabel]
                 self.RS_struct.RTROIObservationsSequence[i].ROIObservationLabel = new_name
-        self.RS_struct.save_as(self.lstRSFile)
+        self.RS_struct.save_as(lstRSFile)
 
 
 if __name__ == '__main__':
