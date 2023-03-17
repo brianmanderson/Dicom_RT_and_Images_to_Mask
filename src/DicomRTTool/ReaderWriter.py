@@ -877,17 +877,20 @@ class DicomReaderWriter(object):
                 out_file_paths += self.return_files_from_index(index)
         return out_file_paths
 
-    def where_are_RTs(self, ROIName: str) -> None:
+    def where_are_RTs(self, ROIName: str) -> List[str]:
         print('Please move over to using .where_is_ROI(), as this better represents the definition')
-        self.where_is_ROI(ROIName=ROIName)
+        return self.where_is_ROI(ROIName=ROIName)
 
-    def where_is_ROI(self, ROIName: str) -> None:
+    def where_is_ROI(self, ROIName: str) -> List[str]:
+        out_folders = list()
         if ROIName.lower() in self.RTs_with_ROI_Names:
             print('Contours of {} are located:'.format(ROIName.lower()))
             for path in self.RTs_with_ROI_Names[ROIName.lower()]:
+                out_folders.append(path)
                 print(path)
         else:
             print('{} was not found within the set, check spelling or list all rois'.format(ROIName))
+        return out_folders
 
     def which_indexes_have_all_rois(self):
         if self.Contour_Names:
@@ -1557,28 +1560,26 @@ class DicomReaderWriter(object):
 
     def change_template(self):
         keys = self.RS_struct.keys()
-        for key in keys:
-            # print(self.RS_struct[key].name)
-            if self.RS_struct[key].name == 'Referenced Frame of Reference Sequence':
-                break
-        self.RS_struct[key]._value[0].FrameOfReferenceUID = self.ds.FrameOfReferenceUID
-        self.RS_struct[key]._value[0].RTReferencedStudySequence[0].ReferencedSOPInstanceUID = self.ds.StudyInstanceUID
-        self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-            0].SeriesInstanceUID = self.ds.SeriesInstanceUID
-        for i in range(len(self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-                               0].ContourImageSequence) - 1):
-            del self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-                0].ContourImageSequence[-1]
-        fill_segment = copy.deepcopy(
-            self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-                0].ContourImageSequence[0])
-        for i in range(len(self.SOPInstanceUIDs)):
-            temp_segment = copy.deepcopy(fill_segment)
-            temp_segment.ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
-            self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-                0].ContourImageSequence.append(temp_segment)
-        del self.RS_struct[key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
-            0].ContourImageSequence[0]
+        ref_key = Tag((0x3006),(0x0010))
+        if ref_key in keys:
+            self.RS_struct[ref_key]._value[0].FrameOfReferenceUID = self.ds.FrameOfReferenceUID
+            self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].ReferencedSOPInstanceUID = self.ds.StudyInstanceUID
+            self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                0].SeriesInstanceUID = self.ds.SeriesInstanceUID
+            for i in range(len(self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                                   0].ContourImageSequence) - 1):
+                del self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                    0].ContourImageSequence[-1]
+            fill_segment = copy.deepcopy(
+                self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                    0].ContourImageSequence[0])
+            for i in range(len(self.SOPInstanceUIDs)):
+                temp_segment = copy.deepcopy(fill_segment)
+                temp_segment.ReferencedSOPInstanceUID = self.SOPInstanceUIDs[i]
+                self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                    0].ContourImageSequence.append(temp_segment)
+            del self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].RTReferencedSeriesSequence[
+                0].ContourImageSequence[0]
 
         new_keys = open(self.key_list)
         keys = {}
