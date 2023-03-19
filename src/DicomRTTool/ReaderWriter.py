@@ -151,6 +151,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
 class DICOMBase(object):
     PatientID: str = None
     SeriesInstanceUID: str = None
+    StudyInstanceUID: str = None
     file: str = None
     path: typing.Union[str, bytes, os.PathLike] = None
     additional_tags: Dict
@@ -178,6 +179,7 @@ class RTBase(DICOMBase):
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
                   pydicom_string_keys: PyDicomKeys = None):
+        self.StudyInstanceUID = ds.StudyInstanceUID
         for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
             for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
                 for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
@@ -225,12 +227,42 @@ class RTBase(DICOMBase):
                                     continue
 
 
+class RDBase(DICOMBase):
+    SOPInstanceUID: str = None
+    Description: str = None
+    ReferencedStructureSetSOPInstanceUID: str = None
+    ReferencedPlanSOPInstanceUID: str = None
+
+    def __init__(self):
+        self.additional_tags = dict()
+
+    def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
+        ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
+        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
+            if "ReferencedStructureSetSequence" in ds.values() else None
+        rp_sopinstance_uid = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
+        self.StudyInstanceUID = sitk_dicom_reader.GetMetaData("0020|000d")
+        if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
+            self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
+        self.path = sitk_dicom_reader.GetFileName()
+        self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
+        self.ReferencedStructureSetSOPInstanceUID = rt_sopinstance_uid
+        self.ReferencedPlanSOPInstanceUID = rp_sopinstance_uid
+        if sitk_string_keys is not None:
+            for string in sitk_string_keys:
+                key = sitk_string_keys[string]
+                if key in sitk_dicom_reader.GetMetaDataKeys():
+                    try:
+                        self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
+                    except:
+                        continue
+
+
 class ImageBase(DICOMBase):
     description: str = None
     slice_thickness: float = None
     pixel_spacing_x: float = None
     pixel_spacing_y: float = None
-    StudyInstanceUID: str
     SOPs: typing.List[str]
     files: typing.List[str]
     RTs: Dict[str, RTBase]
@@ -351,31 +383,13 @@ def add_rt_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.
         print("Had an error loading " + path)
 
 
-def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary, sitk_string_keys: SitkDicomKeys = None):
+def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary: Dict[str, RDBase], sitk_string_keys: SitkDicomKeys = None):
     try:
-        ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
         series_instance_uid = sitk_dicom_reader.GetMetaData("0020|000e")
-        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
-            if "ReferencedStructureSetSequence" in ds.values() else None
-        rp_sopinstance_uid = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
         if series_instance_uid not in rd_dictionary:
-            study_instance_uid = sitk_dicom_reader.GetMetaData("0020|000d")
-            description = None
-            if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
-                description = sitk_dicom_reader.GetMetaData("0008|103e")
-            temp_dict = {'Path': sitk_dicom_reader.GetFileName(), 'StudyInstanceUID': study_instance_uid,
-                         'SOPInstanceUID': sitk_dicom_reader.GetMetaData("0008|0018"),
-                         'Description': description, 'ReferencedStructureSetSOPInstanceUID': rt_sopinstance_uid,
-                         'ReferencedPlanSOPInstanceUID': rp_sopinstance_uid}
-            if sitk_string_keys is not None:
-                for string in sitk_string_keys:
-                    key = sitk_string_keys[string]
-                    if key in sitk_dicom_reader.GetMetaDataKeys():
-                        try:
-                            temp_dict[string] = sitk_dicom_reader.GetMetaData(key)
-                        except:
-                            continue
-            rd_dictionary[series_instance_uid] = temp_dict
+            new_rd = RDBase()
+            new_rd.load_info(sitk_dicom_reader, sitk_string_keys)
+            rd_dictionary[series_instance_uid] = new_rd
     except:
         print("Had an error loading " + sitk_dicom_reader.GetFileName())
 
