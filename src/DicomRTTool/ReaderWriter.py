@@ -238,16 +238,15 @@ class RDBase(DICOMBase):
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
         ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
-        rt_sopinstance_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
+        self.SeriesInstanceUID = ds.SeriesInstanceUID
+        self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
             if "ReferencedStructureSetSequence" in ds.values() else None
-        rp_sopinstance_uid = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
+        self.ReferencedPlanSOPInstanceUID = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
         self.StudyInstanceUID = sitk_dicom_reader.GetMetaData("0020|000d")
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
         self.path = sitk_dicom_reader.GetFileName()
         self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
-        self.ReferencedStructureSetSOPInstanceUID = rt_sopinstance_uid
-        self.ReferencedPlanSOPInstanceUID = rp_sopinstance_uid
         if sitk_string_keys is not None:
             for string in sitk_string_keys:
                 key = sitk_string_keys[string]
@@ -266,7 +265,7 @@ class ImageBase(DICOMBase):
     SOPs: typing.List[str]
     files: typing.List[str]
     RTs: Dict[str, RTBase]
-    RDs: Dict
+    RDs: Dict[str, RDBase]
     RPs: Dict
 
     def __init__(self):
@@ -442,7 +441,9 @@ class AddDicomToDictionary(object):
         self.image_sitk_string_keys = image_sitk_string_keys
         self.dose_sitk_string_keys = dose_sitk_string_keys
 
-    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary):
+    def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary: Dict[str, ImageBase],
+                                          rt_dictionary: Dict[str, RTBase],
+                                          rd_dictionary: Dict[str, RDBase], rp_dictionary):
         fileList = glob(os.path.join(dicom_path, '*.dcm'))
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
@@ -474,6 +475,7 @@ class AddDicomToDictionary(object):
 class DicomReaderWriter(object):
     images_dictionary: Dict[str, ImageBase]
     rt_dictionary: Dict[str, RTBase]
+    rd_dictionary: Dict[str, RDBase]
 
     def __init__(self, description='', Contour_Names = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -589,7 +591,7 @@ class DicomReaderWriter(object):
                 template.RTs.update({rt_series_instance_uid: self.rt_dictionary[rt_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
-            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            struct_ref = self.rd_dictionary[rd_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             if struct_ref is None:
                 continue
             for image_series_key in self.series_instances_dictionary:
@@ -620,10 +622,10 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
             added = False
-            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            struct_ref = self.rd_dictionary[rd_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             if struct_ref is not None:
                 continue
-            plan_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedPlanSOPInstanceUID']
+            plan_ref = self.rd_dictionary[rd_series_instance_uid].ReferencedPlanSOPInstanceUID
             for image_series_key in self.series_instances_dictionary:
                 rps = self.series_instances_dictionary[image_series_key].RPs
                 rts = self.series_instances_dictionary[image_series_key].RTs
@@ -690,7 +692,7 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
             added = False
-            struct_ref = self.rd_dictionary[rd_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            struct_ref = self.rd_dictionary[rd_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
@@ -879,7 +881,7 @@ class DicomReaderWriter(object):
         for structure_key in image_dictionary.RPs:
             out_file_paths += [image_dictionary.RPs[structure_key]['Path']]
         for structure_key in image_dictionary.RDs:
-            out_file_paths += [image_dictionary.RDs[structure_key]['Path']]
+            out_file_paths += [image_dictionary.RDs[structure_key].path]
         return out_file_paths
 
     def return_files_from_patientID(self, patientID: str) -> List[str]:
@@ -1182,7 +1184,7 @@ class DicomReaderWriter(object):
         self.dose_handle = None
         for rd_series_instance_uid in RDs:
             rd = RDs[rd_series_instance_uid]
-            dose_file = rd['Path']
+            dose_file = rd.path
             reader.SetFileName(dose_file)
             reader.ReadImageInformation()
             dose = reader.Execute()
