@@ -332,12 +332,17 @@ def add_rp_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.
 def add_rt_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike], rt_dictionary: Dict[str, RTBase],
                          pydicom_string_keys: PyDicomKeys = None):
     """
-    :param ds: pydicom data structure
-    :param path: path to the images or structure in question
+    Args:
+        ds:
+        path:
+        rt_dictionary:
+        pydicom_string_keys:
+
+    Returns:
+
     """
     try:
         series_instance_uid = ds.SeriesInstanceUID
-        sop_instance_uid = ds.SOPInstanceUID
         if series_instance_uid not in rt_dictionary:
             new_RT = RTBase()
             new_RT.load_info(ds, path, pydicom_string_keys)
