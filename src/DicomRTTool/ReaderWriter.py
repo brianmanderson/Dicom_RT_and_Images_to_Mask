@@ -151,6 +151,7 @@ def poly2mask(vertex_row_coords: np.array, vertex_col_coords: np.array,
 class DICOMBase(object):
     PatientID: str = None
     SeriesInstanceUID: str = None
+    SOPInstanceUID: str = None
     StudyInstanceUID: str = None
     file: str = None
     path: typing.Union[str, bytes, os.PathLike] = None
@@ -161,7 +162,6 @@ class DICOMBase(object):
 
 
 class RTBase(DICOMBase):
-    SOPInstanceUID: str
     ROI_Names: List[str]
     ROIs_In_Structure: Dict[str, str]
     referenced_series_instance_uid: str
@@ -258,7 +258,7 @@ class RDBase(DICOMBase):
 
 
 class ImageBase(DICOMBase):
-    description: str = None
+    Description: str = None
     slice_thickness: float = None
     pixel_spacing_x: float = None
     pixel_spacing_y: float = None
@@ -295,7 +295,7 @@ class ImageBase(DICOMBase):
         meta_keys = sitk_dicom_reader.GetMetaDataKeys()
         self.files = dicom_names
         if "0008|103e" in meta_keys:
-            self.description = sitk_dicom_reader.GetMetaData("0008|103e")
+            self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
         if "0028|0030" in meta_keys:
             pixel_spacing_x, pixel_spacing_y = sitk_dicom_reader.GetMetaData("0028|0030").strip(' ').split('\\')
             self.pixel_spacing_x, self.pixel_spacing_y = float(pixel_spacing_x), float(pixel_spacing_y)
@@ -309,6 +309,38 @@ class ImageBase(DICOMBase):
                 if key in sitk_dicom_reader.GetMetaDataKeys():
                     try:
                         self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
+                    except:
+                        continue
+
+
+class PlanBase(DICOMBase):
+    PlanLabel: str
+    ReferencedStructureSetSOPInstanceUID: str
+    ReferencedDoseSOPUID: str
+    Description: str
+
+    def __init__(self):
+        self.additional_tags = {}
+
+    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
+                         pydicom_string_keys: PyDicomKeys = None):
+        refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+        refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
+        plan_label = None
+        if Tag((0x300a, 0x002)) in ds.keys():
+            plan_label = ds.RTPlanLabel
+        self.path = path
+        self.SOPInstanceUID = ds.SOPInstanceUID
+        self.PlanLabel = plan_label
+        self.ReferencedStructureSetSOPInstanceUID = refed_structure_uid
+        self.ReferencedDoseSOPUID = refed_dose_uid
+        self.Description = ds.StudyDescription
+        if pydicom_string_keys is not None:
+            for string in pydicom_string_keys:
+                key = pydicom_string_keys[string]
+                if key in ds.keys():
+                    try:
+                        self.additional_tags[string] = ds[key].value
                     except:
                         continue
 
@@ -334,28 +366,14 @@ def add_images_to_dictionary(images_dictionary: Dict[str, ImageBase], dicom_name
         images_dictionary[series_instance_uid] = new_image
 
 
-def add_rp_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike], rp_dictionary,
-                         pydicom_string_keys: PyDicomKeys = None):
+def add_rp_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
+                         rp_dictionary: Dict[str, PlanBase], pydicom_string_keys: PyDicomKeys = None):
     try:
         series_instance_uid = ds.SeriesInstanceUID
         if series_instance_uid not in rp_dictionary:
-            refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
-            refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
-            plan_label = None
-            if Tag((0x300a, 0x002)) in ds.keys():
-                plan_label = ds.RTPlanLabel
-            temp_dict = {'Path': path, 'SOPInstanceUID': ds.SOPInstanceUID, 'PlanLabel': plan_label,
-                         'ReferencedStructureSetSOPInstanceUID': refed_structure_uid,
-                         'ReferencedDoseSOPUID': refed_dose_uid, 'Description': ds.StudyDescription}
-            if pydicom_string_keys is not None:
-                for string in pydicom_string_keys:
-                    key = pydicom_string_keys[string]
-                    if key in ds.keys():
-                        try:
-                            temp_dict[string] = ds[key].value
-                        except:
-                            continue
-            rp_dictionary[series_instance_uid] = temp_dict
+            new_plan = PlanBase()
+            new_plan.load_info(ds, path, pydicom_string_keys)
+            rp_dictionary[series_instance_uid] = new_plan
     except:
         print("Had an error loading " + path)
 
@@ -982,7 +1000,7 @@ class DicomReaderWriter(object):
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key in self.series_instances_dictionary:
                 print('Index {}, description {} at {}'.format(key,
-                                                              self.series_instances_dictionary[key].description,
+                                                              self.series_instances_dictionary[key].Description,
                                                               self.series_instances_dictionary[key].path))
             print('{} unique series IDs were found. Default is index 0, to change use '
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
@@ -1153,7 +1171,7 @@ class DicomReaderWriter(object):
             return None
         if self.dicom_handle_uid != series_instance_uid:  # Only load if needed
             if self.verbose:
-                print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].description,
+                print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
             dicom_names = self.series_instances_dictionary[index].files
             self.ds = pydicom.read_file(dicom_names[0])
