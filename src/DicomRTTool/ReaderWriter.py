@@ -476,8 +476,13 @@ class DicomReaderWriter(object):
     images_dictionary: Dict[str, ImageBase]
     rt_dictionary: Dict[str, RTBase]
     rd_dictionary: Dict[str, RDBase]
+    dose_handle: sitk.Image
+    annotation_handle: sitk.Image
+    all_rois: List[str]
+    all_RTs: Dict[str, List[str]]  # A dictionary of RT being the key, and a list of ROIs in that RT
+    RTs_with_ROI_Names: Dict[str, List[str]]  # A dictionary with key being an ROI name, and value being a list of RTs
 
-    def __init__(self, description='', Contour_Names = None, associations: List[ROIAssociationClass] = None,
+    def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
                  flip_axes=(False, False, False), index=0, series_instances_dictionary: Dict[int, ImageBase] = None,
@@ -510,8 +515,6 @@ class DicomReaderWriter(object):
         self.rp_dictionary = {}
         if Contour_Names is None:
             Contour_Names = []
-        if associations is None:
-            associations = {}
         if series_instances_dictionary is None:
             series_instances_dictionary = {}
         self.series_instances_dictionary = series_instances_dictionary
@@ -519,6 +522,8 @@ class DicomReaderWriter(object):
         self.require_all_contours = require_all_contours
         self.flip_axes = flip_axes
         self.create_new_RT = create_new_RT
+        if associations is None:
+            associations = []
         self.associations = associations
         self.Contour_Names = Contour_Names
         self.set_contour_names_and_associations(contour_names=Contour_Names, associations=associations,
@@ -526,7 +531,6 @@ class DicomReaderWriter(object):
         self.__set_description__(description)
         self.__set_iteration__(iteration)
         self.arg_max = arg_max
-        self.dose_handle = None
         if template_dir is None or not os.path.exists(template_dir):
             template_dir = os.path.join(os.path.split(__file__)[0], 'template_RS.dcm')
         self.template_dir = template_dir
@@ -1181,7 +1185,6 @@ class DicomReaderWriter(object):
         reader = sitk.ImageFileReader()
         output, spacing, direction, origin = None, None, None, None
         self.dose = None
-        self.dose_handle = None
         for rd_series_instance_uid in RDs:
             rd = RDs[rd_series_instance_uid]
             dose_file = rd.path
@@ -1378,7 +1381,7 @@ class DicomReaderWriter(object):
         if pixel_id.find('int') == -1:
             self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
         sitk.WriteImage(self.annotation_handle, annotation_path)
-        if self.dose_handle is not None:
+        if self.dose_handle:
             dose_path = os.path.join(out_path, 'Overall_dose_{}_{}.nii.gz'.format(self.desciption, self.iteration))
             sitk.WriteImage(self.dose_handle, dose_path)
         fid = open(os.path.join(self.series_instances_dictionary[self.index].path,
