@@ -494,11 +494,15 @@ class DicomReaderWriter(object):
     images_dictionary: Dict[str, ImageBase]
     rt_dictionary: Dict[str, RTBase]
     rd_dictionary: Dict[str, RDBase]
+    rp_dictionary: Dict[str, PlanBase]
     dose_handle: sitk.Image
     annotation_handle: sitk.Image
     all_rois: List[str]
+    indexes_with_contours: List[int]  # A list of all the indexes which contain the desired contours
+    roi_groups: Dict[str, List[str]]  # A dictionary with ROI names grouped by code associations
     all_RTs: Dict[str, List[str]]  # A dictionary of RT being the key, and a list of ROIs in that RT
     RTs_with_ROI_Names: Dict[str, List[str]]  # A dictionary with key being an ROI name, and value being a list of RTs
+    series_instances_dictionary = Dict[int, ImageBase]
 
     def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -574,6 +578,7 @@ class DicomReaderWriter(object):
 
     def set_index(self, index: int):
         self.index = index
+        self.__check_contours_at_index__(index)
 
     def __compile__(self):
         """
@@ -790,55 +795,58 @@ class DicomReaderWriter(object):
     def __set_iteration__(self, iteration=0):
         self.iteration = str(iteration)
 
+    def __check_contours_at_index__(self, index: int) -> None:
+        if self.series_instances_dictionary[index].path is None:
+            return
+        RTs = self.series_instances_dictionary[index].RTs
+        true_rois = []
+        self.rois_in_loaded_index = []
+        for RT_key in RTs:
+            RT = RTs[RT_key]
+            for code_key in RT.CodeAssociations:
+                if code_key not in self.roi_groups:
+                    self.roi_groups[code_key] = RT.CodeAssociations[code_key]
+                else:
+                    self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT.CodeAssociations[code_key]))
+            ROI_Names = RT.ROI_Names
+            for roi in ROI_Names:
+                if roi.lower() not in self.RTs_with_ROI_Names:
+                    self.RTs_with_ROI_Names[roi.lower()] = [RT.path]
+                elif RT.path not in self.RTs_with_ROI_Names[roi.lower()]:
+                    self.RTs_with_ROI_Names[roi.lower()].append(RT.path)
+                if roi.lower() not in self.rois_in_loaded_index:
+                    self.rois_in_loaded_index.append(roi.lower())
+                if roi.lower() not in self.all_rois:
+                    self.all_rois.append(roi.lower())
+                if self.Contour_Names:
+                    for association in self.associations:
+                        if roi.lower() in association.other_names:
+                            true_rois.append(association.roi_name)
+                        elif roi.lower() in self.Contour_Names:
+                            true_rois.append(roi.lower())
+        all_contours_exist = True
+        some_contours_exist = False
+        lacking_rois = []
+        for roi in self.Contour_Names:
+            if roi not in true_rois:
+                lacking_rois.append(roi)
+            else:
+                some_contours_exist = True
+        if lacking_rois:
+            all_contours_exist = False
+            if self.verbose:
+                print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
+                                                                             self.series_instances_dictionary[index].path, self.rois_in_loaded_index))
+        if index not in self.indexes_with_contours:
+            if all_contours_exist:
+                self.indexes_with_contours.append(index)
+            elif some_contours_exist and not self.require_all_contours:
+                self.indexes_with_contours.append(index)  # Add the index that have at least some of the contours
+
     def __check_if_all_contours_present__(self):
         self.indexes_with_contours = []
         for index in self.series_instances_dictionary:
-            if self.series_instances_dictionary[index].path is None:
-                continue
-            RTs = self.series_instances_dictionary[index].RTs
-            true_rois = []
-            self.rois_in_case = []
-            for RT_key in RTs:
-                RT = RTs[RT_key]
-                for code_key in RT.CodeAssociations:
-                    if code_key not in self.roi_groups:
-                        self.roi_groups[code_key] = RT.CodeAssociations[code_key]
-                    else:
-                        self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT.CodeAssociations[code_key]))
-                ROI_Names = RT.ROI_Names
-                for roi in ROI_Names:
-                    if roi.lower() not in self.RTs_with_ROI_Names:
-                        self.RTs_with_ROI_Names[roi.lower()] = [RT.path]
-                    elif RT.path not in self.RTs_with_ROI_Names[roi.lower()]:
-                        self.RTs_with_ROI_Names[roi.lower()].append(RT.path)
-                    if roi.lower() not in self.rois_in_case:
-                        self.rois_in_case.append(roi.lower())
-                    if roi.lower() not in self.all_rois:
-                        self.all_rois.append(roi.lower())
-                    if self.Contour_Names:
-                        for association in self.associations:
-                            if roi.lower() in association.other_names:
-                                true_rois.append(association.roi_name)
-                            elif roi.lower() in self.Contour_Names:
-                                true_rois.append(roi.lower())
-            all_contours_exist = True
-            some_contours_exist = False
-            lacking_rois = []
-            for roi in self.Contour_Names:
-                if roi not in true_rois:
-                    lacking_rois.append(roi)
-                else:
-                    some_contours_exist = True
-            if lacking_rois:
-                all_contours_exist = False
-                if self.verbose:
-                    print('Lacking {} in index {}, location {}. Found {}'.format(lacking_rois, index,
-                                                                                 self.series_instances_dictionary[index].path, self.rois_in_case))
-            if index not in self.indexes_with_contours:
-                if all_contours_exist:
-                    self.indexes_with_contours.append(index)
-                elif some_contours_exist and not self.require_all_contours:
-                    self.indexes_with_contours.append(index)  # Add the index that have at least some of the contours
+            self.__check_contours_at_index__(index)
 
     def return_rois(self, print_rois=True) -> List[str]:
         if print_rois:
@@ -1658,12 +1666,12 @@ class DicomReaderWriter(object):
             self.Observation_Sequence = self.RS_struct.RTROIObservationsSequence
         else:
             self.Observation_Sequence = []
-        self.rois_in_case = []
+        self.rois_in_loaded_index = []
         for i, Structures in enumerate(self.ROI_Structure):
             if Structures.ROIName in self.associations:
                 new_name = self.associations[Structures.ROIName]
                 self.RS_struct.StructureSetROISequence[i].ROIName = new_name
-            self.rois_in_case.append(self.RS_struct.StructureSetROISequence[i].ROIName)
+            self.rois_in_loaded_index.append(self.RS_struct.StructureSetROISequence[i].ROIName)
         for i, ObsSequence in enumerate(self.Observation_Sequence):
             if ObsSequence.ROIObservationLabel in self.associations:
                 new_name = self.associations[ObsSequence.ROIObservationLabel]
