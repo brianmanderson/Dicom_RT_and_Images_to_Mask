@@ -7,15 +7,15 @@
 ### Highly recommend to go through the jupyter notebook in the Examples folder and to read the Wiki
 
 ### Quick use guide
-    from DicomRTTool.ReaderWriter import DicomReaderWriter
+    from DicomRTTool.ReaderWriter import DicomReaderWriter, ROIAssociationClass
     Dicom_path = r'.some_path_to_dicom'
     Dicom_reader = DicomReaderWriter(description='Examples', arg_max=True)
     Dicom_reader.walk_through_folders(Dicom_path) # This will parse through all DICOM present in the folder and subfolders
     all_rois = Dicom_reader.return_rois(print_rois=True) # Return a list of all rois present
     
     Contour_names = ['tumor'] # Define what rois you want
-    associations = {'tumor_mr': 'tumor', 'tumor_ct': 'tumor'} # Any roi associations
-    Dicom_reader.set_contour_names_and_assocations(Contour_Names=Contour_names, associations=associations)
+    associations = [ROIAssociationClass('tumor', ['tumor_mr', 'tumor_ct'])] # Any list of roi associations
+    Dicom_reader.set_contour_names_and_assocations(contour_names=Contour_names, associations=associations)
     
     Dicom_reader.get_images_and_mask()
     
