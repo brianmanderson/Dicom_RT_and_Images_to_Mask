@@ -1648,15 +1648,6 @@ class DicomReaderWriter(object):
                 continue
         return None
 
-    def Make_Contour_From_directory(self, PathDicom: typing.Union[str, bytes, os.PathLike]):
-        print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
-        self.walk_through_folders(input_path=PathDicom)
-
-    def make_contour_from_directory(self, dicom_path: typing.Union[str, bytes, os.PathLike]):
-        print('Please move over to using walk_through_folders() instead of Make_Contour_From_directory()')
-        self.walk_through_folders(input_path=dicom_path)
-        return None
-
     def rewrite_RT(self, lstRSFile: typing.Union[str, bytes, os.PathLike] = None):
         if lstRSFile is not None:
             self.RS_struct = pydicom.read_file(lstRSFile)
