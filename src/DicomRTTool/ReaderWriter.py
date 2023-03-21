@@ -4,7 +4,6 @@ __author__ = 'Brian M Anderson'
 import os
 from tqdm import tqdm
 import typing
-from glob import glob
 import pydicom
 import numpy as np
 from pydicom.tag import Tag, BaseTag
@@ -195,7 +194,8 @@ class RTBase(DICOMBase):
                     code_strings = {}
                     for Observation in ROI_Observation:
                         if Tag((0x3006, 0x086)) in Observation:
-                            code_strings[Observation.ReferencedROINumber] = Observation.RTROIIdentificationCodeSequence[0].CodeValue
+                            code_strings[Observation.ReferencedROINumber] = \
+                                Observation.RTROIIdentificationCodeSequence[0].CodeValue
                     rois_in_structure = {}
                     roi_structure_code_and_names = {}
                     rois = []
@@ -323,7 +323,7 @@ class PlanBase(DICOMBase):
         self.additional_tags = {}
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
-                         pydicom_string_keys: PyDicomKeys = None):
+                  pydicom_string_keys: PyDicomKeys = None):
         refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
         refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
         plan_label = None
@@ -461,7 +461,8 @@ class AddDicomToDictionary(object):
 
     def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary: Dict[str, ImageBase],
                                           rt_dictionary: Dict[str, RTBase],
-                                          rd_dictionary: Dict[str, RDBase], rp_dictionary):
+                                          rd_dictionary: Dict[str, RDBase],
+                                          rp_dictionary: Dict[str, PlanBase]):
         fileList = [os.path.join(dicom_path, i) for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
@@ -632,7 +633,7 @@ class DicomReaderWriter(object):
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
-            struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            struct_ref = self.rp_dictionary[rp_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
@@ -738,7 +739,7 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = template
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
-            struct_ref = self.rp_dictionary[rp_series_instance_uid]['ReferencedStructureSetSOPInstanceUID']
+            struct_ref = self.rp_dictionary[rp_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             for image_series_key in self.series_instances_dictionary:
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rt_key in rts:
