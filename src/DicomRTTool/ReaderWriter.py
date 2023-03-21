@@ -351,7 +351,7 @@ class AddDicomToDictionary(object):
         self.dose_sitk_string_keys = dose_sitk_string_keys
 
     def add_dicom_to_dictionary_from_path(self, dicom_path, images_dictionary, rt_dictionary, rd_dictionary, rp_dictionary):
-        fileList = glob(os.path.join(dicom_path, '*.dcm'))
+        fileList = [os.path.join(dicom_path, i) for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
         for series_id in series_ids:
@@ -855,7 +855,7 @@ class DicomReaderWriter(object):
         """
         paths_with_dicom = []
         for root, dirs, files in os.walk(input_path):
-            dicom_files = [i for i in files if i.endswith('.dcm')]
+            dicom_files = [i for i in files if i.lower().endswith('.dcm')]
             if dicom_files:
                 paths_with_dicom.append(root)
                 # dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=root, images_dictionary=self.images_dictionary,
