@@ -1277,6 +1277,21 @@ class DicomReaderWriter(object):
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
 
+    def __characterize_RT__(self, RT: RTBase):
+        if self.RS_struct_uid != RT.SeriesInstanceUID:
+            self.structure_references = {}
+            self.RS_struct = pydicom.read_file(RT.path)
+            self.RS_struct_uid = RT.SeriesInstanceUID
+            for contour_number in range(len(self.RS_struct.ROIContourSequence)):
+                self.structure_references[
+                    self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
+
+    def __return_mask_for_roi__(self, RT: RTBase, roi_name: str):
+        self.__characterize_RT__(RT)
+        structure_index = self.structure_references[RT.ROIs_In_Structure[roi_name]]
+        mask = self.contours_to_mask(structure_index, roi_name)
+        return mask
+
     def get_mask(self, RTs: List[RTBase] = None) -> None:
         if self.index not in self.series_instances_dictionary:
             print('Index is not present in the dictionary! Set it using set_index(index)')
@@ -1291,17 +1306,12 @@ class DicomReaderWriter(object):
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
-        if self.RS_struct_uid == self.series_instances_dictionary[index].SeriesInstanceUID:  # Already loaded
-            return None
         self.__mask_empty_mask__()
         if RTs is None:
             RTs = self.series_instances_dictionary[index].RTs
         for RT_key in RTs:
             RT = RTs[RT_key]
-            ROIName_Number = RT.ROIs_In_Structure
-            RS_struct = None
-            self.structure_references = {}
-            for ROI_Name in ROIName_Number.keys():
+            for ROI_Name in RT.ROIs_In_Structure.keys():
                 true_name = None
                 if ROI_Name.lower() in self.Contour_Names:
                     true_name = ROI_Name.lower()
@@ -1311,14 +1321,7 @@ class DicomReaderWriter(object):
                             true_name = assocation.roi_name
                             break  # Found the name we wanted
                 if true_name and true_name in self.Contour_Names:
-                    if RS_struct is None:
-                        self.RS_struct = RS_struct = pydicom.read_file(RT.path)
-                        self.RS_struct_uid = self.series_instances_dictionary[index].SeriesInstanceUID
-                    for contour_number in range(len(self.RS_struct.ROIContourSequence)):
-                        self.structure_references[
-                            self.RS_struct.ROIContourSequence[contour_number].ReferencedROINumber] = contour_number
-                    structure_index = self.structure_references[ROIName_Number[ROI_Name]]
-                    mask = self.contours_to_mask(structure_index, true_name)
+                    mask = self.__return_mask_for_roi__(RT, ROI_Name)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
         if self.flip_axes[0]:
