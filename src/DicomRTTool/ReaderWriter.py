@@ -797,10 +797,11 @@ class DicomReaderWriter(object):
     def __set_iteration__(self, iteration=0):
         self.iteration = str(iteration)
 
-    def __check_contours_at_index__(self, index: int) -> None:
+    def __check_contours_at_index__(self, index: int, RTs: List[RTBase] = None) -> None:
         if self.series_instances_dictionary[index].path is None:
             return
-        RTs = self.series_instances_dictionary[index].RTs
+        if RTs is None:
+            RTs = self.series_instances_dictionary[index].RTs
         true_rois = []
         self.rois_in_loaded_index = []
         for RT_key in RTs:
@@ -955,6 +956,41 @@ class DicomReaderWriter(object):
         else:
             print('You need to first define what ROIs you want, please use'
                   ' .set_contour_names_and_associations()')
+
+    def characterize_data_to_excel(self, excel_path: typing.Union[str, bytes, os.PathLike]):
+        print("This is going to load every index and record volume data to the excel_path"
+              " indicated above. Be aware that this can take some time...")
+        final_out_dict = {'PatientID': [], 'RTPath': []}
+        column_names = []
+        for roi in self.all_rois:
+            true_name = roi
+            if self.associations:
+                for association in self.associations:
+                    if roi in association.other_names:
+                        true_name = association.roi_name
+                        break
+            if true_name not in final_out_dict:
+                final_out_dict[true_name] = []
+                column_names.append(true_name)
+        """
+        Now we load the images/mask, and get volume data
+        """
+        pbar = tqdm(total=len(self.series_instances_dictionary), desc='Building data...')
+        for index in self.series_instances_dictionary:
+            self.set_index(index)
+            self.get_images()
+            image_base = self.series_instances_dictionary[index]
+            for rt_index in image_base.RTs:
+                rt_base = image_base.RTs[rt_index]
+                self.__check_contours_at_index__(index)
+                self.get_mask([rt_base])  # We only want to load these RTs one at a time!
+                final_out_dict['PatientID'].append(rt_base.PatientID)
+                final_out_dict['RTPath'].append(rt_base.path)
+        for roi in self.Contour_Names:
+            column_name = 'Volume_{} [cc]'.format(roi)
+            final_out_dict[column_name] = []
+        df = pd.DataFrame(final_out_dict)
+        df.to_excel(excel_file, index=False)
 
     def which_indexes_lack_all_rois(self):
         if self.Contour_Names:
@@ -1241,7 +1277,7 @@ class DicomReaderWriter(object):
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
             dtype='int8')
 
-    def get_mask(self) -> None:
+    def get_mask(self, RTs: List[RTBase] = None) -> None:
         if self.index not in self.series_instances_dictionary:
             print('Index is not present in the dictionary! Set it using set_index(index)')
             return None
@@ -1258,7 +1294,8 @@ class DicomReaderWriter(object):
         if self.RS_struct_uid == self.series_instances_dictionary[index].SeriesInstanceUID:  # Already loaded
             return None
         self.__mask_empty_mask__()
-        RTs = self.series_instances_dictionary[index].RTs
+        if RTs is None:
+            RTs = self.series_instances_dictionary[index].RTs
         for RT_key in RTs:
             RT = RTs[RT_key]
             ROIName_Number = RT.ROIs_In_Structure
