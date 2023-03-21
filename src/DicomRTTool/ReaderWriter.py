@@ -498,6 +498,7 @@ class DicomReaderWriter(object):
     dose_handle: sitk.Image
     annotation_handle: sitk.Image
     all_rois: List[str]
+    rois_in_loaded_index: List[str]
     indexes_with_contours: List[int]  # A list of all the indexes which contain the desired contours
     roi_groups: Dict[str, List[str]]  # A dictionary with ROI names grouped by code associations
     all_RTs: Dict[str, List[str]]  # A dictionary of RT being the key, and a list of ROIs in that RT
