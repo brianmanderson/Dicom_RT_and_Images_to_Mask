@@ -3,7 +3,7 @@ from src.DicomRTTool.ReaderWriter import DicomReaderWriter, os, sitk, np, plot_s
 
 class MainLoad(object):
     path = os.path.join('.', 'AnonDICOM')
-    reader = DicomReaderWriter(description='Examples', arg_max=True, verbose=False)
+    reader = DicomReaderWriter(description='Examples', arg_max=True, verbose=True)
     base_mask = sitk.ReadImage(os.path.join('.', 'AnonDICOM', 'Mask.nii.gz'))
     reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
     reader.__set_contour_names__(['spinalcord', 'body'])
