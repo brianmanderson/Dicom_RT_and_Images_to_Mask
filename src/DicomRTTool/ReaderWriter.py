@@ -964,18 +964,14 @@ class DicomReaderWriter(object):
         temp_associations = {}
         column_names = []
         for roi in self.all_rois:
-            true_name = roi
             if self.associations:
                 for association in self.associations:
                     if roi in association.other_names:
                         true_name = association.roi_name
                         temp_associations[roi] = true_name
-                        break
-            if roi not in temp_associations:
-                temp_associations[roi] = roi
-            if true_name not in final_out_dict:
-                final_out_dict[f"{true_name}_cc"] = []
-                column_names.append(true_name)
+            if roi not in final_out_dict:
+                final_out_dict[f"{roi} cc"] = []
+                column_names.append(roi)
         """
         Now we load the images/mask, and get volume data
         """
@@ -984,6 +980,11 @@ class DicomReaderWriter(object):
             pbar.update()
             self.set_index(index)
             self.get_images()
+            """
+            If there is no image set, move along
+            """
+            if self.series_instances_dictionary[index].SeriesInstanceUID is None:
+                continue
             dimension = np.prod(self.dicom_handle.GetSpacing())  # Voxel dimensions, in mm
             image_base = self.series_instances_dictionary[index]
             for rt_index in image_base.RTs:
@@ -991,14 +992,22 @@ class DicomReaderWriter(object):
                 self.__check_contours_at_index__(index)
                 final_out_dict['PatientID'].append(rt_base.PatientID)
                 final_out_dict['RTPath'].append(rt_base.path)
+                """
+                Default values to be nothing, then replace them as they come
+                """
+                for roi in column_names:
+                    final_out_dict[f"{roi} cc"].append(np.nan)
                 for roi in column_names:
                     if roi in rt_base.ROI_Names:
                         mask = self.__return_mask_for_roi__(rt_base, roi)
                         volume = np.around(np.sum(mask) * dimension / 1000, 3)  # Volume in cm^3, not mm^3. 3 sig figs
-                        final_out_dict[f"{temp_associations[roi]}_cc"].append(volume)
-                    else:
-                        final_out_dict[f"{temp_associations[roi]}_cc"].append('')
+                        final_out_dict[f"{roi} cc"][-1] = volume
+        for key in temp_associations.keys():
+            if temp_associations[key] not in final_out_dict:
+                final_out_dict[temp_associations[key]] = [np.nan for _ in range(len(final_out_dict['PatientID']))]
         df = pd.DataFrame(final_out_dict)
+        for key in temp_associations:
+            df[temp_associations[key]] = df[f"{key} cc"] + df.fillna(0)[temp_associations[key]]
         df.to_excel(excel_path, index=False)
 
     def which_indexes_lack_all_rois(self):
