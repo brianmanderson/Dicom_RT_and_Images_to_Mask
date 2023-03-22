@@ -257,6 +257,38 @@ class RDBase(DICOMBase):
                         continue
 
 
+class PlanBase(DICOMBase):
+    PlanLabel: str
+    ReferencedStructureSetSOPInstanceUID: str
+    ReferencedDoseSOPUID: str
+    Description: str
+
+    def __init__(self):
+        self.additional_tags = {}
+
+    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
+                  pydicom_string_keys: PyDicomKeys = None):
+        refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+        refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
+        plan_label = None
+        if Tag((0x300a, 0x002)) in ds.keys():
+            plan_label = ds.RTPlanLabel
+        self.path = path
+        self.SOPInstanceUID = ds.SOPInstanceUID
+        self.PlanLabel = plan_label
+        self.ReferencedStructureSetSOPInstanceUID = refed_structure_uid
+        self.ReferencedDoseSOPUID = refed_dose_uid
+        self.Description = ds.StudyDescription
+        if pydicom_string_keys is not None:
+            for string in pydicom_string_keys:
+                key = pydicom_string_keys[string]
+                if key in ds.keys():
+                    try:
+                        self.additional_tags[string] = ds[key].value
+                    except:
+                        continue
+
+
 class ImageBase(DICOMBase):
     Description: str = None
     slice_thickness: float = None
@@ -266,7 +298,7 @@ class ImageBase(DICOMBase):
     files: typing.List[str]
     RTs: Dict[str, RTBase]
     RDs: Dict[str, RDBase]
-    RPs: Dict
+    RPs: Dict[str, PlanBase]
 
     def __init__(self):
         self.RTs = dict()
@@ -309,38 +341,6 @@ class ImageBase(DICOMBase):
                 if key in sitk_dicom_reader.GetMetaDataKeys():
                     try:
                         self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
-                    except:
-                        continue
-
-
-class PlanBase(DICOMBase):
-    PlanLabel: str
-    ReferencedStructureSetSOPInstanceUID: str
-    ReferencedDoseSOPUID: str
-    Description: str
-
-    def __init__(self):
-        self.additional_tags = {}
-
-    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
-                  pydicom_string_keys: PyDicomKeys = None):
-        refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
-        refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
-        plan_label = None
-        if Tag((0x300a, 0x002)) in ds.keys():
-            plan_label = ds.RTPlanLabel
-        self.path = path
-        self.SOPInstanceUID = ds.SOPInstanceUID
-        self.PlanLabel = plan_label
-        self.ReferencedStructureSetSOPInstanceUID = refed_structure_uid
-        self.ReferencedDoseSOPUID = refed_dose_uid
-        self.Description = ds.StudyDescription
-        if pydicom_string_keys is not None:
-            for string in pydicom_string_keys:
-                key = pydicom_string_keys[string]
-                if key in ds.keys():
-                    try:
-                        self.additional_tags[string] = ds[key].value
                     except:
                         continue
 
