@@ -955,15 +955,29 @@ class DicomReaderWriter(object):
             print('You need to first define what ROIs you want, please use'
                   ' .set_contour_names_and_associations()')
 
-    def characterize_data_to_excel(self, excel_path: typing.Union[str, bytes, os.PathLike] = "./Data.xlsx"):
+    def characterize_data_to_excel(self, wanted_rois: List[str] = None,
+                                   excel_path: typing.Union[str, bytes, os.PathLike] = "./Data.xlsx"):
         print("This is going to load every index and record volume data to the excel_path"
               " indicated above. Be aware that this can take some time...")
         self.verbose = False
         print("To prevent annoying messages, verbosity has been turned off...")
+        loading_rois = []
+        if wanted_rois is None:
+            print("Since no rois were explicitly defined, this will evaluate all rois")
+            loading_rois = self.all_rois
+        else:
+            for roi in wanted_rois:
+                if roi in self.all_rois:
+                    loading_rois.append(roi)
+                else:
+                    for association in self.associations:
+                        if association.roi_name == roi:
+                            loading_rois += association.other_names
+        loading_rois = list(set(loading_rois))
         final_out_dict = {'PatientID': [], 'RTPath': []}
         temp_associations = {}
         column_names = []
-        for roi in self.all_rois:
+        for roi in loading_rois:
             if self.associations:
                 for association in self.associations:
                     if roi in association.other_names:
@@ -978,15 +992,22 @@ class DicomReaderWriter(object):
         pbar = tqdm(total=len(self.series_instances_dictionary), desc='Building data...')
         for index in self.series_instances_dictionary:
             pbar.update()
+            if self.series_instances_dictionary[index].SeriesInstanceUID is None:  # No image? Move along
+                continue
             self.set_index(index)
+            has_wanted_roi = False
+            for roi in column_names:
+                if roi in self.rois_in_loaded_index:
+                    has_wanted_roi = True
+                    break
+            if not has_wanted_roi:
+                continue
+            image_base = self.series_instances_dictionary[index]
             self.get_images()
             """
             If there is no image set, move along
             """
-            if self.series_instances_dictionary[index].SeriesInstanceUID is None:
-                continue
             dimension = np.prod(self.dicom_handle.GetSpacing())  # Voxel dimensions, in mm
-            image_base = self.series_instances_dictionary[index]
             for rt_index in image_base.RTs:
                 rt_base = image_base.RTs[rt_index]
                 self.__check_contours_at_index__(index)
