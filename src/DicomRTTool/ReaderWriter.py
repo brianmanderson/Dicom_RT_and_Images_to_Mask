@@ -963,8 +963,12 @@ class DicomReaderWriter(object):
         print("To prevent annoying messages, verbosity has been turned off...")
         loading_rois = []
         if wanted_rois is None:
-            print("Since no rois were explicitly defined, this will evaluate all rois")
-            loading_rois = self.all_rois
+            if self.Contour_Names:
+                loading_rois = self.Contour_Names
+                print("Since no rois were explicitly defined, this will evaluate previously defined Contour Names")
+            else:
+                print("Since no rois were explicitly defined, this will evaluate all rois")
+                loading_rois = self.all_rois
         else:
             for roi in wanted_rois:
                 if roi in self.all_rois:
@@ -1029,6 +1033,7 @@ class DicomReaderWriter(object):
         df = pd.DataFrame(final_out_dict)
         for key in temp_associations:
             df[temp_associations[key]] = df[f"{key} cc"] + df.fillna(0)[temp_associations[key]]
+        df = df.reindex(sorted(df.columns), axis=1)
         df.to_excel(excel_path, index=False)
 
     def which_indexes_lack_all_rois(self):
