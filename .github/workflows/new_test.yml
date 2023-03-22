@@ -1,7 +1,8 @@
 name: Python package
 
-on: [push]
-  branches: [ dev ]
+on:
+  push:
+    branches: [ dev ]
 jobs:
   build:
 
