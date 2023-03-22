@@ -160,73 +160,6 @@ class DICOMBase(object):
         pass
 
 
-class RTBase(DICOMBase):
-    ROI_Names: List[str]
-    ROIs_In_Structure: Dict[str, str]
-    referenced_series_instance_uid: str
-    rois_in_structure: Dict[str, str]
-    Plans: Dict
-    Doses: Dict
-    CodeAssociations: Dict[str, List[str]]
-
-    def __init__(self):
-        self.Plans = dict()
-        self.Doses = dict()
-        self.additional_tags = dict()
-        self.ROI_Names = []
-        self.ROIs_In_Structure = {}
-
-    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
-                  pydicom_string_keys: PyDicomKeys = None):
-        self.StudyInstanceUID = ds.StudyInstanceUID
-        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
-            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
-                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
-                    refed_series_instance_uid = referred_series.SeriesInstanceUID
-                    if Tag((0x3006, 0x020)) in ds.keys():
-                        ROI_Structure = ds.StructureSetROISequence
-                    else:
-                        ROI_Structure = []
-                    if Tag((0x3006, 0x080)) in ds.keys():
-                        ROI_Observation = ds.RTROIObservationsSequence
-                    else:
-                        ROI_Observation = []
-                    code_strings = {}
-                    for Observation in ROI_Observation:
-                        if Tag((0x3006, 0x086)) in Observation:
-                            code_strings[Observation.ReferencedROINumber] = \
-                                Observation.RTROIIdentificationCodeSequence[0].CodeValue
-                    rois_in_structure = {}
-                    roi_structure_code_and_names = {}
-                    rois = []
-                    for Structures in ROI_Structure:
-                        roi_name = Structures.ROIName.lower()
-                        rois.append(roi_name)
-                        roi_number = Structures.ROINumber
-                        if roi_number in code_strings:
-                            structure_code = code_strings[roi_number]
-                            if structure_code not in roi_structure_code_and_names:
-                                roi_structure_code_and_names[structure_code] = []
-                            if roi_name not in roi_structure_code_and_names[structure_code]:
-                                roi_structure_code_and_names[structure_code].append(roi_name)
-                        if Structures.ROIName not in rois_in_structure:
-                            rois_in_structure[Structures.ROIName] = roi_number
-                    self.path = path
-                    self.ROI_Names = rois
-                    self.ROIs_In_Structure = rois_in_structure
-                    self.SeriesInstanceUID = refed_series_instance_uid
-                    self.SOPInstanceUID = ds.SOPInstanceUID
-                    self.CodeAssociations = roi_structure_code_and_names
-                    if pydicom_string_keys is not None:
-                        for string in pydicom_string_keys:
-                            key = pydicom_string_keys[string]
-                            if key in ds.keys():
-                                try:
-                                    self.additional_tags[string] = ds[key].value
-                                except:
-                                    continue
-
-
 class RDBase(DICOMBase):
     SOPInstanceUID: str = None
     Description: str = None
@@ -287,6 +220,73 @@ class PlanBase(DICOMBase):
                         self.additional_tags[string] = ds[key].value
                     except:
                         continue
+
+
+class RTBase(DICOMBase):
+    ROI_Names: List[str]
+    ROIs_In_Structure: Dict[str, str]
+    referenced_series_instance_uid: str
+    rois_in_structure: Dict[str, str]
+    Plans: Dict[str, PlanBase]
+    Doses: Dict[str, RDBase]
+    CodeAssociations: Dict[str, List[str]]
+
+    def __init__(self):
+        self.Plans = dict()
+        self.Doses = dict()
+        self.additional_tags = dict()
+        self.ROI_Names = []
+        self.ROIs_In_Structure = {}
+
+    def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
+                  pydicom_string_keys: PyDicomKeys = None):
+        self.StudyInstanceUID = ds.StudyInstanceUID
+        for referenced_frame_of_reference in ds.ReferencedFrameOfReferenceSequence:
+            for referred_study_sequence in referenced_frame_of_reference.RTReferencedStudySequence:
+                for referred_series in referred_study_sequence.RTReferencedSeriesSequence:
+                    refed_series_instance_uid = referred_series.SeriesInstanceUID
+                    if Tag((0x3006, 0x020)) in ds.keys():
+                        ROI_Structure = ds.StructureSetROISequence
+                    else:
+                        ROI_Structure = []
+                    if Tag((0x3006, 0x080)) in ds.keys():
+                        ROI_Observation = ds.RTROIObservationsSequence
+                    else:
+                        ROI_Observation = []
+                    code_strings = {}
+                    for Observation in ROI_Observation:
+                        if Tag((0x3006, 0x086)) in Observation:
+                            code_strings[Observation.ReferencedROINumber] = \
+                                Observation.RTROIIdentificationCodeSequence[0].CodeValue
+                    rois_in_structure = {}
+                    roi_structure_code_and_names = {}
+                    rois = []
+                    for Structures in ROI_Structure:
+                        roi_name = Structures.ROIName.lower()
+                        rois.append(roi_name)
+                        roi_number = Structures.ROINumber
+                        if roi_number in code_strings:
+                            structure_code = code_strings[roi_number]
+                            if structure_code not in roi_structure_code_and_names:
+                                roi_structure_code_and_names[structure_code] = []
+                            if roi_name not in roi_structure_code_and_names[structure_code]:
+                                roi_structure_code_and_names[structure_code].append(roi_name)
+                        if Structures.ROIName not in rois_in_structure:
+                            rois_in_structure[Structures.ROIName] = roi_number
+                    self.path = path
+                    self.ROI_Names = rois
+                    self.ROIs_In_Structure = rois_in_structure
+                    self.SeriesInstanceUID = refed_series_instance_uid
+                    self.SOPInstanceUID = ds.SOPInstanceUID
+                    self.CodeAssociations = roi_structure_code_and_names
+                    if pydicom_string_keys is not None:
+                        for string in pydicom_string_keys:
+                            key = pydicom_string_keys[string]
+                            if key in ds.keys():
+                                try:
+                                    self.additional_tags[string] = ds[key].value
+                                except:
+                                    continue
 
 
 class ImageBase(DICOMBase):
@@ -641,7 +641,7 @@ class DicomReaderWriter(object):
                     if struct_ref == structure_sop_uid:
                         rts[rt_key].Plans[rp_series_instance_uid] = self.rp_dictionary[rp_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RPs.update({rp_series_instance_uid:
-                                                                                              self.rp_dictionary[rp_series_instance_uid]})
+                                                                                           self.rp_dictionary[rp_series_instance_uid]})
                         added = True
             if not added:
                 while index in self.series_instances_dictionary:
@@ -659,9 +659,9 @@ class DicomReaderWriter(object):
                 rps = self.series_instances_dictionary[image_series_key].RPs
                 rts = self.series_instances_dictionary[image_series_key].RTs
                 for rp_key in rps:
-                    plan_sop_uid = rps[rp_key]['SOPInstanceUID']
+                    plan_sop_uid = rps[rp_key].SOPInstanceUID
                     if plan_ref == plan_sop_uid:
-                        rt_key_sopinstanceUID = rps[rp_key]['ReferencedStructureSetSOPInstanceUID']
+                        rt_key_sopinstanceUID = rps[rp_key].ReferencedStructureSetSOPInstanceUID
                         for rt_key in rts:
                             if rts[rt_key].SOPInstanceUID == rt_key_sopinstanceUID:
                                 rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
@@ -912,7 +912,7 @@ class DicomReaderWriter(object):
         for structure_key in image_dictionary.RTs:
             out_file_paths += [image_dictionary.RTs[structure_key].path]
         for structure_key in image_dictionary.RPs:
-            out_file_paths += [image_dictionary.RPs[structure_key]['Path']]
+            out_file_paths += [image_dictionary.RPs[structure_key].path]
         for structure_key in image_dictionary.RDs:
             out_file_paths += [image_dictionary.RDs[structure_key].path]
         return out_file_paths
@@ -990,7 +990,7 @@ class DicomReaderWriter(object):
             column_name = 'Volume_{} [cc]'.format(roi)
             final_out_dict[column_name] = []
         df = pd.DataFrame(final_out_dict)
-        df.to_excel(excel_file, index=False)
+        #df.to_excel(excel_file, index=False)
 
     def which_indexes_lack_all_rois(self):
         if self.Contour_Names:
