@@ -28,16 +28,16 @@ def main_reader(path):
 
 def test_1(path):
     base_mask = sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
-    reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
-                               arg_max=True, verbose=True)
+    new_reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
+                                   arg_max=True, verbose=True)
     print(os.listdir(path))
     print(os.listdir('.'))
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
-    reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
-    reader.get_images_and_mask()
-    assert base_mask.GetSize() == reader.annotation_handle.GetSize()
+    new_reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
+    new_reader.get_images_and_mask()
+    assert base_mask.GetSize() == new_reader.annotation_handle.GetSize()
 
 
 class TestMaskChecker(object):
