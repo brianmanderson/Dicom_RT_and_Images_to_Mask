@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def path():
-    return os.path.join('..', 'AnonDICOM')
+    return os.path.join('.', 'AnonDICOM')
 
 
 @pytest.fixture
