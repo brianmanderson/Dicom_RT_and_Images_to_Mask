@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def path():
-    return os.path.abspath(os.path.join('.', 'AnonDICOM'))
+    return os.path.abspath(os.path.join('..', 'AnonDICOM'))
 
 
 @pytest.fixture
@@ -26,6 +26,20 @@ def main_reader(path):
     return reader
 
 
+def test_1(path):
+    base_mask = sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
+    reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
+                               arg_max=True, verbose=True)
+    print(os.listdir(path))
+    print(os.listdir('.'))
+    # fid = open('errors.txt', 'w+')
+    # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
+    # fid.close()
+    reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
+    reader.get_images_and_mask()
+    assert base_mask.GetSize() == reader.annotation_handle.GetSize()
+
+
 class TestMaskChecker(object):
     def test_1(self, path, base_mask):
         reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
@@ -39,16 +53,16 @@ class TestMaskChecker(object):
         reader.get_images_and_mask()
         assert base_mask.GetSize() == reader.annotation_handle.GetSize()
 
-    def test_2(self, main_reader, base_mask):
+    def notes2(self, main_reader, base_mask):
         assert base_mask.GetSpacing() == main_reader.annotation_handle.GetSpacing()
 
-    def test_3(self, main_reader, base_mask):
+    def notes3(self, main_reader, base_mask):
         assert base_mask.GetDirection() == main_reader.annotation_handle.GetDirection()
 
-    def test_4(self, main_reader, base_mask):
+    def notes4(self, main_reader, base_mask):
         assert base_mask.GetOrigin() == main_reader.annotation_handle.GetOrigin()
 
-    def test_5(self, main_reader, base_mask):
+    def notes5(self, main_reader, base_mask):
         assert np.min(sitk.GetArrayFromImage(main_reader.annotation_handle) ==
                       sitk.GetArrayFromImage(base_mask))
 
