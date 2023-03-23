@@ -2,10 +2,10 @@ from DicomRTTool.ReaderWriter import DicomReaderWriter, os, sitk, np, plot_scrol
 
 
 class MainLoad(object):
-    path = os.path.join('..', 'AnonDICOM')
+    path = os.path.join('.', 'AnonDICOM')
     reader = DicomReaderWriter(description='Examples', arg_max=True, verbose=True)
+    print(os.listdir(path))
     print(os.listdir('.'))
-    print(os.listdir('..'))
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
@@ -13,7 +13,7 @@ class MainLoad(object):
     reader.__set_contour_names__(['spinalcord', 'body'])
     reader.get_mask()
     generated_mask = reader.annotation_handle
-    base_mask = sitk.ReadImage(os.path.join('..', 'AnonDICOM', 'Mask.nii.gz'))
+    base_mask = sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
 
 
 main_reader = MainLoad()
