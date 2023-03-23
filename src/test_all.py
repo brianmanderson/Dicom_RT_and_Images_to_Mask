@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def path():
-    return path.abs(os.path.join('.', 'AnonDICOM'))
+    return os.path.abspath(os.path.join('.', 'AnonDICOM'))
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ class TestMaskChecker(object):
         # fid.close()
         reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
         reader.get_images_and_mask()
-        assert base_mask.GetSize() == main_reader.annotation_handle.GetSize()
+        assert base_mask.GetSize() == reader.annotation_handle.GetSize()
 
     def test_2(self, main_reader, base_mask):
         assert base_mask.GetSpacing() == main_reader.annotation_handle.GetSpacing()
