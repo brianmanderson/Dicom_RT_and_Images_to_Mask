@@ -1,8 +1,19 @@
 from DicomRTTool.ReaderWriter import DicomReaderWriter, os, sitk, np, plot_scroll_Image
+import pytest
 
 
-class MainLoad(object):
-    path = os.path.join('.', 'AnonDICOM')
+@pytest.fixture
+def path():
+    return os.path.join('.', 'AnonDICOM')
+
+
+@pytest.fixture
+def base_mask(path):
+    return sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
+
+
+@pytest.fixture
+def main_reader(path):
     reader = DicomReaderWriter(description='Examples', arg_max=True, verbose=True)
     print(os.listdir(path))
     print(os.listdir('.'))
@@ -12,27 +23,23 @@ class MainLoad(object):
     reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
     reader.__set_contour_names__(['spinalcord', 'body'])
     reader.get_mask()
-    generated_mask = reader.annotation_handle
-    base_mask = sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
-
-
-main_reader = MainLoad()
+    return reader
 
 
 class TestMaskChecker(object):
-    def test_1(self):
-        assert main_reader.generated_mask.GetSize() == main_reader.base_mask.GetSize()
+    def test_1(self, main_reader, base_mask):
+        assert base_mask.GetSize() == main_reader.annotation_handle.GetSize()
 
-    def test_2(self):
-        assert main_reader.generated_mask.GetSpacing() == main_reader.base_mask.GetSpacing()
+    def test_2(self, main_reader, base_mask):
+        assert base_mask.GetSpacing() == main_reader.annotation_handle.GetSpacing()
 
-    def test_3(self):
-        assert main_reader.generated_mask.GetDirection() == main_reader.base_mask.GetDirection()
+    def test_3(self, main_reader, base_mask):
+        assert base_mask.GetDirection() == main_reader.annotation_handle.GetDirection()
 
-    def test_4(self):
-        assert main_reader.generated_mask.GetOrigin() == main_reader.base_mask.GetOrigin()
+    def test_4(self, main_reader, base_mask):
+        assert base_mask.GetOrigin() == main_reader.annotation_handle.GetOrigin()
 
-    def test_5(self):
-        assert np.min(sitk.GetArrayFromImage(main_reader.generated_mask) ==
-                      sitk.GetArrayFromImage(main_reader.base_mask))
+    def test_5(self, main_reader, base_mask):
+        assert np.min(sitk.GetArrayFromImage(main_reader.annotation_handle) ==
+                      sitk.GetArrayFromImage(base_mask))
 
