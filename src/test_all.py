@@ -27,7 +27,16 @@ def main_reader(path):
 
 
 class TestMaskChecker(object):
-    def test_1(self, main_reader, base_mask):
+    def test_1(self, path, base_mask):
+        reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
+                                   arg_max=True, verbose=True)
+        print(os.listdir(path))
+        print(os.listdir('.'))
+        # fid = open('errors.txt', 'w+')
+        # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
+        # fid.close()
+        reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
+        reader.get_images_and_mask()
         assert base_mask.GetSize() == main_reader.annotation_handle.GetSize()
 
     def test_2(self, main_reader, base_mask):
