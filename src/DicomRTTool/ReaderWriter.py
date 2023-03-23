@@ -503,6 +503,7 @@ class DicomReaderWriter(object):
     all_RTs: Dict[str, List[str]]  # A dictionary of RT being the key, and a list of ROIs in that RT
     RTs_with_ROI_Names: Dict[str, List[str]]  # A dictionary with key being an ROI name, and value being a list of RTs
     series_instances_dictionary = Dict[int, ImageBase]
+    mask_dictionary: Dict[str, sitk.Image]
 
     def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -528,6 +529,7 @@ class DicomReaderWriter(object):
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
         """
         self.rt_dictionary = {}
+        self.mask_dictionary = {}
         self.plan_pydicom_string_keys = plan_pydicom_string_keys
         self.struct_pydicom_string_keys = struct_pydicom_string_keys
         self.image_sitk_string_keys = image_sitk_string_keys
@@ -763,6 +765,7 @@ class DicomReaderWriter(object):
         self.series_instances_dictionary = {}
         self.rt_dictionary = {}
         self.images_dictionary = {}
+        self.mask_dictionary = {}
 
     def __reset_RTs__(self):
         self.all_rois = []
@@ -822,7 +825,7 @@ class DicomReaderWriter(object):
                 if self.Contour_Names:
                     if roi.lower() in self.Contour_Names:
                         true_rois.append(roi.lower())
-                    else:
+                    elif self.associations:
                         for association in self.associations:
                             if roi.lower() in association.other_names:
                                 true_rois.append(association.roi_name)
@@ -1371,6 +1374,12 @@ class DicomReaderWriter(object):
                     mask = self.__return_mask_for_roi__(RT, ROI_Name)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
+        for true_name in self.Contour_Names:
+            mask_img = sitk.GetImageFromArray(self.mask[..., self.Contour_Names.index(true_name) + 1].astype(np.uint8))
+            mask_img.SetSpacing(self.dicom_handle.GetSpacing())
+            mask_img.SetDirection(self.dicom_handle.GetDirection())
+            mask_img.SetOrigin(self.dicom_handle.GetOrigin())
+            self.mask_dictionary[true_name] = mask_img
         if self.flip_axes[0]:
             self.mask = self.mask[:, :, ::-1, ...]
         if self.flip_axes[1]:
