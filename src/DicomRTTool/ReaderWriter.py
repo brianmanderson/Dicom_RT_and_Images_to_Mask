@@ -757,6 +757,11 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = template
         self.__check_if_all_contours_present__()
 
+    def __reset_mask__(self):
+        self.mask = np.zeros([1])
+        del self.annotation_handle
+        self.mask_dictionary = {}
+
     def __reset__(self):
         self.__reset_RTs__()
         self.rd_study_instance_uid = None
@@ -1270,6 +1275,8 @@ class DicomReaderWriter(object):
             if self.verbose:
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
+                print("Erasing previous masks loaded for different image sets")
+                self.__reset_mask__()
             dicom_names = self.series_instances_dictionary[index].files
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
@@ -1324,9 +1331,10 @@ class DicomReaderWriter(object):
             self.dose_handle = output
 
     def __mask_empty_mask__(self) -> None:
-        self.mask = np.zeros(
-            [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-            dtype=np.int8)
+        if self.dicom_handle:
+            self.mask = np.zeros(
+                [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+                dtype=np.int8)
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
