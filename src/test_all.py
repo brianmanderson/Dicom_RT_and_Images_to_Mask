@@ -4,7 +4,14 @@ import pytest
 
 @pytest.fixture
 def path():
-    return os.path.abspath(os.path.join('.', 'AnonDICOM'))
+    base = '.'
+    i = 0
+    while 'AnonDICOM' not in os.listdir(base):
+        i += 1
+        base = os.path.join(base, '..')
+        if i > 3:
+            break
+    return os.path.join(base, 'AnonDICOM')
 
 
 @pytest.fixture
@@ -16,8 +23,6 @@ def base_mask(path):
 def main_reader(path):
     reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
                                arg_max=True, verbose=True)
-    print(os.listdir(path))
-    print(os.listdir('.'))
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
@@ -30,8 +35,6 @@ def test_1(path):
     base_mask = sitk.ReadImage(os.path.join(path, 'Mask.nii.gz'))
     new_reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
                                    arg_max=True, verbose=True)
-    print(os.listdir(path))
-    print(os.listdir('.'))
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
@@ -41,7 +44,7 @@ def test_1(path):
 
 
 class TestMaskChecker(object):
-    def test_1(self, path, base_mask):
+    def teest_1(self, path, base_mask):
         reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
                                    arg_max=True, verbose=True)
         print(os.listdir(path))

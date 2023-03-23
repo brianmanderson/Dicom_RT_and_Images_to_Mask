@@ -860,6 +860,7 @@ class DicomReaderWriter(object):
                 paths_with_dicom.append(root)
                 # dicom_adder.add_dicom_to_dictionary_from_path(dicom_path=root, images_dictionary=self.images_dictionary,
                 #                                               rt_dictionary=self.rt_dictionary)
+        print(f"Found paths at {paths_with_dicom}")
         if paths_with_dicom:
             q = Queue(maxsize=thread_count)
             pbar = tqdm(total=len(paths_with_dicom), desc='Loading through DICOM files')
