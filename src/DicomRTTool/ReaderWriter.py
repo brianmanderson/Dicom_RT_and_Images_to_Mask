@@ -1326,7 +1326,7 @@ class DicomReaderWriter(object):
     def __mask_empty_mask__(self) -> None:
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-            dtype='int8')
+            dtype=np.int8)
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
@@ -1391,7 +1391,7 @@ class DicomReaderWriter(object):
         self.series_instances_dictionary[index].additional_tags['Volumes'] = volumes
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
-        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
+        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype(np.int8))
         self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
         self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
@@ -1457,13 +1457,13 @@ class DicomReaderWriter(object):
 
     def contour_points_to_mask(self, contour_points, mask=None):
         if mask is None:
-            mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
+            mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype=np.int8)
         matrix_points = self.reshape_contour_data(contour_points)
         mask = self.return_mask(mask, matrix_points, geometric_type="CLOSED_PLANAR")
         return mask
 
     def contours_to_mask(self, index: int, true_name: str):
-        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
+        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype=np.int8)
         if Tag((0x3006, 0x0039)) in self.RS_struct.keys():
             Contour_sequence = self.RS_struct.ROIContourSequence[index]
             if Tag((0x3006, 0x0040)) in Contour_sequence:
