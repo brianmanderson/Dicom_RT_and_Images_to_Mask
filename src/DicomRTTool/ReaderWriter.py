@@ -575,6 +575,7 @@ class DicomReaderWriter(object):
         self.all_rois = []
         self.roi_groups = {}
         self.indexes_with_contours = []
+        self.mask_dictionary = {}
 
     def set_index(self, index: int):
         self.index = index
@@ -820,11 +821,14 @@ class DicomReaderWriter(object):
                 if roi.lower() not in self.all_rois:
                     self.all_rois.append(roi.lower())
                 if self.Contour_Names:
-                    for association in self.associations:
-                        if roi.lower() in association.other_names:
-                            true_rois.append(association.roi_name)
-                        elif roi.lower() in self.Contour_Names:
-                            true_rois.append(roi.lower())
+                    if roi.lower() in self.Contour_Names:
+                        true_rois.append(roi.lower())
+                    elif self.associations:
+                        for association in self.associations:
+                            if roi.lower() in association.other_names:
+                                true_rois.append(association.roi_name)
+                            elif roi.lower() in self.Contour_Names:
+                                true_rois.append(roi.lower())
         all_contours_exist = True
         some_contours_exist = False
         lacking_rois = []
@@ -974,9 +978,10 @@ class DicomReaderWriter(object):
                 if roi in self.all_rois:
                     loading_rois.append(roi)
                 else:
-                    for association in self.associations:
-                        if association.roi_name == roi:
-                            loading_rois += association.other_names
+                    if self.associations:
+                        for association in self.associations:
+                            if association.roi_name == roi:
+                                loading_rois += association.other_names
         loading_rois = list(set(loading_rois))
         final_out_dict = {'PatientID': [], 'RTPath': []}
         temp_associations = {}
@@ -1319,7 +1324,7 @@ class DicomReaderWriter(object):
     def __mask_empty_mask__(self) -> None:
         self.mask = np.zeros(
             [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-            dtype='int8')
+            dtype=np.int8)
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
@@ -1367,6 +1372,12 @@ class DicomReaderWriter(object):
                     mask = self.__return_mask_for_roi__(RT, ROI_Name)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
+        for true_name in self.Contour_Names:
+            mask_img = sitk.GetImageFromArray(self.mask[..., self.Contour_Names.index(true_name) + 1].astype(np.uint8))
+            mask_img.SetSpacing(self.dicom_handle.GetSpacing())
+            mask_img.SetDirection(self.dicom_handle.GetDirection())
+            mask_img.SetOrigin(self.dicom_handle.GetOrigin())
+            self.mask_dictionary[true_name] = mask_img
         if self.flip_axes[0]:
             self.mask = self.mask[:, :, ::-1, ...]
         if self.flip_axes[1]:
@@ -1378,7 +1389,7 @@ class DicomReaderWriter(object):
         self.series_instances_dictionary[index].additional_tags['Volumes'] = volumes
         if self.arg_max:
             self.mask = np.argmax(self.mask, axis=-1)
-        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype('int8'))
+        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype(np.int8))
         self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
         self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
@@ -1444,13 +1455,13 @@ class DicomReaderWriter(object):
 
     def contour_points_to_mask(self, contour_points, mask=None):
         if mask is None:
-            mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
+            mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype=np.int8)
         matrix_points = self.reshape_contour_data(contour_points)
         mask = self.return_mask(mask, matrix_points, geometric_type="CLOSED_PLANAR")
         return mask
 
     def contours_to_mask(self, index: int, true_name: str):
-        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype='int8')
+        mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype=np.int8)
         if Tag((0x3006, 0x0039)) in self.RS_struct.keys():
             Contour_sequence = self.RS_struct.ROIContourSequence[index]
             if Tag((0x3006, 0x0040)) in Contour_sequence:
