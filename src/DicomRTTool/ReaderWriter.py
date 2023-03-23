@@ -495,7 +495,7 @@ class DicomReaderWriter(object):
     rp_dictionary: Dict[str, PlanBase]
     dicom_handle = sitk.Image
     dose_handle: sitk.Image
-    annotation_handle: sitk.Image
+    annotation_handle: sitk.Image or None
     all_rois: List[str]
     rois_in_loaded_index: List[str]
     indexes_with_contours: List[int]  # A list of all the indexes which contain the desired contours
@@ -504,6 +504,7 @@ class DicomReaderWriter(object):
     RTs_with_ROI_Names: Dict[str, List[str]]  # A dictionary with key being an ROI name, and value being a list of RTs
     series_instances_dictionary = Dict[int, ImageBase]
     mask_dictionary: Dict[str, sitk.Image]
+    mask: np.ndarray or None
 
     def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -570,6 +571,8 @@ class DicomReaderWriter(object):
         self.dicom_handle_uid = None
         self.dicom_info_uid = None
         self.RS_struct_uid = None
+        self.annotation_handle = None
+        self.mask = None
         self.rd_study_instance_uid = None
         self.index = index
         self.all_RTs = {}
@@ -758,8 +761,10 @@ class DicomReaderWriter(object):
         self.__check_if_all_contours_present__()
 
     def __reset_mask__(self):
-        self.mask = np.zeros([1])
-        del self.annotation_handle
+        if self.mask is not None:
+            del self.mask
+        if self.annotation_handle:
+            del self.annotation_handle
         self.mask_dictionary = {}
 
     def __reset__(self):
