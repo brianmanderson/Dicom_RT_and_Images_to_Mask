@@ -14,15 +14,15 @@ def base_mask(path):
 
 @pytest.fixture
 def main_reader(path):
-    reader = DicomReaderWriter(description='Examples', arg_max=True, verbose=True)
+    reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
+                               arg_max=True, verbose=True)
     print(os.listdir(path))
     print(os.listdir('.'))
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
     reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
-    reader.__set_contour_names__(['spinalcord', 'body'])
-    reader.get_mask()
+    reader.get_images_and_mask()
     return reader
 
 
