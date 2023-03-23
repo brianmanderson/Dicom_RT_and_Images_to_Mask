@@ -1,4 +1,4 @@
-from DicomRTTool.ReaderWriter import DicomReaderWriter, os, sitk, np, plot_scroll_Image
+from src.DicomRTTool.ReaderWriter import DicomReaderWriter, os, sitk, np, plot_scroll_Image
 import pytest
 
 

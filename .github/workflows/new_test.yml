@@ -1,6 +1,8 @@
 name: Python package
 
 on:
+  pull_request:
+    braches: [main]
   push:
     branches: [ main, dev ]
 jobs:
