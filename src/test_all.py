@@ -38,7 +38,7 @@ def test_1(path):
     # fid = open('errors.txt', 'w+')
     # fid.writelines(os.listdir(os.path.join('..', 'AnonDICOM')))
     # fid.close()
-    new_reader.walk_through_folders(path)  # This will parse through all DICOM present in the folder and subfolders
+    new_reader.walk_through_folders(path, thread_count=1)  # This will parse through all DICOM present in the folder and subfolders
     new_reader.get_images_and_mask()
     assert base_mask.GetSize() == new_reader.annotation_handle.GetSize()
 
