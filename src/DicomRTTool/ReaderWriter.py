@@ -820,11 +820,14 @@ class DicomReaderWriter(object):
                 if roi.lower() not in self.all_rois:
                     self.all_rois.append(roi.lower())
                 if self.Contour_Names:
-                    for association in self.associations:
-                        if roi.lower() in association.other_names:
-                            true_rois.append(association.roi_name)
-                        elif roi.lower() in self.Contour_Names:
-                            true_rois.append(roi.lower())
+                    if roi.lower() in self.Contour_Names:
+                        true_rois.append(roi.lower())
+                    else:
+                        for association in self.associations:
+                            if roi.lower() in association.other_names:
+                                true_rois.append(association.roi_name)
+                            elif roi.lower() in self.Contour_Names:
+                                true_rois.append(roi.lower())
         all_contours_exist = True
         some_contours_exist = False
         lacking_rois = []
@@ -974,9 +977,10 @@ class DicomReaderWriter(object):
                 if roi in self.all_rois:
                     loading_rois.append(roi)
                 else:
-                    for association in self.associations:
-                        if association.roi_name == roi:
-                            loading_rois += association.other_names
+                    if self.associations:
+                        for association in self.associations:
+                            if association.roi_name == roi:
+                                loading_rois += association.other_names
         loading_rois = list(set(loading_rois))
         final_out_dict = {'PatientID': [], 'RTPath': []}
         temp_associations = {}
