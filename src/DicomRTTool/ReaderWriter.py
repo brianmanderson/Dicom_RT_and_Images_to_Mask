@@ -226,7 +226,6 @@ class RTBase(DICOMBase):
     ROI_Names: List[str]
     ROIs_In_Structure: Dict[str, str]
     referenced_series_instance_uid: str
-    rois_in_structure: Dict[str, str]
     Plans: Dict[str, PlanBase]
     Doses: Dict[str, RDBase]
     CodeAssociations: Dict[str, List[str]]
@@ -236,7 +235,7 @@ class RTBase(DICOMBase):
         self.Doses = dict()
         self.additional_tags = dict()
         self.ROI_Names = []
-        self.ROIs_In_Structure = {}
+        self.ROIs_In_Structure = dict()
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
                   pydicom_string_keys: PyDicomKeys = None):
@@ -258,7 +257,6 @@ class RTBase(DICOMBase):
                         if Tag((0x3006, 0x086)) in Observation:
                             code_strings[Observation.ReferencedROINumber] = \
                                 Observation.RTROIIdentificationCodeSequence[0].CodeValue
-                    rois_in_structure = {}
                     roi_structure_code_and_names = {}
                     rois = []
                     for Structures in ROI_Structure:
@@ -271,11 +269,10 @@ class RTBase(DICOMBase):
                                 roi_structure_code_and_names[structure_code] = []
                             if roi_name not in roi_structure_code_and_names[structure_code]:
                                 roi_structure_code_and_names[structure_code].append(roi_name)
-                        if Structures.ROIName not in rois_in_structure:
-                            rois_in_structure[Structures.ROIName] = roi_number
+                        if roi_name not in self.ROIs_In_Structure:
+                            self.ROIs_In_Structure[roi_name] = roi_number
                     self.path = path
                     self.ROI_Names = rois
-                    self.ROIs_In_Structure = rois_in_structure
                     self.SeriesInstanceUID = refed_series_instance_uid
                     self.SOPInstanceUID = ds.SOPInstanceUID
                     self.CodeAssociations = roi_structure_code_and_names
@@ -496,6 +493,7 @@ class DicomReaderWriter(object):
     rt_dictionary: Dict[str, RTBase]
     rd_dictionary: Dict[str, RDBase]
     rp_dictionary: Dict[str, PlanBase]
+    dicom_handle = sitk.Image
     dose_handle: sitk.Image
     annotation_handle: sitk.Image
     all_rois: List[str]
@@ -505,7 +503,6 @@ class DicomReaderWriter(object):
     all_RTs: Dict[str, List[str]]  # A dictionary of RT being the key, and a list of ROIs in that RT
     RTs_with_ROI_Names: Dict[str, List[str]]  # A dictionary with key being an ROI name, and value being a list of RTs
     series_instances_dictionary = Dict[int, ImageBase]
-
 
     def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
@@ -823,13 +820,15 @@ class DicomReaderWriter(object):
                     self.rois_in_loaded_index.append(roi.lower())
                 if roi.lower() not in self.all_rois:
                     self.all_rois.append(roi.lower())
-                if self.Contour_Names and self.associations:
-                    for association in self.associations:
-                        if roi.lower() in association.other_names:
-                            true_rois.append(association.roi_name)
-                elif self.Contour_Names:
+                if self.Contour_Names:
                     if roi.lower() in self.Contour_Names:
                         true_rois.append(roi.lower())
+                    elif self.associations:
+                        for association in self.associations:
+                            if roi.lower() in association.other_names:
+                                true_rois.append(association.roi_name)
+                            elif roi.lower() in self.Contour_Names:
+                                true_rois.append(roi.lower())
         all_contours_exist = True
         some_contours_exist = False
         lacking_rois = []
@@ -960,40 +959,87 @@ class DicomReaderWriter(object):
             print('You need to first define what ROIs you want, please use'
                   ' .set_contour_names_and_associations()')
 
-    def characterize_data_to_excel(self, excel_path: typing.Union[str, bytes, os.PathLike]):
+    def characterize_data_to_excel(self, wanted_rois: List[str] = None,
+                                   excel_path: typing.Union[str, bytes, os.PathLike] = "./Data.xlsx"):
         print("This is going to load every index and record volume data to the excel_path"
               " indicated above. Be aware that this can take some time...")
+        self.verbose = False
+        print("To prevent annoying messages, verbosity has been turned off...")
+        loading_rois = []
+        if wanted_rois is None:
+            if self.Contour_Names:
+                loading_rois = self.Contour_Names
+                print("Since no rois were explicitly defined, this will evaluate previously defined Contour Names")
+            else:
+                print("Since no rois were explicitly defined, this will evaluate all rois")
+                loading_rois = self.all_rois
+        else:
+            for roi in wanted_rois:
+                if roi in self.all_rois:
+                    loading_rois.append(roi)
+                else:
+                    if self.associations:
+                        for association in self.associations:
+                            if association.roi_name == roi:
+                                loading_rois += association.other_names
+        loading_rois = list(set(loading_rois))
         final_out_dict = {'PatientID': [], 'RTPath': []}
+        temp_associations = {}
         column_names = []
-        for roi in self.all_rois:
-            true_name = roi
+        for roi in loading_rois:
             if self.associations:
                 for association in self.associations:
                     if roi in association.other_names:
                         true_name = association.roi_name
-                        break
-            if true_name not in final_out_dict:
-                final_out_dict[true_name] = []
-                column_names.append(true_name)
+                        temp_associations[roi] = true_name
+            if roi not in final_out_dict:
+                final_out_dict[f"{roi} cc"] = []
+                column_names.append(roi)
         """
         Now we load the images/mask, and get volume data
         """
         pbar = tqdm(total=len(self.series_instances_dictionary), desc='Building data...')
         for index in self.series_instances_dictionary:
+            pbar.update()
+            if self.series_instances_dictionary[index].SeriesInstanceUID is None:  # No image? Move along
+                continue
             self.set_index(index)
-            self.get_images()
+            has_wanted_roi = False
+            for roi in column_names:
+                if roi in self.rois_in_loaded_index:
+                    has_wanted_roi = True
+                    break
+            if not has_wanted_roi:
+                continue
             image_base = self.series_instances_dictionary[index]
+            self.get_images()
+            """
+            If there is no image set, move along
+            """
+            dimension = np.prod(self.dicom_handle.GetSpacing())  # Voxel dimensions, in mm
             for rt_index in image_base.RTs:
                 rt_base = image_base.RTs[rt_index]
                 self.__check_contours_at_index__(index)
-                self.get_mask([rt_base])  # We only want to load these RTs one at a time!
                 final_out_dict['PatientID'].append(rt_base.PatientID)
                 final_out_dict['RTPath'].append(rt_base.path)
-        for roi in self.Contour_Names:
-            column_name = 'Volume_{} [cc]'.format(roi)
-            final_out_dict[column_name] = []
+                """
+                Default values to be nothing, then replace them as they come
+                """
+                for roi in column_names:
+                    final_out_dict[f"{roi} cc"].append(np.nan)
+                for roi in column_names:
+                    if roi in rt_base.ROI_Names:
+                        mask = self.__return_mask_for_roi__(rt_base, roi)
+                        volume = np.around(np.sum(mask) * dimension / 1000, 3)  # Volume in cm^3, not mm^3. 3 sig figs
+                        final_out_dict[f"{roi} cc"][-1] = volume
+        for key in temp_associations.keys():
+            if temp_associations[key] not in final_out_dict:
+                final_out_dict[temp_associations[key]] = [np.nan for _ in range(len(final_out_dict['PatientID']))]
         df = pd.DataFrame(final_out_dict)
-        #df.to_excel(excel_file, index=False)
+        for key in temp_associations:
+            df[temp_associations[key]] = df[f"{key} cc"] + df.fillna(0)[temp_associations[key]]
+        df = df.reindex(sorted(df.columns), axis=1)
+        df.to_excel(excel_path, index=False)
 
     def which_indexes_lack_all_rois(self):
         if self.Contour_Names:
@@ -1295,7 +1341,7 @@ class DicomReaderWriter(object):
         mask = self.contours_to_mask(structure_index, roi_name)
         return mask
 
-    def get_mask(self, RTs: List[RTBase] = None) -> None:
+    def get_mask(self) -> None:
         if self.index not in self.series_instances_dictionary:
             print('Index is not present in the dictionary! Set it using set_index(index)')
             return None
@@ -1310,8 +1356,7 @@ class DicomReaderWriter(object):
                   'previously different\n'.format(index))
             self.get_images()
         self.__mask_empty_mask__()
-        if RTs is None:
-            RTs = self.series_instances_dictionary[index].RTs
+        RTs = self.series_instances_dictionary[index].RTs
         for RT_key in RTs:
             RT = RTs[RT_key]
             for ROI_Name in RT.ROIs_In_Structure.keys():
@@ -1325,13 +1370,14 @@ class DicomReaderWriter(object):
                             break  # Found the name we wanted
                 if true_name and true_name in self.Contour_Names:
                     mask = self.__return_mask_for_roi__(RT, ROI_Name)
-                    mask_img = sitk.GetImageFromArray(mask.astype(np.uint8))
-                    mask_img.SetSpacing(self.dicom_handle.GetSpacing())
-                    mask_img.SetDirection(self.dicom_handle.GetDirection())
-                    mask_img.SetOrigin(self.dicom_handle.GetOrigin())
-                    self.mask_dictionary[true_name] = mask_img
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
                     self.mask[self.mask > 1] = 1
+        for true_name in self.Contour_Names:
+            mask_img = sitk.GetImageFromArray(self.mask[..., self.Contour_Names.index(true_name) + 1].astype(np.uint8))
+            mask_img.SetSpacing(self.dicom_handle.GetSpacing())
+            mask_img.SetDirection(self.dicom_handle.GetDirection())
+            mask_img.SetOrigin(self.dicom_handle.GetOrigin())
+            self.mask_dictionary[true_name] = mask_img
         if self.flip_axes[0]:
             self.mask = self.mask[:, :, ::-1, ...]
         if self.flip_axes[1]:
