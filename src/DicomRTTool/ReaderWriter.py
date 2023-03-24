@@ -761,10 +761,10 @@ class DicomReaderWriter(object):
         self.__check_if_all_contours_present__()
 
     def __reset_mask__(self):
-        if self.mask is not None:
-            del self.mask
+        if self.mask:
+            self.mask = None
         if self.annotation_handle:
-            del self.annotation_handle
+            self.annotation_handle = None
         self.mask_dictionary = {}
 
     def __reset__(self):
