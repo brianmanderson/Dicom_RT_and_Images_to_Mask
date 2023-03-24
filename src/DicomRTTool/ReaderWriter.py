@@ -761,9 +761,9 @@ class DicomReaderWriter(object):
         self.__check_if_all_contours_present__()
 
     def __reset_mask__(self):
-        if self.mask:
+        if self.mask is not None:
             self.mask = None
-        if self.annotation_handle:
+        if self.annotation_handle is not None:
             self.annotation_handle = None
         self.mask_dictionary = {}
 
@@ -1281,7 +1281,7 @@ class DicomReaderWriter(object):
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
                 print("Erasing previous masks loaded for different image sets")
-                self.__reset_mask__()
+            self.__reset_mask__()
             dicom_names = self.series_instances_dictionary[index].files
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
