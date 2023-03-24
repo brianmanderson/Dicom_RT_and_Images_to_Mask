@@ -23,7 +23,7 @@ def base_mask(path):
 def main_reader(path):
     reader = DicomReaderWriter(description='Examples', Contour_Names=['spinalcord', 'body'],
                                arg_max=True, verbose=True)
-    reader.walk_through_folders(path, thread_count=1)  # This will parse through all DICOM present in the folder and subfolders
+    reader.walk_through_folders(path, thread_count=1)  # For pytest to work, thread_count MUST be 1
     reader.get_images_and_mask()
     return reader
 

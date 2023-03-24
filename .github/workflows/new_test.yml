@@ -1,17 +1,17 @@
-name: Python package
+name: DicomRTTool Check
 
 on:
-  pull_request:
-    braches: [main]
   push:
     branches: [ main, dev ]
+  pull_request:
+    braches: [main]
 jobs:
   build:
 
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8"]
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
 
     steps:
       - uses: actions/checkout@v3
