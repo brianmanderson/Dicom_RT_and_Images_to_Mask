@@ -493,6 +493,7 @@ class DicomReaderWriter(object):
     rt_dictionary: Dict[str, RTBase]
     rd_dictionary: Dict[str, RDBase]
     rp_dictionary: Dict[str, PlanBase]
+    rois_in_index_dict: Dict[int, List[str]]  # List of rois at any index
     dicom_handle = sitk.Image
     dose_handle: sitk.Image
     annotation_handle: sitk.Image or None
@@ -761,9 +762,9 @@ class DicomReaderWriter(object):
         self.__check_if_all_contours_present__()
 
     def __reset_mask__(self):
-        if self.mask:
+        if self.mask is not None:
             self.mask = None
-        if self.annotation_handle:
+        if self.annotation_handle is not None:
             self.annotation_handle = None
         self.mask_dictionary = {}
 
@@ -862,8 +863,10 @@ class DicomReaderWriter(object):
 
     def __check_if_all_contours_present__(self):
         self.indexes_with_contours = []
+        self.rois_in_index_dict = {}
         for index in self.series_instances_dictionary:
             self.__check_contours_at_index__(index)
+            self.rois_in_index_dict[index] = self.rois_in_loaded_index
 
     def return_rois(self, print_rois=True) -> List[str]:
         if print_rois:
@@ -1281,7 +1284,7 @@ class DicomReaderWriter(object):
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
                 print("Erasing previous masks loaded for different image sets")
-                self.__reset_mask__()
+            self.__reset_mask__()
             dicom_names = self.series_instances_dictionary[index].files
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
