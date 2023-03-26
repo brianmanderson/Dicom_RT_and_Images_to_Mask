@@ -1374,7 +1374,6 @@ class DicomReaderWriter(object):
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
-        self.__mask_empty_mask__()
         RTs = self.series_instances_dictionary[index].RTs
         for RT_key in RTs:
             RT = RTs[RT_key]
