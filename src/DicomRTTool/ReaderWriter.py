@@ -494,8 +494,8 @@ class DicomReaderWriter(object):
     rd_dictionary: Dict[str, RDBase]
     rp_dictionary: Dict[str, PlanBase]
     rois_in_index_dict: Dict[int, List[str]]  # List of rois at any index
-    dicom_handle = sitk.Image
-    dose_handle: sitk.Image
+    dicom_handle: sitk.Image or None
+    dose_handle: sitk.Image or None
     annotation_handle: sitk.Image or None
     all_rois: List[str]
     rois_in_loaded_index: List[str]
@@ -530,6 +530,11 @@ class DicomReaderWriter(object):
         :param index: index to reference series_instances_dictionary, default 0
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
         """
+        self.verbose = verbose
+        self.annotation_handle = None
+        self.dicom_handle = None
+        self.dose_handle = None
+        self.rois_in_index_dict = {}
         self.rt_dictionary = {}
         self.mask_dictionary = {}
         self.plan_pydicom_string_keys = plan_pydicom_string_keys
@@ -568,11 +573,9 @@ class DicomReaderWriter(object):
         self.reader.MetaDataDictionaryArrayUpdateOn()
         self.reader.LoadPrivateTagsOn()
         self.reader.SetOutputPixelType(sitk.sitkFloat32)
-        self.verbose = verbose
         self.dicom_handle_uid = None
         self.dicom_info_uid = None
         self.RS_struct_uid = None
-        self.annotation_handle = None
         self.mask = None
         self.rd_study_instance_uid = None
         self.index = index
@@ -584,7 +587,10 @@ class DicomReaderWriter(object):
 
     def set_index(self, index: int):
         self.index = index
-        self.__check_contours_at_index__(index)
+        if self.index in self.rois_in_index_dict:
+            self.rois_in_loaded_index = self.rois_in_index_dict[self.index]
+        else:
+            self.rois_in_loaded_index = []
 
     def __compile__(self):
         """
@@ -772,7 +778,6 @@ class DicomReaderWriter(object):
     def __reset_mask__(self):
         self.__mask_empty_mask__()
         self.mask_dictionary = {}
-        self.rois_in_loaded_index = self.rois_in_index_dict[self.index]
 
     def __reset__(self):
         self.__reset_RTs__()
@@ -799,6 +804,10 @@ class DicomReaderWriter(object):
             self.__set_associations__(associations=associations)
         if check_contours:  # I don't want to run this on the first build..
             self.__check_if_all_contours_present__()
+        if contour_names is not None or self.associations is not None:
+            if self.verbose:
+                print("Contour names or associations changed, resetting mask")
+            self.__reset_mask__()
 
     def __set_associations__(self, associations: List[ROIAssociationClass] = None):
         if associations is not None:
@@ -869,7 +878,6 @@ class DicomReaderWriter(object):
 
     def __check_if_all_contours_present__(self):
         self.indexes_with_contours = []
-        self.rois_in_index_dict = {}
         for index in self.series_instances_dictionary:
             self.__check_contours_at_index__(index)
             self.rois_in_index_dict[index] = self.rois_in_loaded_index
