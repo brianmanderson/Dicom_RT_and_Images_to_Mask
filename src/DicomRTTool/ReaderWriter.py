@@ -2,13 +2,13 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
-from .Tools import add_to_mask, poly2mask
-from .DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys
+from src.DicomRTTool.Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys
+from src.DicomRTTool.Services.StaticScripts import poly2mask, add_to_mask
 from tqdm import tqdm
 import typing
 import pydicom
 import numpy as np
-from pydicom.tag import Tag, BaseTag
+from pydicom.tag import Tag
 import SimpleITK as sitk
 from skimage.measure import label, regionprops, find_contours
 from threading import Thread
@@ -17,8 +17,6 @@ from queue import *
 import pandas as pd
 import copy
 from typing import List, Dict
-
-from .Viewer import plot_scroll_Image
 
 
 def contour_worker(A):
