@@ -124,7 +124,6 @@ class PointOutputMakerClass(object):
                 self.contour_dict[i].append(np.asarray(contour))
 
 
-
 def add_images_to_dictionary(images_dictionary: Dict[str, ImageBase], dicom_names: typing.List[str],
                              sitk_dicom_reader: sitk.ImageFileReader, path: typing.Union[str, bytes, os.PathLike],
                              sitk_string_keys: SitkDicomKeys = None):
