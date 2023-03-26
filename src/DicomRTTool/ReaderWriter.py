@@ -537,42 +537,6 @@ class DicomReaderWriter(object):
         self.rois_in_index_dict = {}
         self.rt_dictionary = {}
         self.mask_dictionary = {}
-        self.plan_pydicom_string_keys = plan_pydicom_string_keys
-        self.struct_pydicom_string_keys = struct_pydicom_string_keys
-        self.image_sitk_string_keys = image_sitk_string_keys
-        self.dose_sitk_string_keys = dose_sitk_string_keys
-        self.images_dictionary = {}
-        self.rd_dictionary = {}
-        self.rp_dictionary = {}
-        if Contour_Names is None:
-            Contour_Names = []
-        if series_instances_dictionary is None:
-            series_instances_dictionary = {}
-        self.series_instances_dictionary = series_instances_dictionary
-        self.get_dose_output = get_dose_output
-        self.require_all_contours = require_all_contours
-        self.flip_axes = flip_axes
-        self.create_new_RT = create_new_RT
-        if associations is None:
-            associations = []
-        self.associations = associations
-        self.Contour_Names = Contour_Names
-        self.set_contour_names_and_associations(contour_names=Contour_Names, associations=associations,
-                                                check_contours=False)
-        self.__set_description__(description)
-        self.__set_iteration__(iteration)
-        self.arg_max = arg_max
-        if template_dir is None or not os.path.exists(template_dir):
-            template_dir = os.path.join(os.path.split(__file__)[0], 'template_RS.dcm')
-        self.template_dir = template_dir
-        self.template = True
-        self.delete_previous_rois = delete_previous_rois
-        self.reader = sitk.ImageSeriesReader()
-        self.image_reader = sitk.ImageFileReader()
-        self.image_reader.LoadPrivateTagsOn()
-        self.reader.MetaDataDictionaryArrayUpdateOn()
-        self.reader.LoadPrivateTagsOn()
-        self.reader.SetOutputPixelType(sitk.sitkFloat32)
         self.dicom_handle_uid = None
         self.dicom_info_uid = None
         self.RS_struct_uid = None
@@ -584,6 +548,44 @@ class DicomReaderWriter(object):
         self.all_rois = []
         self.roi_groups = {}
         self.indexes_with_contours = []
+        self.plan_pydicom_string_keys = plan_pydicom_string_keys
+        self.struct_pydicom_string_keys = struct_pydicom_string_keys
+        self.image_sitk_string_keys = image_sitk_string_keys
+        self.dose_sitk_string_keys = dose_sitk_string_keys
+        self.images_dictionary = {}
+        self.rd_dictionary = {}
+        self.rp_dictionary = {}
+        if series_instances_dictionary is None:
+            series_instances_dictionary = {}
+        self.series_instances_dictionary = series_instances_dictionary
+        self.get_dose_output = get_dose_output
+        self.require_all_contours = require_all_contours
+        self.flip_axes = flip_axes
+        self.create_new_RT = create_new_RT
+        self.arg_max = arg_max
+        if template_dir is None or not os.path.exists(template_dir):
+            template_dir = os.path.join(os.path.split(__file__)[0], 'template_RS.dcm')
+        self.template_dir = template_dir
+        self.template = True
+        self.delete_previous_rois = delete_previous_rois
+        self.associations = associations
+        if Contour_Names is None:
+            self.Contour_Names = []
+        else:
+            self.Contour_Names = Contour_Names
+        self.__initialize_reader__()
+        self.set_contour_names_and_associations(contour_names=Contour_Names, associations=associations,
+                                                check_contours=False)
+        self.__set_description__(description)
+        self.__set_iteration__(iteration)
+
+    def __initialize_reader__(self):
+        self.reader = sitk.ImageSeriesReader()
+        self.image_reader = sitk.ImageFileReader()
+        self.image_reader.LoadPrivateTagsOn()
+        self.reader.MetaDataDictionaryArrayUpdateOn()
+        self.reader.LoadPrivateTagsOn()
+        self.reader.SetOutputPixelType(sitk.sitkFloat32)
 
     def set_index(self, index: int):
         self.index = index
@@ -591,6 +593,35 @@ class DicomReaderWriter(object):
             self.rois_in_loaded_index = self.rois_in_index_dict[self.index]
         else:
             self.rois_in_loaded_index = []
+
+    def __mask_empty_mask__(self) -> None:
+        if self.dicom_handle:
+            self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+            self.mask = np.zeros(
+                [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+                dtype=np.int8)
+            self.annotation_handle = sitk.GetImageFromArray(self.mask)
+
+    def __reset_mask__(self):
+        self.__mask_empty_mask__()
+        self.mask_dictionary = {}
+
+    def __reset__(self):
+        self.__reset_RTs__()
+        self.rd_study_instance_uid = None
+        self.dicom_handle_uid = None
+        self.dicom_info_uid = None
+        self.series_instances_dictionary = {}
+        self.rt_dictionary = {}
+        self.images_dictionary = {}
+        self.mask_dictionary = {}
+
+    def __reset_RTs__(self):
+        self.all_rois = []
+        self.roi_groups = {}
+        self.indexes_with_contours = []
+        self.RS_struct_uid = None
+        self.RTs_with_ROI_Names = {}
 
     def __compile__(self):
         """
@@ -766,35 +797,6 @@ class DicomReaderWriter(object):
                 template.RPs.update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
         self.__check_if_all_contours_present__()
-
-    def __mask_empty_mask__(self) -> None:
-        if self.dicom_handle:
-            self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
-            self.mask = np.zeros(
-                [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-                dtype=np.int8)
-            self.annotation_handle = sitk.GetImageFromArray(self.mask)
-
-    def __reset_mask__(self):
-        self.__mask_empty_mask__()
-        self.mask_dictionary = {}
-
-    def __reset__(self):
-        self.__reset_RTs__()
-        self.rd_study_instance_uid = None
-        self.dicom_handle_uid = None
-        self.dicom_info_uid = None
-        self.series_instances_dictionary = {}
-        self.rt_dictionary = {}
-        self.images_dictionary = {}
-        self.mask_dictionary = {}
-
-    def __reset_RTs__(self):
-        self.all_rois = []
-        self.roi_groups = {}
-        self.indexes_with_contours = []
-        self.RS_struct_uid = None
-        self.RTs_with_ROI_Names = {}
 
     def set_contour_names_and_associations(self, contour_names: List[str] = None,
                                            associations: List[ROIAssociationClass] = None, check_contours=True):
@@ -1390,10 +1392,11 @@ class DicomReaderWriter(object):
                 if ROI_Name.lower() in self.Contour_Names:
                     true_name = ROI_Name.lower()
                 else:
-                    for assocation in self.associations:
-                        if ROI_Name.lower() in assocation.other_names:
-                            true_name = assocation.roi_name
-                            break  # Found the name we wanted
+                    if self.associations:
+                        for association in self.associations:
+                            if ROI_Name.lower() in association.other_names:
+                                true_name = association.roi_name
+                                break  # Found the name we wanted
                 if true_name and true_name in self.Contour_Names:
                     mask = self.__return_mask_for_roi__(RT, ROI_Name)
                     self.mask[..., self.Contour_Names.index(true_name) + 1] += mask
