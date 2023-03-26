@@ -761,12 +761,18 @@ class DicomReaderWriter(object):
                 self.series_instances_dictionary[index] = template
         self.__check_if_all_contours_present__()
 
+    def __mask_empty_mask__(self) -> None:
+        if self.dicom_handle:
+            self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
+            self.mask = np.zeros(
+                [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
+                dtype=np.int8)
+            self.annotation_handle = sitk.GetImageFromArray(self.mask)
+
     def __reset_mask__(self):
-        if self.mask is not None:
-            self.mask = None
-        if self.annotation_handle is not None:
-            self.annotation_handle = None
+        self.__mask_empty_mask__()
         self.mask_dictionary = {}
+        self.rois_in_loaded_index = self.rois_in_index_dict[self.index]
 
     def __reset__(self):
         self.__reset_RTs__()
@@ -1283,12 +1289,13 @@ class DicomReaderWriter(object):
             if self.verbose:
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
-                print("Erasing previous masks loaded for different image sets")
-            self.__reset_mask__()
             dicom_names = self.series_instances_dictionary[index].files
             self.ds = pydicom.read_file(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
             self.dicom_handle = self.reader.Execute()
+            if self.verbose:
+                print("Erasing any previous mask as we load a new new image set")
+            self.__reset_mask__()
             add_sops_to_dictionary(sitk_dicom_reader=self.reader,
                                    series_instances_dictionary=self.series_instances_dictionary)
             if max(self.flip_axes):
@@ -1337,12 +1344,6 @@ class DicomReaderWriter(object):
             output.SetDirection(direction)
             output.SetOrigin(origin)
             self.dose_handle = output
-
-    def __mask_empty_mask__(self) -> None:
-        if self.dicom_handle:
-            self.mask = np.zeros(
-                [self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols, len(self.Contour_Names) + 1],
-                dtype=np.int8)
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
