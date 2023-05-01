@@ -13,7 +13,7 @@ __pycache__/
 /Test2.py
 # C extensions
 *.so
-
+*.nii*
 # Distribution / packaging
 .Python
 build/
