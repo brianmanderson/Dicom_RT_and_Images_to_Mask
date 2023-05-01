@@ -784,7 +784,8 @@ class DicomReaderWriter(object):
                             if association.roi_name == roi:
                                 loading_rois += association.other_names
         loading_rois = list(set(loading_rois))
-        final_out_dict = {'PatientID': [], 'RTPath': []}
+        final_out_dict = {'PatientID': [], 'RTPath': [], 'PixelSpacingX': [], 'PixelSpacingY': [], 'SliceThickness': []}
+        image_out_dict = {'PatientID': [], 'ImagePath': [], 'PixelSpacingX': [], 'PixelSpacingY': [], 'SliceThickness': []}
         temp_associations = {}
         column_names = []
         for roi in loading_rois:
@@ -813,6 +814,11 @@ class DicomReaderWriter(object):
             if not has_wanted_roi:
                 continue
             image_base = self.series_instances_dictionary[index]
+            image_out_dict['PatientID'].append(image_base.PatientID)
+            image_out_dict['ImagePath'].append(image_base.path)
+            image_out_dict['PixelSpacingX'].append(image_base.pixel_spacing_x)
+            image_out_dict['PixelSpacingY'].append(image_base.pixel_spacing_y)
+            image_out_dict['SliceThickness'].append(image_base.slice_thickness)
             self.get_images()
             """
             If there is no image set, move along
@@ -823,6 +829,9 @@ class DicomReaderWriter(object):
                 self.__check_contours_at_index__(index)
                 final_out_dict['PatientID'].append(rt_base.PatientID)
                 final_out_dict['RTPath'].append(rt_base.path)
+                final_out_dict['PixelSpacingX'].append(image_base.pixel_spacing_x)
+                final_out_dict['PixelSpacingY'].append(image_base.pixel_spacing_y)
+                final_out_dict['SliceThickness'].append(image_base.slice_thickness)
                 """
                 Default values to be nothing, then replace them as they come
                 """
@@ -840,7 +849,12 @@ class DicomReaderWriter(object):
         for key in temp_associations:
             df[temp_associations[key]] = df[f"{key} cc"] + df.fillna(0)[temp_associations[key]]
         df = df.reindex(sorted(df.columns), axis=1)
-        df.to_excel(excel_path, index=False)
+        df_image = pd.DataFrame(image_out_dict)
+        with pd.ExcelWriter(excel_path) as writer:
+            # use to_excel function and specify the sheet_name and index
+            # to store the dataframe in specified sheet
+            df.to_excel(writer, sheet_name="ROIs", index=False)
+            df_image.to_excel(writer, sheet_name="Images", index=False)
 
     def which_indexes_lack_all_rois(self):
         if self.Contour_Names:
