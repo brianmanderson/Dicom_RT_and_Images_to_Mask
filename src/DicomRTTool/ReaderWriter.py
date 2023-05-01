@@ -917,6 +917,7 @@ class DicomReaderWriter(object):
                                                               self.series_instances_dictionary[key].path))
             print('{} unique series IDs were found. Default is index 0, to change use '
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
+            self.set_index(0)
         self.__check_if_all_contours_present__()
         return None
 
