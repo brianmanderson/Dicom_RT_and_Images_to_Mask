@@ -784,8 +784,10 @@ class DicomReaderWriter(object):
                             if association.roi_name == roi:
                                 loading_rois += association.other_names
         loading_rois = list(set(loading_rois))
-        final_out_dict = {'PatientID': [], 'RTPath': [], 'PixelSpacingX': [], 'PixelSpacingY': [], 'SliceThickness': []}
-        image_out_dict = {'PatientID': [], 'ImagePath': [], 'PixelSpacingX': [], 'PixelSpacingY': [], 'SliceThickness': []}
+        final_out_dict = {'PatientID': [], 'PixelSpacingX': [], 'PixelSpacingY': [],
+                          'SliceThickness': [], 'zzzRTPath': [], 'zzzImagePath': []}
+        image_out_dict = {'PatientID': [], 'ImagePath': [], 'PixelSpacingX': [], 'PixelSpacingY': [],
+                          'SliceThickness': []}
         temp_associations = {}
         column_names = []
         for roi in loading_rois:
@@ -828,7 +830,8 @@ class DicomReaderWriter(object):
                 rt_base = image_base.RTs[rt_index]
                 self.__check_contours_at_index__(index)
                 final_out_dict['PatientID'].append(rt_base.PatientID)
-                final_out_dict['RTPath'].append(rt_base.path)
+                final_out_dict['zzzRTPath'].append(rt_base.path)
+                final_out_dict['zzzImagePath'].append(image_base.path)
                 final_out_dict['PixelSpacingX'].append(image_base.pixel_spacing_x)
                 final_out_dict['PixelSpacingY'].append(image_base.pixel_spacing_y)
                 final_out_dict['SliceThickness'].append(image_base.slice_thickness)
