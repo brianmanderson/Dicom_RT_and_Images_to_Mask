@@ -597,12 +597,12 @@ class DicomReaderWriter(object):
         self.iteration = str(iteration)
 
     def __check_contours_at_index__(self, index: int, RTs: List[RTBase] = None) -> None:
+        self.rois_in_loaded_index = []
         if self.series_instances_dictionary[index].path is None:
             return
         if RTs is None:
             RTs = self.series_instances_dictionary[index].RTs
         true_rois = []
-        self.rois_in_loaded_index = []
         for RT_key in RTs:
             RT = RTs[RT_key]
             for code_key in RT.CodeAssociations:
