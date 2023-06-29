@@ -1113,8 +1113,9 @@ class DicomReaderWriter(object):
             print('Loading images for index {}, since mask was requested but image loading was '
                   'previously different\n'.format(index))
             self.get_images()
-        if self.rd_study_instance_uid == self.series_instances_dictionary[index].StudyInstanceUID:  # Already loaded
-            return None
+        if self.rd_study_instance_uid is not None:
+            if self.rd_study_instance_uid == self.series_instances_dictionary[index].StudyInstanceUID:  # Already loaded
+                return None
         self.rd_study_instance_uid = self.series_instances_dictionary[index].StudyInstanceUID
         RDs = self.series_instances_dictionary[index].RDs
         reader = sitk.ImageFileReader()
