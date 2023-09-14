@@ -55,9 +55,11 @@ class RDBase(DICOMBase):
 
 class PlanBase(DICOMBase):
     PlanLabel: str
+    PlanName: str
     ReferencedStructureSetSOPInstanceUID: str
     ReferencedDoseSOPUID: str
-    Description: str
+    StudyDescription: str
+    SeriesDescription: str
 
     def __init__(self):
         self.additional_tags = {}
@@ -67,14 +69,21 @@ class PlanBase(DICOMBase):
         refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
         refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
         plan_label = None
+        plan_name = None
         if Tag((0x300a, 0x002)) in ds.keys():
             plan_label = ds.RTPlanLabel
+        if Tag((0x300a, 0x003)) in ds.keys():
+            plan_name = ds.RTPlanName
         self.path = path
         self.SOPInstanceUID = ds.SOPInstanceUID
         self.PlanLabel = plan_label
+        self.PlanName = plan_name
         self.ReferencedStructureSetSOPInstanceUID = refed_structure_uid
         self.ReferencedDoseSOPUID = refed_dose_uid
-        self.Description = ds.StudyDescription
+        if Tag((0x0008, 0x1030)) in ds.keys():
+            self.StudyDescription = ds.StudyDescription
+        if Tag((0x0008, 0x103e)) in ds.keys():
+            self.SeriesDescription = ds.SeriesDescription
         if pydicom_string_keys is not None:
             for string in pydicom_string_keys:
                 key = pydicom_string_keys[string]

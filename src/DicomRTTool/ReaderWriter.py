@@ -277,8 +277,8 @@ class DicomReaderWriter(object):
     mask_dictionary: Dict[str, sitk.Image]
     mask: np.ndarray or None
 
-    def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
-                 arg_max=True, verbose=True, create_new_RT = True, template_dir=None, delete_previous_rois=True,
+    def __init__(self, description='', Contour_Names: List[str]=None, associations: List[ROIAssociationClass] = None,
+                 arg_max=True, verbose=True, create_new_RT=True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
                  flip_axes=(False, False, False), index=0, series_instances_dictionary: Dict[int, ImageBase] = None,
                  plan_pydicom_string_keys: PyDicomKeys = None,
