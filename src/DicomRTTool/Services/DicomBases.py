@@ -37,7 +37,8 @@ class RDBase(DICOMBase):
         self.SeriesInstanceUID = ds.SeriesInstanceUID
         self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
             if "ReferencedStructureSetSequence" in ds.values() else None
-        self.ReferencedPlanSOPInstanceUID = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
+        if Tag((0x300a, 0x002)) in ds.keys():
+            self.ReferencedPlanSOPInstanceUID = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
         self.StudyInstanceUID = sitk_dicom_reader.GetMetaData("0020|000d")
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
