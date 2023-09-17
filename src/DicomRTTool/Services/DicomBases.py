@@ -28,6 +28,7 @@ class RDBase(DICOMBase):
     Description: str = None
     ReferencedStructureSetSOPInstanceUID: str = None
     ReferencedPlanSOPInstanceUID: str = None
+    ReferencedFrameOfReference: str
 
     def __init__(self):
         self.additional_tags = dict()
@@ -35,6 +36,7 @@ class RDBase(DICOMBase):
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
         ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
         self.SeriesInstanceUID = ds.SeriesInstanceUID
+        self.ReferencedFrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
         self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
             if "ReferencedStructureSetSequence" in ds.values() else None
         if Tag((0x300a, 0x002)) in ds.keys():
@@ -161,6 +163,7 @@ class RTBase(DICOMBase):
 
 class ImageBase(DICOMBase):
     Description: str = None
+    FrameOfReference: str
     slice_thickness: float = None
     pixel_spacing_x: float = None
     pixel_spacing_y: float = None
@@ -190,6 +193,7 @@ class ImageBase(DICOMBase):
 
         """
         self.SeriesInstanceUID = sitk_dicom_reader.GetMetaData("0020|000e")
+        self.FrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
         patientID = sitk_dicom_reader.GetMetaData("0010|0020")
         while len(patientID) > 0 and patientID[-1] == ' ':
             patientID = patientID[:-1]
