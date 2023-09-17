@@ -285,7 +285,7 @@ class DicomReaderWriter(object):
                  plan_pydicom_string_keys: PyDicomKeys = None,
                  struct_pydicom_string_keys: PyDicomKeys = None,
                  image_sitk_string_keys: SitkDicomKeys = None,
-                 dose_sitk_string_keys: SitkDicomKeys = None, group_dose_by_frame_of_reference=False):
+                 dose_sitk_string_keys: SitkDicomKeys = None, group_dose_by_frame_of_reference=True):
         """
         :param description: string, description information to add to .nii files
         :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
