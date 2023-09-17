@@ -276,6 +276,7 @@ class DicomReaderWriter(object):
     series_instances_dictionary = Dict[int, ImageBase]
     mask_dictionary: Dict[str, sitk.Image]
     mask: np.ndarray or None
+    group_dose_by_frame_of_reference: bool
 
     def __init__(self, description='', Contour_Names: List[str]=None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT=True, template_dir=None, delete_previous_rois=True,
@@ -284,7 +285,7 @@ class DicomReaderWriter(object):
                  plan_pydicom_string_keys: PyDicomKeys = None,
                  struct_pydicom_string_keys: PyDicomKeys = None,
                  image_sitk_string_keys: SitkDicomKeys = None,
-                 dose_sitk_string_keys: SitkDicomKeys = None):
+                 dose_sitk_string_keys: SitkDicomKeys = None, group_dose_by_frame_of_reference=False):
         """
         :param description: string, description information to add to .nii files
         :param delete_previous_rois: delete the previous RTs within the structure when writing out a prediction
@@ -299,7 +300,10 @@ class DicomReaderWriter(object):
         :param flip_axes: tuple(3), axis that you want to flip, defaults to (False, False, False)
         :param index: index to reference series_instances_dictionary, default 0
         :param series_instances_dictionary: dictionary of series instance UIDs of images and RTs
+        :param group_dose_by_frame_of_reference: a boolean, should dose files be associated with images based on the
+        frame of reference. This is a last resort if the dose does not reference a structure or plan file.
         """
+        self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         self.verbose = verbose
         self.annotation_handle = None
         self.dicom_handle = None
@@ -461,7 +465,6 @@ class DicomReaderWriter(object):
                 template.RPs.update({rp_series_instance_uid: self.rp_dictionary[rp_series_instance_uid]})
                 self.series_instances_dictionary[index] = template
         for rd_series_instance_uid in self.rd_dictionary:
-            added = False
             struct_ref = self.rd_dictionary[rd_series_instance_uid].ReferencedStructureSetSOPInstanceUID
             if struct_ref is not None:
                 continue
@@ -477,13 +480,26 @@ class DicomReaderWriter(object):
                             if rts[rt_key].SOPInstanceUID == rt_key_sopinstanceUID:
                                 rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
-                                                                                              self.rd_dictionary[rd_series_instance_uid]})
+                                                                                           self.rd_dictionary[rd_series_instance_uid]})
+        for rd_series_instance_uid in self.rd_dictionary:
+            added = False
+            dose = self.rd_dictionary[rd_series_instance_uid]
+            if self.group_dose_by_frame_of_reference:
+                for image_series_key in self.series_instances_dictionary:
+                    image = self.series_instances_dictionary[image_series_key]
+                    if image.StudyInstanceUID != dose.StudyInstanceUID:
+                        continue
+                    if image.FrameOfReference == self.rd_dictionary[rd_series_instance_uid].ReferencedFrameOfReference:
+                        self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
                         added = True
+                        if self.verbose:
+                            print(f"Could not associate the dose file {dose.path} with a plan or structure.\n"
+                                  f"Grouping with images {image.path} based on Frame of Reference UID")
             if not added:
                 while index in self.series_instances_dictionary:
                     index += 1
                 template = return_template_dictionary()
-                template.RDs.update({rd_series_instance_uid: self.rd_dictionary[rd_series_instance_uid]})
+                template.RDs.update({rd_series_instance_uid: dose})
                 self.series_instances_dictionary[index] = template
 
     def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
