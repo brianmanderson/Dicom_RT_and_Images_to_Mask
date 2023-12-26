@@ -5,6 +5,7 @@ import os
 from .Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys
 from .Services.StaticScripts import poly2mask, add_to_mask
 from .Viewer import plot_scroll_Image
+from NiftiResampler.ResampleTools import ImageResampler
 from tqdm import tqdm
 import typing
 import pydicom
@@ -303,6 +304,7 @@ class DicomReaderWriter(object):
         :param group_dose_by_frame_of_reference: a boolean, should dose files be associated with images based on the
         frame of reference. This is a last resort if the dose does not reference a structure or plan file.
         """
+        self.dose = None
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         self.verbose = verbose
         self.annotation_handle = None
@@ -1137,17 +1139,18 @@ class DicomReaderWriter(object):
         reader = sitk.ImageFileReader()
         output, spacing, direction, origin = None, None, None, None
         self.dose = None
+        resampler = ImageResampler()
         for rd_series_instance_uid in RDs:
             rd = RDs[rd_series_instance_uid]
             dose_file = rd.path
             reader.SetFileName(dose_file)
             reader.ReadImageInformation()
-            dose = reader.Execute()
-            spacing = dose.GetSpacing()
-            origin = dose.GetOrigin()
-            direction = dose.GetDirection()
+            dose_handle = reader.Execute()
+            resampled_dose_handle = resampler.resample_image(input_image_handle=dose_handle,
+                                                             ref_resampling_handle=self.dicom_handle,
+                                                             interpolator='Linear', empty_value=0)
             scaling_factor = float(reader.GetMetaData("3004|000e"))
-            dose = sitk.GetArrayFromImage(dose) * scaling_factor
+            dose = sitk.GetArrayFromImage(resampled_dose_handle) * scaling_factor
             if output is None:
                 output = dose
             else:
@@ -1155,10 +1158,9 @@ class DicomReaderWriter(object):
         if output is not None:
             self.dose = output
             output = sitk.GetImageFromArray(output)
-            output.SetSpacing(spacing)
-            output.SetDirection(direction)
-            output.SetOrigin(origin)
-            self.dose_handle = output
+            self.dose_handle = resampler.resample_image(input_image_handle=output,
+                                                        ref_resampling_handle=self.dicom_handle,
+                                                        interpolator='Linear', empty_value=0)
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
