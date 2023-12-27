@@ -1130,7 +1130,12 @@ class DicomReaderWriter(object):
             self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
             self.dicom_handle_uid = series_instance_uid
 
-    def get_dose(self) -> None:
+    def get_dose(self, dose_type="PLAN") -> None:
+        """
+        :param dose_type: Type of dose to pull, https://dicom.innolitics.com/ciods/rt-dose/rt-dose/3004000a
+        Can be "PLAN", "BEAM", etc.
+        :return:
+        """
         if self.index not in self.series_instances_dictionary:
             print('Index is not present in the dictionary! Set it using set_index(index)')
             return None
@@ -1149,22 +1154,31 @@ class DicomReaderWriter(object):
         self.dose = None
         resampler = ImageResampler()
         resampled_dose_handle: sitk.Image
+        filter_rds = False
+        if len(RDs) > 1:
+            filter_rds = True
         for rd_series_instance_uid in RDs:
             rd = RDs[rd_series_instance_uid]
-            dose_file = rd.path
-            reader.SetFileName(dose_file)
-            reader.ReadImageInformation()
-            dose_handle = reader.Execute()
-            resampled_dose_handle = resampler.resample_image(input_image_handle=dose_handle,
-                                                             ref_resampling_handle=self.dicom_handle,
-                                                             interpolator='Linear', empty_value=0)
-            resampled_dose_handle = sitk.Cast(resampled_dose_handle, sitk.sitkFloat32)
-            scaling_factor = float(reader.GetMetaData("3004|000e"))
-            resampled_dose_handle = resampled_dose_handle * scaling_factor
-            if output is None:
-                output = resampled_dose_handle
-            else:
-                output += resampled_dose_handle
+            if filter_rds:
+                if rd.DoseSummationType != dose_type:
+                    if self.verbose:
+                        print(f"Found multiple dose types, loading {dose_type}, this can be changed via"
+                              f" .get_dose(dose_type='PLAN'), etc.")
+                    continue
+            for dose_file in rd.Dose_Files:
+                reader.SetFileName(dose_file)
+                reader.ReadImageInformation()
+                dose_handle = reader.Execute()
+                resampled_dose_handle = resampler.resample_image(input_image_handle=dose_handle,
+                                                                 ref_resampling_handle=self.dicom_handle,
+                                                                 interpolator='Linear', empty_value=0)
+                resampled_dose_handle = sitk.Cast(resampled_dose_handle, sitk.sitkFloat32)
+                scaling_factor = float(reader.GetMetaData("3004|000e"))
+                resampled_dose_handle = resampled_dose_handle * scaling_factor
+                if output is None:
+                    output = resampled_dose_handle
+                else:
+                    output += resampled_dose_handle
         if output is not None:
             self.dose = sitk.GetArrayFromImage(output)
             self.dose_handle = output
