@@ -2,7 +2,7 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
-from .Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys
+from .Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys, ROIClass
 from .Services.StaticScripts import poly2mask, add_to_mask
 from .Viewer import plot_scroll_Image
 from NiftiResampler.ResampleTools import ImageResampler
@@ -277,6 +277,7 @@ class DicomReaderWriter(object):
     dose_handle: sitk.Image or None
     annotation_handle: sitk.Image or None
     all_rois: List[str]
+    roi_class_list: List[ROIClass]
     rois_in_loaded_index: List[str]
     indexes_with_contours: List[int]  # A list of all the indexes which contain the desired contours
     roi_groups: Dict[str, List[str]]  # A dictionary with ROI names grouped by code associations
@@ -312,6 +313,7 @@ class DicomReaderWriter(object):
         :param group_dose_by_frame_of_reference: a boolean, should dose files be associated with images based on the
         frame of reference. This is a last resort if the dose does not reference a structure or plan file.
         """
+        self.roi_class_list = []
         self.dose = None
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         self.verbose = verbose
@@ -402,6 +404,7 @@ class DicomReaderWriter(object):
 
     def __reset_RTs__(self):
         self.all_rois = []
+        self.roi_class_list = []
         self.roi_groups = {}
         self.indexes_with_contours = []
         self.RS_struct_uid = None
@@ -636,25 +639,26 @@ class DicomReaderWriter(object):
                     self.roi_groups[code_key] = RT.CodeAssociations[code_key]
                 else:
                     self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT.CodeAssociations[code_key]))
-            ROI_Names = RT.ROI_Names
-            for roi in ROI_Names:
-                if roi.lower() not in self.RTs_with_ROI_Names:
-                    self.RTs_with_ROI_Names[roi.lower()] = [RT.path]
-                elif RT.path not in self.RTs_with_ROI_Names[roi.lower()]:
-                    self.RTs_with_ROI_Names[roi.lower()].append(RT.path)
-                if roi.lower() not in self.rois_in_loaded_index:
-                    self.rois_in_loaded_index.append(roi.lower())
-                if roi.lower() not in self.all_rois:
-                    self.all_rois.append(roi.lower())
+            for roi in RT.ROIs_In_Structure.values():
+                roi_name = roi.ROIName
+                if roi_name not in self.RTs_with_ROI_Names:
+                    self.RTs_with_ROI_Names[roi.ROIName] = [RT.path]
+                elif RT.path not in self.RTs_with_ROI_Names[roi_name]:
+                    self.RTs_with_ROI_Names[roi_name].append(RT.path)
+                if roi_name not in self.rois_in_loaded_index:
+                    self.rois_in_loaded_index.append(roi_name)
+                if roi_name not in self.all_rois:
+                    self.all_rois.append(roi_name)
+                    self.roi_class_list.append(roi)
                 if self.Contour_Names:
-                    if roi.lower() in self.Contour_Names:
-                        true_rois.append(roi.lower())
+                    if roi_name in self.Contour_Names:
+                        true_rois.append(roi_name)
                     elif self.associations:
                         for association in self.associations:
-                            if roi.lower() in association.other_names:
+                            if roi_name in association.other_names:
                                 true_rois.append(association.roi_name)
-                            elif roi.lower() in self.Contour_Names:
-                                true_rois.append(roi.lower())
+                            elif roi_name in self.Contour_Names:
+                                true_rois.append(roi_name)
         all_contours_exist = True
         some_contours_exist = False
         lacking_rois = []
@@ -944,7 +948,7 @@ class DicomReaderWriter(object):
             print('{} unique series IDs were found. Default is index 0, to change use '
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
             self.set_index(0)
-        self.__check_if_all_contours_present__()
+t        self.__check_if_all_contours_present__()
         return None
 
     def write_parallel(self, out_path: typing.Union[str, bytes, os.PathLike],
