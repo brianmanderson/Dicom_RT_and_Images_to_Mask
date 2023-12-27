@@ -503,7 +503,7 @@ class DicomReaderWriter(object):
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
                         added = True
                         if self.verbose:
-                            print(f"Could not associate the dose file {dose.path} with a plan or structure.\n"
+                            print(f"Could not associate the dose files {dose.Dose_Files} with a plan or structure.\n"
                                   f"Grouping with images {image.path} based on Frame of Reference UID")
             if not added:
                 while index in self.series_instances_dictionary:
