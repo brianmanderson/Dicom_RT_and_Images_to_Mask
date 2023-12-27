@@ -31,11 +31,11 @@ class RDBase(DICOMBase):
     DoseSummationType: str
     DoseType: str  # GY or RELATIVE
     DoseUnits: str
-    Beam_Files: List[str]  # If this is a beam dose, we will have multiple files
+    Dose_Files: List[str]  # If this is a beam dose, we will have multiple files
 
     def __init__(self):
         self.additional_tags = dict()
-        self.Beam_Files = []
+        self.Dose_Files = []
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
         file_name = sitk_dicom_reader.GetFileName()
@@ -53,8 +53,7 @@ class RDBase(DICOMBase):
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
         self.path = sitk_dicom_reader.GetFileName()
-        if self.DoseSummationType == "BEAM":
-            self.Beam_Files.append(self.path)
+        self.Dose_Files.append(self.path)
         self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
         if sitk_string_keys is not None:
             for string in sitk_string_keys:
@@ -73,7 +72,7 @@ class RDBase(DICOMBase):
             Means these are compatible beams
             """
             if ds.DoseSummationType == "BEAM":
-                self.Beam_Files.append(file_name)
+                self.Dose_Files.append(file_name)
 
 
 class PlanBase(DICOMBase):
