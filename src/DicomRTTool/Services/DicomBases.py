@@ -116,9 +116,16 @@ class PlanBase(DICOMBase):
                         continue
 
 
+class ROIClass(object):
+    ROIName: str
+    ROIType: str
+    ROINumber: int
+    StructureCode: str
+
+
 class RTBase(DICOMBase):
     ROI_Names: List[str]
-    ROIs_In_Structure: Dict[str, str]
+    ROIs_In_Structure: Dict[str, ROIClass]
     referenced_series_instance_uid: str
     Plans: Dict[str, PlanBase]
     Doses: Dict[str, RDBase]
@@ -129,7 +136,7 @@ class RTBase(DICOMBase):
         self.Doses = dict()
         self.additional_tags = dict()
         self.ROI_Names = []
-        self.ROIs_In_Structure = dict()
+        self.ROIs_In_Structure = {}
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
                   pydicom_string_keys: PyDicomKeys = None):
@@ -147,24 +154,34 @@ class RTBase(DICOMBase):
                     else:
                         ROI_Observation = []
                     code_strings = {}
+                    type_strings = {}
                     for Observation in ROI_Observation:
                         if Tag((0x3006, 0x086)) in Observation:
                             code_strings[Observation.ReferencedROINumber] = \
                                 Observation.RTROIIdentificationCodeSequence[0].CodeValue
+                        if (Tag(0x3006, 0x00a4)) in Observation:
+                            type_strings[Observation.ReferencedROINumber] = Observation.RTROIInterpretedType
                     roi_structure_code_and_names = {}
                     rois = []
                     for Structures in ROI_Structure:
                         roi_name = Structures.ROIName.lower()
                         rois.append(roi_name)
                         roi_number = Structures.ROINumber
+                        new_roi = ROIClass()
+                        new_roi.ROIName = roi_name
+                        new_roi.ROINumber = roi_number
                         if roi_number in code_strings:
                             structure_code = code_strings[roi_number]
+                            new_roi.StructureCode = structure_code
                             if structure_code not in roi_structure_code_and_names:
                                 roi_structure_code_and_names[structure_code] = []
                             if roi_name not in roi_structure_code_and_names[structure_code]:
                                 roi_structure_code_and_names[structure_code].append(roi_name)
+                        if roi_number in type_strings:
+                            roi_type = type_strings[roi_number]
+                            new_roi.ROIType = roi_type
                         if roi_name not in self.ROIs_In_Structure:
-                            self.ROIs_In_Structure[roi_name] = roi_number
+                            self.ROIs_In_Structure[roi_name] = new_roi
                     self.path = path
                     self.ROI_Names = rois
                     self.SeriesInstanceUID = refed_series_instance_uid
