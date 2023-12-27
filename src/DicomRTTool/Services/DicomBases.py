@@ -15,7 +15,6 @@ class DICOMBase(object):
     SeriesInstanceUID: str = None
     SOPInstanceUID: str = None
     StudyInstanceUID: str = None
-    file: str = None
     path: typing.Union[str, bytes, os.PathLike] = None
     additional_tags: Dict
 
@@ -32,12 +31,15 @@ class RDBase(DICOMBase):
     DoseSummationType: str
     DoseType: str  # GY or RELATIVE
     DoseUnits: str
+    Beam_Files: List[str]  # If this is a beam dose, we will have multiple files
 
     def __init__(self):
         self.additional_tags = dict()
+        self.Beam_Files = []
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
-        ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
+        file_name = sitk_dicom_reader.GetFileName()
+        ds = pydicom.read_file(file_name)
         self.SeriesInstanceUID = ds.SeriesInstanceUID
         self.DoseType = ds.DoseType
         self.DoseUnits = ds.DoseUnits
@@ -51,6 +53,8 @@ class RDBase(DICOMBase):
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
         self.path = sitk_dicom_reader.GetFileName()
+        if self.DoseSummationType == "BEAM":
+            self.Beam_Files.append(self.path)
         self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
         if sitk_string_keys is not None:
             for string in sitk_string_keys:
@@ -60,6 +64,16 @@ class RDBase(DICOMBase):
                         self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
                     except:
                         continue
+
+    def add_beam(self, sitk_dicom_reader):
+        file_name = sitk_dicom_reader.GetFileName()
+        ds = pydicom.read_file(file_name)
+        if self.SeriesInstanceUID == ds.SeriesInstanceUID:
+            """
+            Means these are compatible beams
+            """
+            if ds.DoseSummationType == "BEAM":
+                self.Beam_Files.append(file_name)
 
 
 class PlanBase(DICOMBase):

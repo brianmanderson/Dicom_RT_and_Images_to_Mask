@@ -187,6 +187,10 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary: Dict[str, RDBase], si
             new_rd = RDBase()
             new_rd.load_info(sitk_dicom_reader, sitk_string_keys)
             rd_dictionary[series_instance_uid] = new_rd
+        else:
+            rd_base: RDBase
+            rd_base = rd_dictionary[series_instance_uid]
+            rd_base.add_beam(sitk_dicom_reader)
     except:
         print("Had an error loading " + sitk_dicom_reader.GetFileName())
 
@@ -238,12 +242,16 @@ class AddDicomToDictionary(object):
             dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_id)
             all_names += dicom_names
             self.image_reader.SetFileName(dicom_names[0])
-            self.image_reader.Execute()
+            self.image_reader.ReadImageInformation()
             modality = self.image_reader.GetMetaData("0008|0060")
             if modality.lower().find('rtdose') != -1:
-                add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
-                                     rd_dictionary=rd_dictionary, sitk_string_keys=self.dose_sitk_string_keys)
+                for dicom_name in dicom_names:
+                    self.image_reader.SetFileName(dicom_name)
+                    self.image_reader.Execute()
+                    add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
+                                         rd_dictionary=rd_dictionary, sitk_string_keys=self.dose_sitk_string_keys)
             else:
+                self.image_reader.Execute()
                 add_images_to_dictionary(images_dictionary=images_dictionary, dicom_names=dicom_names,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path,
                                          sitk_string_keys=self.image_sitk_string_keys)
