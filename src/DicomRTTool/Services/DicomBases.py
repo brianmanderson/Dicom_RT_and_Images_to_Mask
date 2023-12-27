@@ -29,6 +29,9 @@ class RDBase(DICOMBase):
     ReferencedStructureSetSOPInstanceUID: str = None
     ReferencedPlanSOPInstanceUID: str = None
     ReferencedFrameOfReference: str
+    DoseSummationType: str
+    DoseType: str  # GY or RELATIVE
+    DoseUnits: str
 
     def __init__(self):
         self.additional_tags = dict()
@@ -36,6 +39,9 @@ class RDBase(DICOMBase):
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
         ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
         self.SeriesInstanceUID = ds.SeriesInstanceUID
+        self.DoseType = ds.DoseType
+        self.DoseUnits = ds.DoseUnits
+        self.DoseSummationType = ds.DoseSummationType
         self.ReferencedFrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
         self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
             if "ReferencedStructureSetSequence" in ds.values() else None

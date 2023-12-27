@@ -1140,6 +1140,7 @@ class DicomReaderWriter(object):
         output, spacing, direction, origin = None, None, None, None
         self.dose = None
         resampler = ImageResampler()
+        resampled_dose_handle: sitk.Image
         for rd_series_instance_uid in RDs:
             rd = RDs[rd_series_instance_uid]
             dose_file = rd.path
@@ -1149,18 +1150,16 @@ class DicomReaderWriter(object):
             resampled_dose_handle = resampler.resample_image(input_image_handle=dose_handle,
                                                              ref_resampling_handle=self.dicom_handle,
                                                              interpolator='Linear', empty_value=0)
+            resampled_dose_handle = sitk.Cast(resampled_dose_handle, sitk.sitkFloat32)
             scaling_factor = float(reader.GetMetaData("3004|000e"))
-            dose = sitk.GetArrayFromImage(resampled_dose_handle) * scaling_factor
+            resampled_dose_handle = resampled_dose_handle * scaling_factor
             if output is None:
-                output = dose
+                output = resampled_dose_handle
             else:
-                output += dose
+                output += resampled_dose_handle
         if output is not None:
-            self.dose = output
-            output = sitk.GetImageFromArray(output)
-            self.dose_handle = resampler.resample_image(input_image_handle=output,
-                                                        ref_resampling_handle=self.dicom_handle,
-                                                        interpolator='Linear', empty_value=0)
+            self.dose = sitk.GetArrayFromImage(output)
+            self.dose_handle = output
 
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
