@@ -948,7 +948,7 @@ class DicomReaderWriter(object):
             print('{} unique series IDs were found. Default is index 0, to change use '
                   'set_index(index)'.format(len(self.series_instances_dictionary)))
             self.set_index(0)
-t        self.__check_if_all_contours_present__()
+        self.__check_if_all_contours_present__()
         return None
 
     def write_parallel(self, out_path: typing.Union[str, bytes, os.PathLike],
