@@ -617,7 +617,7 @@ class DicomReaderWriter(object):
         self.Contour_Names = contour_names
 
     def __set_description__(self, description: str):
-        self.desciption = description
+        self.description = description
 
     def __set_iteration__(self, iteration=0):
         self.iteration = str(iteration)
