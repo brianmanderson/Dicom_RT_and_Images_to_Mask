@@ -1198,7 +1198,7 @@ class DicomReaderWriter(object):
 
     def __return_mask_for_roi__(self, RT: RTBase, roi_name: str):
         self.__characterize_RT__(RT)
-        structure_index = self.structure_references[RT.ROIs_In_Structure[roi_name]]
+        structure_index = self.structure_references[RT.ROIs_In_Structure[roi_name].ROINumber]
         mask = self.contours_to_mask(structure_index, roi_name)
         return mask
 
