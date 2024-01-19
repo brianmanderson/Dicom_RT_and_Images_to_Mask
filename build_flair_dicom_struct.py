@@ -1,3 +1,11 @@
+"""
+
+-This script is dedicated to convert the RT_structure originted from the corresponding T1c folder and map a new RT_structure
+that works on the corresponding FLAIR dicoms
+
+-a new RT_Structure will be placed on the FLAIRE dicoms
+"""
+
 import pydicom as dicom
 import os
 
@@ -127,7 +135,7 @@ def construct_RTStruct_for_t2f_dicoms(params):
     rt_sequence = params['rt_sequence']
     patient_day_dicoms_Flair = params['patient_day_dicoms_Flair']
 
-    for roi_index, cname in enumerate(contour_names): # TODO: note that contour that is in different time point other than day 0 seem to require coordinate registration to work, need to wait for james to give me the struct for process.
+    for roi_index, cname in enumerate(contour_names):
         print('     processing contour {}'.format(cname))
         # get contour datasets with index idx
         contour_datasets = get_roi_contour_ds(rt_sequence=rt_sequence, index=roi_index)
