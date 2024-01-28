@@ -13,6 +13,6 @@ xlrd
 check-manifest
 tqdm~=4.64.0
 pytest
-
+NiftiResampler
 PlotScrollNumpyArrays~=0.0.1
 setuptools~=62.1.0

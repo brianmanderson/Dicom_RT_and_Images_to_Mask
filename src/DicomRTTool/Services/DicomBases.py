@@ -15,7 +15,6 @@ class DICOMBase(object):
     SeriesInstanceUID: str = None
     SOPInstanceUID: str = None
     StudyInstanceUID: str = None
-    file: str = None
     path: typing.Union[str, bytes, os.PathLike] = None
     additional_tags: Dict
 
@@ -29,13 +28,22 @@ class RDBase(DICOMBase):
     ReferencedStructureSetSOPInstanceUID: str = None
     ReferencedPlanSOPInstanceUID: str = None
     ReferencedFrameOfReference: str
+    DoseSummationType: str
+    DoseType: str  # GY or RELATIVE
+    DoseUnits: str
+    Dose_Files: List[str]  # If this is a beam dose, we will have multiple files
 
     def __init__(self):
         self.additional_tags = dict()
+        self.Dose_Files = []
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
-        ds = pydicom.read_file(sitk_dicom_reader.GetFileName())
+        file_name = sitk_dicom_reader.GetFileName()
+        ds = pydicom.read_file(file_name)
         self.SeriesInstanceUID = ds.SeriesInstanceUID
+        self.DoseType = ds.DoseType
+        self.DoseUnits = ds.DoseUnits
+        self.DoseSummationType = ds.DoseSummationType
         self.ReferencedFrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
         self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
             if "ReferencedStructureSetSequence" in ds.values() else None
@@ -45,6 +53,7 @@ class RDBase(DICOMBase):
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")
         self.path = sitk_dicom_reader.GetFileName()
+        self.Dose_Files.append(self.path)
         self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
         if sitk_string_keys is not None:
             for string in sitk_string_keys:
@@ -54,6 +63,16 @@ class RDBase(DICOMBase):
                         self.additional_tags[string] = sitk_dicom_reader.GetMetaData(key)
                     except:
                         continue
+
+    def add_beam(self, sitk_dicom_reader):
+        file_name = sitk_dicom_reader.GetFileName()
+        ds = pydicom.read_file(file_name)
+        if self.SeriesInstanceUID == ds.SeriesInstanceUID:
+            """
+            Means these are compatible beams
+            """
+            if ds.DoseSummationType == "BEAM":
+                self.Dose_Files.append(file_name)
 
 
 class PlanBase(DICOMBase):
@@ -97,9 +116,16 @@ class PlanBase(DICOMBase):
                         continue
 
 
+class ROIClass(object):
+    ROIName: str
+    ROIType: str
+    ROINumber: int
+    StructureCode: str
+
+
 class RTBase(DICOMBase):
     ROI_Names: List[str]
-    ROIs_In_Structure: Dict[str, str]
+    ROIs_In_Structure: Dict[str, ROIClass]
     referenced_series_instance_uid: str
     Plans: Dict[str, PlanBase]
     Doses: Dict[str, RDBase]
@@ -110,7 +136,7 @@ class RTBase(DICOMBase):
         self.Doses = dict()
         self.additional_tags = dict()
         self.ROI_Names = []
-        self.ROIs_In_Structure = dict()
+        self.ROIs_In_Structure = {}
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
                   pydicom_string_keys: PyDicomKeys = None):
@@ -128,24 +154,34 @@ class RTBase(DICOMBase):
                     else:
                         ROI_Observation = []
                     code_strings = {}
+                    type_strings = {}
                     for Observation in ROI_Observation:
                         if Tag((0x3006, 0x086)) in Observation:
                             code_strings[Observation.ReferencedROINumber] = \
                                 Observation.RTROIIdentificationCodeSequence[0].CodeValue
+                        if (Tag(0x3006, 0x00a4)) in Observation:
+                            type_strings[Observation.ReferencedROINumber] = Observation.RTROIInterpretedType
                     roi_structure_code_and_names = {}
                     rois = []
                     for Structures in ROI_Structure:
                         roi_name = Structures.ROIName.lower()
                         rois.append(roi_name)
                         roi_number = Structures.ROINumber
+                        new_roi = ROIClass()
+                        new_roi.ROIName = roi_name
+                        new_roi.ROINumber = roi_number
                         if roi_number in code_strings:
                             structure_code = code_strings[roi_number]
+                            new_roi.StructureCode = structure_code
                             if structure_code not in roi_structure_code_and_names:
                                 roi_structure_code_and_names[structure_code] = []
                             if roi_name not in roi_structure_code_and_names[structure_code]:
                                 roi_structure_code_and_names[structure_code].append(roi_name)
+                        if roi_number in type_strings:
+                            roi_type = type_strings[roi_number]
+                            new_roi.ROIType = roi_type
                         if roi_name not in self.ROIs_In_Structure:
-                            self.ROIs_In_Structure[roi_name] = roi_number
+                            self.ROIs_In_Structure[roi_name] = new_roi
                     self.path = path
                     self.ROI_Names = rois
                     self.SeriesInstanceUID = refed_series_instance_uid
