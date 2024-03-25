@@ -459,6 +459,7 @@ class DicomReaderWriter(object):
                         rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
+                        self.rd_dictionary[rd_series_instance_uid].Grouped = True
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
             struct_ref = self.rp_dictionary[rp_series_instance_uid].ReferencedStructureSetSOPInstanceUID
@@ -494,26 +495,28 @@ class DicomReaderWriter(object):
                                 rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
+                        self.rd_dictionary[rd_series_instance_uid].Grouped = True
         for rd_series_instance_uid in self.rd_dictionary:
             added = False
             dose = self.rd_dictionary[rd_series_instance_uid]
-            if self.group_dose_by_frame_of_reference:
-                for image_series_key in self.series_instances_dictionary:
-                    image = self.series_instances_dictionary[image_series_key]
-                    if image.StudyInstanceUID != dose.StudyInstanceUID:
-                        continue
-                    if image.FrameOfReference == self.rd_dictionary[rd_series_instance_uid].ReferencedFrameOfReference:
-                        self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
-                        added = True
-                        if self.verbose:
-                            print(f"Could not associate the dose files {dose.Dose_Files} with a plan or structure.\n"
-                                  f"Grouping with images {image.path} based on Frame of Reference UID")
-            if not added:
-                while index in self.series_instances_dictionary:
-                    index += 1
-                template = return_template_dictionary()
-                template.RDs.update({rd_series_instance_uid: dose})
-                self.series_instances_dictionary[index] = template
+            if not dose.Grouped:
+                if self.group_dose_by_frame_of_reference:
+                    for image_series_key in self.series_instances_dictionary:
+                        image = self.series_instances_dictionary[image_series_key]
+                        if image.StudyInstanceUID != dose.StudyInstanceUID:
+                            continue
+                        if image.FrameOfReference == self.rd_dictionary[rd_series_instance_uid].ReferencedFrameOfReference:
+                            self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
+                            added = True
+                            if self.verbose:
+                                print(f"Could not associate the dose files {dose.Dose_Files} with a plan or structure.\n"
+                                      f"Grouping with images {image.path} based on Frame of Reference UID")
+                if not added:
+                    while index in self.series_instances_dictionary:
+                        index += 1
+                    template = return_template_dictionary()
+                    template.RDs.update({rd_series_instance_uid: dose})
+                    self.series_instances_dictionary[index] = template
 
     def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
         """

@@ -31,10 +31,12 @@ class RDBase(DICOMBase):
     DoseSummationType: str
     DoseType: str  # GY or RELATIVE
     DoseUnits: str
+    Grouped: bool
     Dose_Files: List[str]  # If this is a beam dose, we will have multiple files
 
     def __init__(self):
         self.additional_tags = dict()
+        self.Grouped = False
         self.Dose_Files = []
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
@@ -45,9 +47,9 @@ class RDBase(DICOMBase):
         self.DoseUnits = ds.DoseUnits
         self.DoseSummationType = ds.DoseSummationType
         self.ReferencedFrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
-        self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID \
-            if "ReferencedStructureSetSequence" in ds.values() else None
-        if Tag((0x300a, 0x002)) in ds.keys():
+        if hasattr(ds, "ReferencedStructureSetSequence"):
+            self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
+        if hasattr(ds, "ReferencedRTPlanSequence"):
             self.ReferencedPlanSOPInstanceUID = ds.ReferencedRTPlanSequence[0].ReferencedSOPInstanceUID
         self.StudyInstanceUID = sitk_dicom_reader.GetMetaData("0020|000d")
         if "0008|103e" in sitk_dicom_reader.GetMetaDataKeys():
@@ -79,7 +81,7 @@ class PlanBase(DICOMBase):
     PlanLabel: str
     PlanName: str
     ReferencedStructureSetSOPInstanceUID: str
-    ReferencedDoseSOPUID: str
+    ReferencedDoseSOPUID: str = None
     StudyDescription: str
     SeriesDescription: str
 
@@ -88,8 +90,12 @@ class PlanBase(DICOMBase):
 
     def load_info(self, ds: pydicom.Dataset, path: typing.Union[str, bytes, os.PathLike],
                   pydicom_string_keys: PyDicomKeys = None):
-        refed_structure_uid = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
-        refed_dose_uid = ds.DoseReferenceSequence[0].DoseReferenceUID
+        if hasattr(ds, "DoseReferenceSequence"):
+            dose_ref_sequence = ds.DoseReferenceSequence[0]
+            if hasattr(dose_ref_sequence, "DoseReferenceUID"):
+                self.ReferencedDoseSOPUID = dose_ref_sequence.DoseReferenceUID
+        if hasattr(ds, "ReferencedStructureSetSequence"):
+            self.ReferencedStructureSetSOPInstanceUID = ds.ReferencedStructureSetSequence[0].ReferencedSOPInstanceUID
         plan_label = None
         plan_name = None
         if Tag((0x300a, 0x002)) in ds.keys():
@@ -100,8 +106,6 @@ class PlanBase(DICOMBase):
         self.SOPInstanceUID = ds.SOPInstanceUID
         self.PlanLabel = plan_label
         self.PlanName = plan_name
-        self.ReferencedStructureSetSOPInstanceUID = refed_structure_uid
-        self.ReferencedDoseSOPUID = refed_dose_uid
         if Tag((0x0008, 0x1030)) in ds.keys():
             self.StudyDescription = ds.StudyDescription
         if Tag((0x0008, 0x103e)) in ds.keys():
