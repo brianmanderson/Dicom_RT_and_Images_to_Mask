@@ -2,9 +2,10 @@ __author__ = 'Brian M Anderson'
 
 # Created on 12/31/2020
 import os
-from .Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys
+from .Services.DicomBases import ImageBase, RDBase, RTBase, PlanBase, PyDicomKeys, SitkDicomKeys, ROIClass
 from .Services.StaticScripts import poly2mask, add_to_mask
 from .Viewer import plot_scroll_Image
+from NiftiResampler.ResampleTools import ImageResampler
 from tqdm import tqdm
 import typing
 import pydicom
@@ -172,9 +173,9 @@ def add_rt_to_dictionary(ds: pydicom.Dataset, path: typing.Union[str, bytes, os.
     try:
         series_instance_uid = ds.SeriesInstanceUID
         if series_instance_uid not in rt_dictionary:
-            new_RT = RTBase()
-            new_RT.load_info(ds, path, pydicom_string_keys)
-            rt_dictionary[series_instance_uid] = new_RT
+            new_rt = RTBase()
+            new_rt.load_info(ds, path, pydicom_string_keys)
+            rt_dictionary[series_instance_uid] = new_rt
     except:
         print("Had an error loading " + path)
 
@@ -186,6 +187,10 @@ def add_rd_to_dictionary(sitk_dicom_reader, rd_dictionary: Dict[str, RDBase], si
             new_rd = RDBase()
             new_rd.load_info(sitk_dicom_reader, sitk_string_keys)
             rd_dictionary[series_instance_uid] = new_rd
+        else:
+            rd_base: RDBase
+            rd_base = rd_dictionary[series_instance_uid]
+            rd_base.add_beam(sitk_dicom_reader)
     except:
         print("Had an error loading " + sitk_dicom_reader.GetFileName())
 
@@ -230,24 +235,28 @@ class AddDicomToDictionary(object):
                                           rt_dictionary: Dict[str, RTBase],
                                           rd_dictionary: Dict[str, RDBase],
                                           rp_dictionary: Dict[str, PlanBase]):
-        fileList = [os.path.join(dicom_path, i) for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
+        file_list = [os.path.join(dicom_path, i) for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
         for series_id in series_ids:
             dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_id)
             all_names += dicom_names
             self.image_reader.SetFileName(dicom_names[0])
-            self.image_reader.Execute()
+            self.image_reader.ReadImageInformation()
             modality = self.image_reader.GetMetaData("0008|0060")
             if modality.lower().find('rtdose') != -1:
-                add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
-                                     rd_dictionary=rd_dictionary, sitk_string_keys=self.dose_sitk_string_keys)
+                for dicom_name in dicom_names:
+                    self.image_reader.SetFileName(dicom_name)
+                    self.image_reader.Execute()
+                    add_rd_to_dictionary(sitk_dicom_reader=self.image_reader,
+                                         rd_dictionary=rd_dictionary, sitk_string_keys=self.dose_sitk_string_keys)
             else:
+                self.image_reader.Execute()
                 add_images_to_dictionary(images_dictionary=images_dictionary, dicom_names=dicom_names,
                                          sitk_dicom_reader=self.image_reader, path=dicom_path,
                                          sitk_string_keys=self.image_sitk_string_keys)
-        RT_Files = [file for file in fileList if file not in all_names]
-        for lstRSFile in RT_Files:
+        rt_files = [file for file in file_list if file not in all_names]
+        for lstRSFile in rt_files:
             rt = pydicom.read_file(lstRSFile)
             modality = rt.Modality
             if modality.lower().find('struct') != -1:
@@ -268,6 +277,7 @@ class DicomReaderWriter(object):
     dose_handle: sitk.Image or None
     annotation_handle: sitk.Image or None
     all_rois: List[str]
+    roi_class_list: List[ROIClass]
     rois_in_loaded_index: List[str]
     indexes_with_contours: List[int]  # A list of all the indexes which contain the desired contours
     roi_groups: Dict[str, List[str]]  # A dictionary with ROI names grouped by code associations
@@ -278,7 +288,7 @@ class DicomReaderWriter(object):
     mask: np.ndarray or None
     group_dose_by_frame_of_reference: bool
 
-    def __init__(self, description='', Contour_Names: List[str]=None, associations: List[ROIAssociationClass] = None,
+    def __init__(self, description='', Contour_Names: List[str] = None, associations: List[ROIAssociationClass] = None,
                  arg_max=True, verbose=True, create_new_RT=True, template_dir=None, delete_previous_rois=True,
                  require_all_contours=True, iteration=0, get_dose_output=False,
                  flip_axes=(False, False, False), index=0, series_instances_dictionary: Dict[int, ImageBase] = None,
@@ -303,6 +313,8 @@ class DicomReaderWriter(object):
         :param group_dose_by_frame_of_reference: a boolean, should dose files be associated with images based on the
         frame of reference. This is a last resort if the dose does not reference a structure or plan file.
         """
+        self.roi_class_list = []
+        self.dose = None
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         self.verbose = verbose
         self.annotation_handle = None
@@ -392,6 +404,7 @@ class DicomReaderWriter(object):
 
     def __reset_RTs__(self):
         self.all_rois = []
+        self.roi_class_list = []
         self.roi_groups = {}
         self.indexes_with_contours = []
         self.RS_struct_uid = None
@@ -446,6 +459,7 @@ class DicomReaderWriter(object):
                         rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
+                        self.rd_dictionary[rd_series_instance_uid].Grouped = True
         for rp_series_instance_uid in self.rp_dictionary:
             added = False
             struct_ref = self.rp_dictionary[rp_series_instance_uid].ReferencedStructureSetSOPInstanceUID
@@ -481,26 +495,28 @@ class DicomReaderWriter(object):
                                 rts[rt_key].Doses[rd_series_instance_uid] = self.rd_dictionary[rd_series_instance_uid]
                         self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid:
                                                                                            self.rd_dictionary[rd_series_instance_uid]})
+                        self.rd_dictionary[rd_series_instance_uid].Grouped = True
         for rd_series_instance_uid in self.rd_dictionary:
             added = False
             dose = self.rd_dictionary[rd_series_instance_uid]
-            if self.group_dose_by_frame_of_reference:
-                for image_series_key in self.series_instances_dictionary:
-                    image = self.series_instances_dictionary[image_series_key]
-                    if image.StudyInstanceUID != dose.StudyInstanceUID:
-                        continue
-                    if image.FrameOfReference == self.rd_dictionary[rd_series_instance_uid].ReferencedFrameOfReference:
-                        self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
-                        added = True
-                        if self.verbose:
-                            print(f"Could not associate the dose file {dose.path} with a plan or structure.\n"
-                                  f"Grouping with images {image.path} based on Frame of Reference UID")
-            if not added:
-                while index in self.series_instances_dictionary:
-                    index += 1
-                template = return_template_dictionary()
-                template.RDs.update({rd_series_instance_uid: dose})
-                self.series_instances_dictionary[index] = template
+            if not dose.Grouped:
+                if self.group_dose_by_frame_of_reference:
+                    for image_series_key in self.series_instances_dictionary:
+                        image = self.series_instances_dictionary[image_series_key]
+                        if image.StudyInstanceUID != dose.StudyInstanceUID:
+                            continue
+                        if image.FrameOfReference == self.rd_dictionary[rd_series_instance_uid].ReferencedFrameOfReference:
+                            self.series_instances_dictionary[image_series_key].RDs.update({rd_series_instance_uid: dose})
+                            added = True
+                            if self.verbose:
+                                print(f"Could not associate the dose files {dose.Dose_Files} with a plan or structure.\n"
+                                      f"Grouping with images {image.path} based on Frame of Reference UID")
+                if not added:
+                    while index in self.series_instances_dictionary:
+                        index += 1
+                    template = return_template_dictionary()
+                    template.RDs.update({rd_series_instance_uid: dose})
+                    self.series_instances_dictionary[index] = template
 
     def __manual_compile_based_on_folders__(self, reset_series_instances_dict=False):
         """
@@ -590,7 +606,7 @@ class DicomReaderWriter(object):
             self.__set_contour_names__(contour_names=contour_names)
         if associations is not None:
             self.__set_associations__(associations=associations)
-        if check_contours:  # I don't want to run this on the first build..
+        if check_contours:  # I don't want to run this on the first build
             self.__check_if_all_contours_present__()
         if contour_names is not None or self.associations is not None:
             if self.verbose:
@@ -607,7 +623,7 @@ class DicomReaderWriter(object):
         self.Contour_Names = contour_names
 
     def __set_description__(self, description: str):
-        self.desciption = description
+        self.description = description
 
     def __set_iteration__(self, iteration=0):
         self.iteration = str(iteration)
@@ -626,25 +642,26 @@ class DicomReaderWriter(object):
                     self.roi_groups[code_key] = RT.CodeAssociations[code_key]
                 else:
                     self.roi_groups[code_key] = list(set(self.roi_groups[code_key] + RT.CodeAssociations[code_key]))
-            ROI_Names = RT.ROI_Names
-            for roi in ROI_Names:
-                if roi.lower() not in self.RTs_with_ROI_Names:
-                    self.RTs_with_ROI_Names[roi.lower()] = [RT.path]
-                elif RT.path not in self.RTs_with_ROI_Names[roi.lower()]:
-                    self.RTs_with_ROI_Names[roi.lower()].append(RT.path)
-                if roi.lower() not in self.rois_in_loaded_index:
-                    self.rois_in_loaded_index.append(roi.lower())
-                if roi.lower() not in self.all_rois:
-                    self.all_rois.append(roi.lower())
+            for roi in RT.ROIs_In_Structure.values():
+                roi_name = roi.ROIName
+                if roi_name not in self.RTs_with_ROI_Names:
+                    self.RTs_with_ROI_Names[roi.ROIName] = [RT.path]
+                elif RT.path not in self.RTs_with_ROI_Names[roi_name]:
+                    self.RTs_with_ROI_Names[roi_name].append(RT.path)
+                if roi_name not in self.rois_in_loaded_index:
+                    self.rois_in_loaded_index.append(roi_name)
+                if roi_name not in self.all_rois:
+                    self.all_rois.append(roi_name)
+                    self.roi_class_list.append(roi)
                 if self.Contour_Names:
-                    if roi.lower() in self.Contour_Names:
-                        true_rois.append(roi.lower())
+                    if roi_name in self.Contour_Names:
+                        true_rois.append(roi_name)
                     elif self.associations:
                         for association in self.associations:
-                            if roi.lower() in association.other_names:
+                            if roi_name in association.other_names:
                                 true_rois.append(association.roi_name)
-                            elif roi.lower() in self.Contour_Names:
-                                true_rois.append(roi.lower())
+                            elif roi_name in self.Contour_Names:
+                                true_rois.append(roi_name)
         all_contours_exist = True
         some_contours_exist = False
         lacking_rois = []
@@ -910,10 +927,10 @@ class DicomReaderWriter(object):
         if paths_with_dicom:
             q = Queue(maxsize=thread_count)
             pbar = tqdm(total=len(paths_with_dicom), desc='Loading through DICOM files')
-            A = (q, pbar)
+            a = (q, pbar)
             threads = []
             for worker in range(thread_count):
-                t = Thread(target=folder_worker, args=(A,))
+                t = Thread(target=folder_worker, args=(a,))
                 t.start()
                 threads.append(t)
             for index, path in enumerate(paths_with_dicom):
@@ -963,7 +980,7 @@ class DicomReaderWriter(object):
         key_dict = {'series_instances_dictionary': self.series_instances_dictionary, 'associations': self.associations,
                     'arg_max': self.arg_max, 'require_all_contours': self.require_all_contours,
                     'Contour_Names': self.Contour_Names,
-                    'description': self.desciption, 'get_dose_output': self.get_dose_output}
+                    'description': self.description, 'get_dose_output': self.get_dose_output}
         rewrite_excel = False
         '''
         First, build the excel file that we will use to reference iterations, Series UIDs, and paths
@@ -1003,7 +1020,7 @@ class DicomReaderWriter(object):
             write_path = out_path
             if folder is not None:
                 write_path = os.path.join(out_path, folder)
-            write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, iteration))
+            write_image = os.path.join(write_path, 'Overall_Data_{}_{}.nii.gz'.format(self.description, iteration))
             rerun = True
             if os.path.exists(write_image):
                 print('Already wrote out index {} at {}'.format(index, write_path))
@@ -1021,10 +1038,10 @@ class DicomReaderWriter(object):
         if items:
             q = Queue(maxsize=thread_count)
             pbar = tqdm(total=len(items), desc='Writing nifti files...')
-            A = (q, pbar)
+            a = (q, pbar)
             threads = []
             for worker in range(thread_count):
-                t = Thread(target=worker_def, args=(A,))
+                t = Thread(target=worker_def, args=(a,))
                 t.start()
                 threads.append(t)
             for item in items:
@@ -1058,7 +1075,7 @@ class DicomReaderWriter(object):
 
     def get_all_info(self) -> None:
         """
-        Print all of the keys and their respective values
+        Print all the keys and their respective values
         :return:
         """
         self.load_key_information_only()
@@ -1120,7 +1137,12 @@ class DicomReaderWriter(object):
             self.image_size_cols, self.image_size_rows, self.image_size_z = self.dicom_handle.GetSize()
             self.dicom_handle_uid = series_instance_uid
 
-    def get_dose(self) -> None:
+    def get_dose(self, dose_type="PLAN") -> None:
+        """
+        :param dose_type: Type of dose to pull, https://dicom.innolitics.com/ciods/rt-dose/rt-dose/3004000a
+        Can be "PLAN", "BEAM", etc.
+        :return:
+        """
         if self.index not in self.series_instances_dictionary:
             print('Index is not present in the dictionary! Set it using set_index(index)')
             return None
@@ -1133,31 +1155,39 @@ class DicomReaderWriter(object):
             if self.rd_study_instance_uid == self.series_instances_dictionary[index].StudyInstanceUID:  # Already loaded
                 return None
         self.rd_study_instance_uid = self.series_instances_dictionary[index].StudyInstanceUID
-        RDs = self.series_instances_dictionary[index].RDs
+        radiation_doses = self.series_instances_dictionary[index].RDs
         reader = sitk.ImageFileReader()
         output, spacing, direction, origin = None, None, None, None
         self.dose = None
-        for rd_series_instance_uid in RDs:
-            rd = RDs[rd_series_instance_uid]
-            dose_file = rd.path
-            reader.SetFileName(dose_file)
-            reader.ReadImageInformation()
-            dose = reader.Execute()
-            spacing = dose.GetSpacing()
-            origin = dose.GetOrigin()
-            direction = dose.GetDirection()
-            scaling_factor = float(reader.GetMetaData("3004|000e"))
-            dose = sitk.GetArrayFromImage(dose) * scaling_factor
-            if output is None:
-                output = dose
-            else:
-                output += dose
+        resampler = ImageResampler()
+        resampled_dose_handle: sitk.Image
+        filter_rds = False
+        if len(radiation_doses) > 1:
+            filter_rds = True
+        for rd_series_instance_uid in radiation_doses:
+            rd = radiation_doses[rd_series_instance_uid]
+            if filter_rds:
+                if rd.DoseSummationType != dose_type:
+                    if self.verbose:
+                        print(f"Found multiple dose types, loading {dose_type}, this can be changed via"
+                              f" .get_dose(dose_type='PLAN'), etc.")
+                    continue
+            for dose_file in rd.Dose_Files:
+                reader.SetFileName(dose_file)
+                reader.ReadImageInformation()
+                dose_handle = reader.Execute()
+                resampled_dose_handle = resampler.resample_image(input_image_handle=dose_handle,
+                                                                 ref_resampling_handle=self.dicom_handle,
+                                                                 interpolator='Linear', empty_value=0)
+                resampled_dose_handle = sitk.Cast(resampled_dose_handle, sitk.sitkFloat32)
+                scaling_factor = float(reader.GetMetaData("3004|000e"))
+                resampled_dose_handle = resampled_dose_handle * scaling_factor
+                if output is None:
+                    output = resampled_dose_handle
+                else:
+                    output += resampled_dose_handle
         if output is not None:
-            self.dose = output
-            output = sitk.GetImageFromArray(output)
-            output.SetSpacing(spacing)
-            output.SetDirection(direction)
-            output.SetOrigin(origin)
+            self.dose = sitk.GetArrayFromImage(output)
             self.dose_handle = output
 
     def __characterize_RT__(self, RT: RTBase):
@@ -1171,7 +1201,7 @@ class DicomReaderWriter(object):
 
     def __return_mask_for_roi__(self, RT: RTBase, roi_name: str):
         self.__characterize_RT__(RT)
-        structure_index = self.structure_references[RT.ROIs_In_Structure[roi_name]]
+        structure_index = self.structure_references[RT.ROIs_In_Structure[roi_name].ROINumber]
         mask = self.contours_to_mask(structure_index, roi_name)
         return mask
 
@@ -1297,12 +1327,12 @@ class DicomReaderWriter(object):
     def contours_to_mask(self, index: int, true_name: str):
         mask = np.zeros([self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols], dtype=np.int8)
         if Tag((0x3006, 0x0039)) in self.RS_struct.keys():
-            Contour_sequence = self.RS_struct.ROIContourSequence[index]
-            if Tag((0x3006, 0x0040)) in Contour_sequence:
-                Contour_data = Contour_sequence.ContourSequence
-                for i in range(len(Contour_data)):
-                    matrix_points = self.reshape_contour_data(Contour_data[i].ContourData[:])
-                    mask = self.return_mask(mask, matrix_points, geometric_type=Contour_data[i].ContourGeometricType)
+            contour_sequence = self.RS_struct.ROIContourSequence[index]
+            if Tag((0x3006, 0x0040)) in contour_sequence:
+                contour_data = contour_sequence.ContourSequence
+                for i in range(len(contour_data)):
+                    matrix_points = self.reshape_contour_data(contour_data[i].ContourData[:])
+                    mask = self.return_mask(mask, matrix_points, geometric_type=contour_data[i].ContourGeometricType)
                 mask = mask % 2
             else:
                 print(f"This structure set had no data present for {true_name}! Returning a blank mask")
@@ -1323,8 +1353,8 @@ class DicomReaderWriter(object):
         self.change_template()
 
     def write_images_annotations(self, out_path: typing.Union[str, bytes, os.PathLike]) -> None:
-        image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.desciption, self.iteration))
-        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.desciption, self.iteration))
+        image_path = os.path.join(out_path, 'Overall_Data_{}_{}.nii.gz'.format(self.description, self.iteration))
+        annotation_path = os.path.join(out_path, 'Overall_mask_{}_y{}.nii.gz'.format(self.description, self.iteration))
         pixel_id = self.dicom_handle.GetPixelIDTypeAsString()
         if pixel_id.find('32-bit signed integer') != 0:
             self.dicom_handle = sitk.Cast(self.dicom_handle, sitk.sitkFloat32)
@@ -1338,14 +1368,14 @@ class DicomReaderWriter(object):
             self.annotation_handle = sitk.Cast(self.annotation_handle, sitk.sitkUInt8)
         sitk.WriteImage(self.annotation_handle, annotation_path)
         if self.dose_handle:
-            dose_path = os.path.join(out_path, 'Overall_dose_{}_{}.nii.gz'.format(self.desciption, self.iteration))
+            dose_path = os.path.join(out_path, 'Overall_dose_{}_{}.nii.gz'.format(self.description, self.iteration))
             sitk.WriteImage(self.dose_handle, dose_path)
         fid = open(os.path.join(self.series_instances_dictionary[self.index].path,
-                                '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
+                                '{}_Iteration_{}.txt'.format(self.description, self.iteration)), 'w+')
         fid.close()
 
     def prediction_array_to_RT(self, prediction_array: np.array, output_dir: typing.Union[str, bytes, os.PathLike],
-                               ROI_Names: List[str]) -> None:
+                               ROI_Names: List[str], ROI_Types: List[str] = None) -> None:
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
@@ -1369,9 +1399,9 @@ class DicomReaderWriter(object):
         if self.create_new_RT or len(self.series_instances_dictionary[index].RTs) == 0:
             self.use_template()
         elif self.RS_struct_uid != self.series_instances_dictionary[index].SeriesInstanceUID:
-            RTs = self.series_instances_dictionary[index].RTs
-            for uid_key in RTs:
-                self.RS_struct = pydicom.read_file(RTs[uid_key].path)
+            rt_structures = self.series_instances_dictionary[index].RTs
+            for uid_key in rt_structures:
+                self.RS_struct = pydicom.read_file(rt_structures[uid_key].path)
                 self.RS_struct_uid = self.series_instances_dictionary[index].SeriesInstanceUID
                 break
 
@@ -1388,6 +1418,10 @@ class DicomReaderWriter(object):
             print('RT Structure not made for ROIs {}, given prediction_array had no mask'.format(not_contained))
         self.image_size_z, self.image_size_rows, self.image_size_cols = prediction_array.shape[:3]
         self.ROI_Names = ROI_Names
+        if ROI_Types is None:
+            self.ROI_Types = ["ORGAN" for _ in ROI_Names]
+        else:
+            self.ROI_Types = ROI_Types
         self.output_dir = output_dir
         if len(prediction_array.shape) == 3:
             prediction_array = np.expand_dims(prediction_array, axis=-1)
@@ -1421,9 +1455,9 @@ class DicomReaderWriter(object):
                       [0, 130, 200], [145, 30, 180],
                       [255, 255, 255]]
         self.struct_index = 0
-        new_ROINumber = 1000
-        for Name in self.ROI_Names:
-            new_ROINumber -= 1
+        new_roi_number = 1000
+        for Name, ROI_Type in zip(self.ROI_Names, self.ROI_Types):
+            new_roi_number -= 1
             if not temp_color_list:
                 temp_color_list = copy.deepcopy(color_list)
             color_int = np.random.randint(len(temp_color_list))
@@ -1439,7 +1473,7 @@ class DicomReaderWriter(object):
             else:
                 print('Prediction ROI {} is already within RT structure'.format(Name))
                 continue
-            self.RS_struct.StructureSetROISequence[self.struct_index].ROINumber = new_ROINumber
+            self.RS_struct.StructureSetROISequence[self.struct_index].ROINumber = new_roi_number
             self.RS_struct.StructureSetROISequence[self.struct_index].ReferencedFrameOfReferenceUID = \
                 self.ds.FrameOfReferenceUID
             self.RS_struct.StructureSetROISequence[self.struct_index].ROIName = Name
@@ -1451,20 +1485,15 @@ class DicomReaderWriter(object):
                                                                     self.RS_struct.RTROIObservationsSequence[0]))
                 if 'MaterialID' in self.RS_struct.RTROIObservationsSequence[self.struct_index]:
                     del self.RS_struct.RTROIObservationsSequence[self.struct_index].MaterialID
-            self.RS_struct.RTROIObservationsSequence[self.struct_index].ObservationNumber = new_ROINumber
-            self.RS_struct.RTROIObservationsSequence[self.struct_index].ReferencedROINumber = new_ROINumber
+            self.RS_struct.RTROIObservationsSequence[self.struct_index].ObservationNumber = new_roi_number
+            self.RS_struct.RTROIObservationsSequence[self.struct_index].ReferencedROINumber = new_roi_number
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ROIObservationLabel = Name
-            
-            if 'ctv' in Name.lower():
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'CTV'
-            elif 'ptv' in Name.lower():
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'PTV'
-            else:
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'ORGAN'
+
+            self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = ROI_Type
 
             if make_new == 1:
                 self.RS_struct.ROIContourSequence.insert(0, copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
-            self.RS_struct.ROIContourSequence[self.struct_index].ReferencedROINumber = new_ROINumber
+            self.RS_struct.ROIContourSequence[self.struct_index].ReferencedROINumber = new_roi_number
             del self.RS_struct.ROIContourSequence[self.struct_index].ContourSequence[1:]
             self.RS_struct.ROIContourSequence[self.struct_index].ROIDisplayColor = temp_color_list[color_int]
             del temp_color_list[color_int]
@@ -1475,10 +1504,10 @@ class DicomReaderWriter(object):
             kwargs = {'image_size_rows': self.image_size_rows, 'image_size_cols': self.image_size_cols,
                       'PixelSize': self.PixelSize, 'contour_dict': contour_dict, 'RS': self.RS_struct}
 
-            A = [q, kwargs]
+            a = [q, kwargs]
             # pointer_class = PointOutputMakerClass(**kwargs)
             for worker in range(thread_count):
-                t = Thread(target=contour_worker, args=(A,))
+                t = Thread(target=contour_worker, args=(a,))
                 t.start()
                 threads.append(t)
             contour_num = 0
@@ -1540,7 +1569,7 @@ class DicomReaderWriter(object):
 
     def change_template(self):
         keys = self.RS_struct.keys()
-        ref_key = Tag((0x3006),(0x0010))
+        ref_key = Tag((0x3006), (0x0010))
         if ref_key in keys:
             self.RS_struct[ref_key]._value[0].FrameOfReferenceUID = self.ds.FrameOfReferenceUID
             self.RS_struct[ref_key]._value[0].RTReferencedStudySequence[0].ReferencedSOPInstanceUID = self.ds.StudyInstanceUID

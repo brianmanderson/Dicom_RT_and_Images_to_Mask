@@ -1,6 +1,7 @@
 /__pycache__/
 /.idea/
 /Examples/Example_Data
+/Example_Data/*
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
@@ -28,6 +29,7 @@ parts/
 sdist/
 var/
 wheels/
+Secrets/
 pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
@@ -140,6 +142,4 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
-
-# End of https://www.toptal.com/developers/gitignore/api/python
 /AnonDICOM/
