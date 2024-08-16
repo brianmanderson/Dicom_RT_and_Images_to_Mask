@@ -14,5 +14,5 @@ check-manifest
 tqdm~=4.64.0
 pytest
 
-PlotScrollNumpyArrays~=0.0.1
+PlotScrollNumpyArrays
 setuptools~=62.1.0
