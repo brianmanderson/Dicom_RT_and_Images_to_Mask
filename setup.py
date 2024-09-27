@@ -13,7 +13,7 @@ setup(
     name='DicomRTTool',
     author='Brian Mark Anderson',
     author_email='b5anderson@health.ucsd.edu',
-    version='2.1.7',
+    version='2.1.8',
     description='Services for reading dicom files, RT structures, and dose files, as well as tools for '
                 'converting numpy prediction masks back to an RT structure',
     long_description=long_description,

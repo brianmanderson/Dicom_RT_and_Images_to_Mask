@@ -235,12 +235,12 @@ class AddDicomToDictionary(object):
                                           rt_dictionary: Dict[str, RTBase],
                                           rd_dictionary: Dict[str, RDBase],
                                           rp_dictionary: Dict[str, PlanBase]):
-        file_list = [os.path.join(dicom_path, i) for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
+        file_list = [i for i in os.listdir(dicom_path) if i.lower().endswith('.dcm')]
         series_ids = self.reader.GetGDCMSeriesIDs(dicom_path)
         all_names = []
         for series_id in series_ids:
             dicom_names = self.reader.GetGDCMSeriesFileNames(dicom_path, series_id)
-            all_names += dicom_names
+            all_names += [os.path.split(i)[1] for i in dicom_names]
             self.image_reader.SetFileName(dicom_names[0])
             self.image_reader.ReadImageInformation()
             modality = self.image_reader.GetMetaData("0008|0060")
@@ -256,7 +256,8 @@ class AddDicomToDictionary(object):
                                          sitk_dicom_reader=self.image_reader, path=dicom_path,
                                          sitk_string_keys=self.image_sitk_string_keys)
         rt_files = [file for file in file_list if file not in all_names]
-        for lstRSFile in rt_files:
+        for i in rt_files:
+            lstRSFile = os.path.join(dicom_path, i)
             rt = pydicom.read_file(lstRSFile)
             modality = rt.Modality
             if modality.lower().find('struct') != -1:
