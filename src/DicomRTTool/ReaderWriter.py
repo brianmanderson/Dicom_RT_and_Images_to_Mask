@@ -1262,8 +1262,7 @@ class DicomReaderWriter(object):
 
     def reshape_contour_data(self, as_array: np.array):
         as_array = np.asarray(as_array)
-        if as_array.shape[-1] != 3:
-            as_array = np.reshape(as_array, [as_array.shape[0] // 3, 3])
+        as_array = np.reshape(as_array, [as_array.shape[0] // 3, 3])
         matrix_points = np.asarray([self.dicom_handle.TransformPhysicalPointToIndex(as_array[i])
                                     for i in range(as_array.shape[0])])
         return matrix_points
