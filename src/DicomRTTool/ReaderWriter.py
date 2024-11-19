@@ -786,7 +786,7 @@ class DicomReaderWriter(object):
                                 '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
         fid.close()
 
-    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names):
+    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names, write_file=True):
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
@@ -836,13 +836,13 @@ class DicomReaderWriter(object):
         if self.flip_axes[2]:
             prediction_array = prediction_array[::-1, ...]
         self.annotations = prediction_array
-        self.mask_to_contours()
+        self.mask_to_contours(write_file)
 
     def with_annotations(self, annotations, output_dir, ROI_Names=None):
         print('Please move over to using prediction_array_to_RT')
         self.prediction_array_to_RT(prediction_array=annotations, output_dir=output_dir, ROI_Names=ROI_Names)
 
-    def mask_to_contours(self):
+    def mask_to_contours(self, write_complete_text_file=True):
         self.PixelSize = self.dicom_handle.GetSpacing()
         current_names = []
         for names in self.RS_struct.StructureSetROISequence:
@@ -970,8 +970,9 @@ class DicomReaderWriter(object):
                                     'RS_MRN' + self.RS_struct.PatientID + '_' + self.RS_struct.SeriesInstanceUID + '1.dcm')
         print('Writing out data...{}'.format(self.output_dir))
         pydicom.write_file(out_name, self.RS_struct)
-        fid = open(os.path.join(self.output_dir, 'Completed.txt'), 'w+')
-        fid.close()
+        if write_complete_text_file:
+            fid = open(os.path.join(self.output_dir, 'Completed.txt'), 'w+')
+            fid.close()
         print('Finished!')
         return None
 
