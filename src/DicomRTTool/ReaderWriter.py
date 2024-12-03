@@ -11,6 +11,10 @@ import typing
 import pydicom
 import numpy as np
 from pydicom.tag import Tag
+if hasattr(pydicom, 'read_file'):
+    dcmread_function = pydicom.read_file
+else:
+    dcmread_function = pydicom.dcmread
 import SimpleITK as sitk
 from skimage.measure import label, regionprops, find_contours
 from threading import Thread
@@ -258,7 +262,7 @@ class AddDicomToDictionary(object):
         rt_files = [file for file in file_list if file not in all_names]
         for i in rt_files:
             lstRSFile = os.path.join(dicom_path, i)
-            rt = pydicom.read_file(lstRSFile)
+            rt = dcmread_function(lstRSFile)
             modality = rt.Modality
             if modality.lower().find('struct') != -1:
                 add_rt_to_dictionary(ds=rt, path=lstRSFile, rt_dictionary=rt_dictionary)
@@ -1122,7 +1126,7 @@ class DicomReaderWriter(object):
                 print('Loading images for {} at \n {}\n'.format(self.series_instances_dictionary[index].Description,
                                                                 self.series_instances_dictionary[index].path))
             dicom_names = self.series_instances_dictionary[index].files
-            self.ds = pydicom.read_file(dicom_names[0])
+            self.ds = dcmread_function(dicom_names[0])
             self.reader.SetFileNames(dicom_names)
             self.dicom_handle = self.reader.Execute()
             if self.verbose:
@@ -1194,7 +1198,7 @@ class DicomReaderWriter(object):
     def __characterize_RT__(self, RT: RTBase):
         if self.RS_struct_uid != RT.SeriesInstanceUID:
             self.structure_references = {}
-            self.RS_struct = pydicom.read_file(RT.path)
+            self.RS_struct = dcmread_function(RT.path)
             self.RS_struct_uid = RT.SeriesInstanceUID
             for contour_number in range(len(self.RS_struct.ROIContourSequence)):
                 self.structure_references[
@@ -1348,7 +1352,7 @@ class DicomReaderWriter(object):
             if not os.path.exists(self.template_dir):
                 self.template_dir = os.path.join('..', '..', 'Shared_Drive', 'Auto_Contour_Sites', 'template_RS.dcm')
         self.key_list = self.template_dir.replace('template_RS.dcm', 'key_list.txt')
-        self.RS_struct = pydicom.read_file(self.template_dir)
+        self.RS_struct = dcmread_function(self.template_dir)
         print('Running off a template')
         self.change_template()
 
@@ -1401,7 +1405,7 @@ class DicomReaderWriter(object):
         elif self.RS_struct_uid != self.series_instances_dictionary[index].SeriesInstanceUID:
             rt_structures = self.series_instances_dictionary[index].RTs
             for uid_key in rt_structures:
-                self.RS_struct = pydicom.read_file(rt_structures[uid_key].path)
+                self.RS_struct = dcmread_function(rt_structures[uid_key].path)
                 self.RS_struct_uid = self.series_instances_dictionary[index].SeriesInstanceUID
                 break
 
@@ -1607,7 +1611,7 @@ class DicomReaderWriter(object):
 
     def rewrite_RT(self, lstRSFile: typing.Union[str, bytes, os.PathLike] = None):
         if lstRSFile is not None:
-            self.RS_struct = pydicom.read_file(lstRSFile)
+            self.RS_struct = dcmread_function(lstRSFile)
         if Tag((0x3006, 0x020)) in self.RS_struct.keys():
             self.ROI_Structure = self.RS_struct.StructureSetROISequence
         else:

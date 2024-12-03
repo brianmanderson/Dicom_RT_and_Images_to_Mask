@@ -4,7 +4,7 @@ opencv-python
 openpyxl
 pandas
 Pillow
-pydicom==2.4.4
+pydicom
 scikit-image
 scipy
 SimpleITK

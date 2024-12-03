@@ -1,5 +1,9 @@
 import typing
 import pydicom
+if hasattr(pydicom, 'read_file'):
+    dcmread_function = pydicom.read_file
+else:
+    dcmread_function = pydicom.dcmread
 from pydicom.tag import Tag, BaseTag
 import SimpleITK as sitk
 from typing import List, Dict
@@ -41,7 +45,7 @@ class RDBase(DICOMBase):
 
     def load_info(self, sitk_dicom_reader, sitk_string_keys: SitkDicomKeys = None):
         file_name = sitk_dicom_reader.GetFileName()
-        ds = pydicom.read_file(file_name)
+        ds = dcmread_function(file_name)
         self.SeriesInstanceUID = ds.SeriesInstanceUID
         self.DoseType = ds.DoseType
         self.DoseUnits = ds.DoseUnits
@@ -68,7 +72,7 @@ class RDBase(DICOMBase):
 
     def add_beam(self, sitk_dicom_reader):
         file_name = sitk_dicom_reader.GetFileName()
-        ds = pydicom.read_file(file_name)
+        ds = dcmread_function(file_name)
         if self.SeriesInstanceUID == ds.SeriesInstanceUID:
             """
             Means these are compatible beams
