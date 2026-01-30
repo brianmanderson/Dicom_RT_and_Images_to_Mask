@@ -13,6 +13,7 @@ from queue import *
 import pandas as pd
 import copy
 import cv2
+from typing import Optional, List
 from .Viewer import plot_scroll_Image
 
 
@@ -786,7 +787,8 @@ class DicomReaderWriter(object):
                                 '{}_Iteration_{}.txt'.format(self.desciption, self.iteration)), 'w+')
         fid.close()
 
-    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names, write_file=True):
+    def prediction_array_to_RT(self, prediction_array, output_dir, ROI_Names, write_file=True,
+                               ROI_Types: Optional[List[str]] = None):
         """
         :param prediction_array: numpy array of prediction, expected shape is [#Images, Rows, Cols, #Classes + 1]
         :param output_dir: directory to pass RT structure to
@@ -826,6 +828,7 @@ class DicomReaderWriter(object):
             print('RT Structure not made for ROIs {}, given prediction_array had no mask'.format(not_contained))
         self.image_size_z, self.image_size_rows, self.image_size_cols = prediction_array.shape[:3]
         self.ROI_Names = ROI_Names
+        self.ROI_Types = ROI_Types
         self.output_dir = output_dir
         if len(prediction_array.shape) == 3:
             prediction_array = np.expand_dims(prediction_array, axis=-1)
@@ -859,7 +862,7 @@ class DicomReaderWriter(object):
                       [255, 255, 255]]
         self.struct_index = 0
         new_ROINumber = 1000
-        for Name in self.ROI_Names:
+        for name_index, Name in enumerate(self.ROI_Names):
             new_ROINumber -= 1
             if not temp_color_list:
                 temp_color_list = copy.deepcopy(color_list)
@@ -891,13 +894,15 @@ class DicomReaderWriter(object):
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ObservationNumber = new_ROINumber
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ReferencedROINumber = new_ROINumber
             self.RS_struct.RTROIObservationsSequence[self.struct_index].ROIObservationLabel = Name
-            
-            if 'ctv' in Name.lower():
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'CTV'
+
+            roi_type = 'ORGAN'
+            if self.ROI_Types is not None:
+                roi_type = self.ROI_Types[name_index]
+            elif 'ctv' in Name.lower():
+                roi_type = 'CTV'
             elif 'ptv' in Name.lower():
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'PTV'
-            else:
-                self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = 'ORGAN'
+                roi_type = 'PTV'
+            self.RS_struct.RTROIObservationsSequence[self.struct_index].RTROIInterpretedType = roi_type
 
             if make_new == 1:
                 self.RS_struct.ROIContourSequence.insert(0, copy.deepcopy(self.RS_struct.ROIContourSequence[0]))
