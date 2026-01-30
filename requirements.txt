@@ -1,6 +1,6 @@
 numpy
 matplotlib
-opencv-python==4.2.0.*
+opencv-python
 openpyxl
 pandas
 Pillow
@@ -11,3 +11,7 @@ SimpleITK
 six
 xlrd
 check-manifest
+tqdm
+pytest
+NiftiResampler
+PlotScrollNumpyArrays

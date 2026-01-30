@@ -1,6 +1,7 @@
 /__pycache__/
 /.idea/
 /Examples/Example_Data
+/Example_Data/*
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
@@ -9,10 +10,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+/test.py
+/Test2.py
 # C extensions
 *.so
-
+*.nii*
 # Distribution / packaging
 .Python
 build/
@@ -27,6 +29,7 @@ parts/
 sdist/
 var/
 wheels/
+Secrets/
 pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
@@ -39,7 +42,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
-
+*~$*
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -128,7 +131,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
+Data.xlsx
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -139,5 +142,4 @@ dmypy.json
 
 # pytype static type analyzer
 .pytype/
-
-# End of https://www.toptal.com/developers/gitignore/api/python
+/AnonDICOM/
