@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DicomRTTool"
+version = "3.0.0"
+description = """Services for reading DICOM files, RT structures, and dose files, \
+as well as tools for converting numpy prediction masks back to an RT structure."""
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Brian Mark Anderson", email = "b5anderson@health.ucsd.edu"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "pandas",
+    "pydicom",
+    "scikit-image",
+    "scipy",
+    "SimpleITK",
+    "tqdm",
+    "NiftiResampler",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "flake8",
+    "mypy",
+]
+viewer = [
+    "matplotlib",
+    "PlotScrollNumpyArrays",
+]
+
+[project.urls]
+Homepage = "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask"
+Issues = "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+DicomRTTool = ["template_RS.dcm", "key_list.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
