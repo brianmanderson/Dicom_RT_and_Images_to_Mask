@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from DicomRTTool.ReaderWriter import DicomReaderWriter
+from src.DicomRTTool.ReaderWriter import DicomReaderWriter
 
 
 # ---------------------------------------------------------------------------
