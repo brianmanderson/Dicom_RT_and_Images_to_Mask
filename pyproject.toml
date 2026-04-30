@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DicomRTTool"
-version = "3.0.2"
+version = "3.0.3"
 description = """Services for reading DICOM files, RT structures, and dose files, \
 as well as tools for converting numpy prediction masks back to an RT structure."""
 readme = "README.md"
@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
-    "opencv-python",
+    "opencv-python-headless",
     "pandas",
     "pydicom",
     "scikit-image",
