@@ -1,6 +1,6 @@
 numpy
 matplotlib
-opencv-python
+opencv-python-headless
 openpyxl
 pandas
 Pillow
