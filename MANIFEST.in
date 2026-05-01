@@ -1,8 +1,0 @@
-recursive-include src *template_RS.dcm
-recursive-include src *.dcm
-recursive-include Images *.png
-recursive-include src *.dcm
-recursive-include src *.ipynb
-recursive-include src *.py
-recursive-include src *.txt
-include requirements.txt

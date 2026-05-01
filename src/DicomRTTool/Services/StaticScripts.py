@@ -6,7 +6,6 @@ mask arrays and to interpolate non-planar contour segments onto a voxel grid.
 from __future__ import annotations
 
 import math
-from typing import Tuple
 
 import cv2
 import numpy as np
@@ -15,7 +14,7 @@ import numpy as np
 def poly2mask(
     vertex_row_coords: np.ndarray,
     vertex_col_coords: np.ndarray,
-    shape: Tuple[int, int],
+    shape: tuple[int, int],
 ) -> np.ndarray:
     """Convert polygon vertex coordinates to a filled boolean mask.
 
@@ -53,9 +52,9 @@ def add_to_mask(
         c_value: Continuous column index.
         mask_value: Value written into the mask (default ``1``).
     """
-    z_lo, z_hi = int(math.floor(z_value)), int(math.ceil(z_value))
-    r_lo, r_hi = int(math.floor(r_value)), int(math.ceil(r_value))
-    c_lo, c_hi = int(math.floor(c_value)), int(math.ceil(c_value))
+    z_lo, z_hi = math.floor(z_value), math.ceil(z_value)
+    r_lo, r_hi = math.floor(r_value), math.ceil(r_value)
+    c_lo, c_hi = math.floor(c_value), math.ceil(c_value)
 
     for z in (z_lo, z_hi):
         for r in (r_lo, r_hi):

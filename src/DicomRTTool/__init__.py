@@ -1,4 +1,4 @@
-"""DicomRTTool – DICOM image, RT structure, and dose file reader/writer.
+"""DicomRTTool - DICOM image, RT structure, and dose file reader/writer.
 
 Quick start::
 
@@ -12,10 +12,10 @@ See :mod:`DicomRTTool.ReaderWriter` for the full API.
 """
 from __future__ import annotations
 
-import SimpleITK as sitk  # noqa: F401 – re-export for backward compat
+import SimpleITK as sitk
 
-from .ReaderWriter import DicomReaderWriter, ROIAssociationClass  # noqa: F401
-from .Viewer import plot_scroll_Image  # noqa: F401
+from .ReaderWriter import DicomReaderWriter, ROIAssociationClass
+from .Viewer import plot_scroll_Image
 
 __all__ = [
     "DicomReaderWriter",

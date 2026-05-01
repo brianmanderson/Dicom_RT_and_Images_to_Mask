@@ -1,34 +1,58 @@
-name: Publish Python Package
+name: Publish to PyPI
 
 on:
   push:
     tags:
-      - 'v*'  # Triggers the workflow on tag pushes that match the pattern v*
+      - "v*"
+  release:
+    types: [published]
 
 jobs:
   build:
+    name: Build distribution
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4  # Update to the latest version
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5  # Update to the latest version
-      with:
-        python-version: '3.x'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build
+      - name: Install build backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
 
-    - name: Build package
-      run: python -m build
+      - name: Build sdist + wheel
+        run: python -m build
 
-    - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-      run: |
-        python -m pip install --upgrade twine
-        python -m twine upload dist/*
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Trusted Publishing — configure on PyPI under Account → Publishing.
+    # No PYPI_TOKEN secret needed.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/DicomRTTool
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
