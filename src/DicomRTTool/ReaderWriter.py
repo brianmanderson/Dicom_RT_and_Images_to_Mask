@@ -26,8 +26,7 @@ import copy
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from multiprocessing import cpu_count
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -35,9 +34,14 @@ import pydicom
 import SimpleITK as sitk
 from NiftiResampler.ResampleTools import ImageResampler
 from pydicom.tag import Tag
-from skimage.measure import find_contours, label, regionprops
 from tqdm import tqdm
 
+from ._internal import DEFAULT_WORKERS as _DEFAULT_WORKERS
+from ._internal.indexer import (
+    DicomFolderLoader,
+    add_sops,
+)
+from ._internal.rt_contours import PointOutputMaker
 from .Services.DicomBases import (
     ImageBase,
     PathLike,
@@ -50,21 +54,16 @@ from .Services.DicomBases import (
     dcmread,
 )
 from .Services.StaticScripts import add_to_mask, poly2mask
-from .Viewer import plot_scroll_Image  # noqa: F401 – re-export
+from .Viewer import plot_scroll_Image  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
 
-# Re-export for backward compatibility
+# Re-export for backward compatibility.
 dcmread_function = dcmread
 
-# ---------------------------------------------------------------------------
-# Max worker threads (leave ~10 % headroom for the OS)
-# ---------------------------------------------------------------------------
-_DEFAULT_WORKERS = max(1, int(cpu_count() * 0.9) - 1)
-
 
 # ---------------------------------------------------------------------------
-# ROI association helper
+# ROI association helper (public API — kept here intentionally)
 # ---------------------------------------------------------------------------
 class ROIAssociationClass:
     """Maps a canonical ROI name to one or more alternative names.
@@ -74,227 +73,15 @@ class ROIAssociationClass:
         other_names: Alternative names that should be treated as equivalent.
     """
 
-    def __init__(self, roi_name: str, other_names: List[str]) -> None:
+    def __init__(self, roi_name: str, other_names: list[str]) -> None:
         self.roi_name: str = roi_name.lower()
-        self.other_names: List[str] = list({name.lower() for name in other_names})
+        self.other_names: list[str] = list({name.lower() for name in other_names})
 
     def add_name(self, roi_name: str) -> None:
         """Register an additional alternative name."""
         lower = roi_name.lower()
         if lower not in self.other_names:
             self.other_names.append(lower)
-
-
-# ---------------------------------------------------------------------------
-# Contour-to-point worker (used during RT writing)
-# ---------------------------------------------------------------------------
-class _PointOutputMaker:
-    """Converts a binary annotation slice into physical-space contour points."""
-
-    def __init__(
-        self,
-        image_size_rows: int,
-        image_size_cols: int,
-        pixel_size: Tuple[float, ...],
-        contour_dict: Dict[int, List[np.ndarray]],
-    ) -> None:
-        self.image_size_rows = image_size_rows
-        self.image_size_cols = image_size_cols
-        self.pixel_size = pixel_size
-        self.contour_dict = contour_dict
-
-    def make_output(
-        self,
-        annotation: np.ndarray,
-        slice_index: int,
-        dicom_handle: sitk.Image,
-    ) -> None:
-        self.contour_dict[slice_index] = []
-        regions = regionprops(label(annotation))
-        for region in regions:
-            temp_image = np.zeros(
-                (self.image_size_rows, self.image_size_cols), dtype=np.uint8
-            )
-            rows, cols = region.coords[:, 0], region.coords[:, 1]
-            temp_image[rows, cols] = 1
-
-            contours = find_contours(
-                temp_image, level=0.5, fully_connected="low", positive_orientation="high"
-            )
-            for contour in contours:
-                contour = np.squeeze(contour)
-                # Remove co-linear points (same slope → redundant)
-                with np.errstate(divide="ignore"):
-                    slope = (contour[1:, 1] - contour[:-1, 1]) / (
-                        contour[1:, 0] - contour[:-1, 0]
-                    )
-                prev_slope = None
-                out: List[List[float]] = []
-                for idx in range(len(slope)):
-                    if slope[idx] != prev_slope:
-                        out.append(contour[idx].tolist())
-                    prev_slope = slope[idx]
-                # Convert index → physical coordinates
-                physical = [
-                    [float(c[1]), float(c[0]), float(slice_index)] for c in out
-                ]
-                physical_pts = np.array(
-                    [dicom_handle.TransformContinuousIndexToPhysicalPoint(p) for p in physical]
-                )
-                self.contour_dict[slice_index].append(physical_pts)
-
-
-# ---------------------------------------------------------------------------
-# Folder loading helper (runs inside a thread)
-# ---------------------------------------------------------------------------
-class _DicomFolderLoader:
-    """Loads DICOM files from a single directory into shared dictionaries."""
-
-    def __init__(
-        self,
-        plan_keys: Optional[PyDicomKeys],
-        struct_keys: Optional[PyDicomKeys],
-        image_keys: Optional[SitkDicomKeys],
-        dose_keys: Optional[SitkDicomKeys],
-    ) -> None:
-        self.plan_keys = plan_keys
-        self.struct_keys = struct_keys
-        self.image_keys = image_keys
-        self.dose_keys = dose_keys
-
-    def load(
-        self,
-        dicom_path: str,
-        images_dict: Dict[str, ImageBase],
-        rt_dict: Dict[str, RTBase],
-        rd_dict: Dict[str, RDBase],
-        rp_dict: Dict[str, PlanBase],
-        verbose: bool = False,
-    ) -> None:
-        if verbose:
-            logger.info("Loading from %s", dicom_path)
-
-        reader = sitk.ImageSeriesReader()
-        reader.GlobalWarningDisplayOff()
-        img_reader = sitk.ImageFileReader()
-        img_reader.LoadPrivateTagsOn()
-
-        series_ids = reader.GetGDCMSeriesIDs(dicom_path)
-        file_list = [f for f in os.listdir(dicom_path) if f.lower().endswith(".dcm")]
-        all_series_names: List[str] = []
-
-        for series_id in series_ids:
-            dicom_names = reader.GetGDCMSeriesFileNames(dicom_path, series_id)
-            all_series_names.extend(os.path.basename(n) for n in dicom_names)
-
-            img_reader.SetFileName(dicom_names[0])
-            img_reader.ReadImageInformation()
-            modality = img_reader.GetMetaData("0008|0060").lower()
-
-            if "rtdose" in modality:
-                for name in dicom_names:
-                    img_reader.SetFileName(name)
-                    img_reader.Execute()
-                    _add_rd(img_reader, rd_dict, self.dose_keys)
-            else:
-                img_reader.Execute()
-                _add_image(images_dict, dicom_names, img_reader, dicom_path, self.image_keys)
-
-        # Remaining files (RT structs, plans, etc.)
-        rt_files = [f for f in file_list if f not in all_series_names]
-        for file_name in rt_files:
-            full_path = os.path.join(dicom_path, file_name)
-            try:
-                ds = dcmread(full_path)
-            except Exception:
-                logger.warning("Could not read %s", full_path)
-                continue
-            modality = ds.Modality.lower()
-            if "struct" in modality:
-                _add_rt(ds, full_path, rt_dict)
-            elif "plan" in modality:
-                _add_rp(ds, full_path, rp_dict, self.plan_keys)
-
-
-# ---------------------------------------------------------------------------
-# Dictionary population helpers
-# ---------------------------------------------------------------------------
-def _add_image(
-    images_dict: Dict[str, ImageBase],
-    dicom_names: List[str],
-    reader: sitk.ImageFileReader,
-    path: str,
-    sitk_string_keys: Optional[SitkDicomKeys] = None,
-) -> None:
-    uid = reader.GetMetaData("0020|000e")
-    if uid not in images_dict:
-        img = ImageBase()
-        img.load_info(dicom_names, reader, path, sitk_string_keys)
-        images_dict[uid] = img
-
-
-def _add_rt(
-    ds: pydicom.Dataset,
-    path: str,
-    rt_dict: Dict[str, RTBase],
-    pydicom_string_keys: Optional[PyDicomKeys] = None,
-) -> None:
-    try:
-        uid = ds.SeriesInstanceUID
-        if uid not in rt_dict:
-            rt = RTBase()
-            rt.load_info(ds, path, pydicom_string_keys)
-            rt_dict[uid] = rt
-    except Exception:
-        logger.warning("Error loading RT from %s", path, exc_info=True)
-
-
-def _add_rd(
-    reader: sitk.ImageFileReader,
-    rd_dict: Dict[str, RDBase],
-    sitk_string_keys: Optional[SitkDicomKeys] = None,
-) -> None:
-    try:
-        uid = reader.GetMetaData("0020|000e")
-        if uid not in rd_dict:
-            rd = RDBase()
-            rd.load_info(reader, sitk_string_keys)
-            rd_dict[uid] = rd
-        else:
-            rd_dict[uid].add_beam(reader)
-    except Exception:
-        logger.warning("Error loading RD from %s", reader.GetFileName(), exc_info=True)
-
-
-def _add_rp(
-    ds: pydicom.Dataset,
-    path: str,
-    rp_dict: Dict[str, PlanBase],
-    pydicom_string_keys: Optional[PyDicomKeys] = None,
-) -> None:
-    try:
-        uid = ds.SeriesInstanceUID
-        if uid not in rp_dict:
-            plan = PlanBase()
-            plan.load_info(ds, path, pydicom_string_keys)
-            rp_dict[uid] = plan
-    except Exception:
-        logger.warning("Error loading RP from %s", path, exc_info=True)
-
-
-def _add_sops(
-    reader: sitk.ImageSeriesReader,
-    series_dict: Dict[int, ImageBase],
-) -> None:
-    """Populate SOPInstanceUIDs for the series that *reader* just loaded."""
-    uid = reader.GetMetaData(0, "0020|000e")
-    for key, entry in series_dict.items():
-        if entry.SeriesInstanceUID == uid:
-            entry.SOPs = [
-                reader.GetMetaData(i, "0008|0018")
-                for i in range(len(reader.GetFileNames()))
-            ]
-            return
 
 
 # ===========================  MAIN CLASS  ==================================
@@ -308,8 +95,8 @@ class DicomReaderWriter:
 
     Args:
         description: Tag written into output NIfTI filenames.
-        Contour_Names: List of ROI names to extract masks for.
-        associations: List of :class:`ROIAssociationClass` for name mapping.
+        Contour_Names: list of ROI names to extract masks for.
+        associations: list of :class:`ROIAssociationClass` for name mapping.
         arg_max: If ``True``, collapse the multi-channel mask via argmax.
         verbose: Print / log progress information.
         create_new_RT: Create a fresh RT struct when writing predictions.
@@ -319,7 +106,7 @@ class DicomReaderWriter:
         iteration: Integer tag for NIfTI filename versioning.
         get_dose_output: Also load dose grids when calling
             :meth:`get_images_and_mask`.
-        flip_axes: 3-tuple of booleans – axes to flip after loading.
+        flip_axes: 3-tuple of booleans - axes to flip after loading.
         index: Initial series-dictionary index.
         series_instances_dictionary: Pre-populated series dictionary.
         plan_pydicom_string_keys: Extra pydicom keys to read from RT Plans.
@@ -331,45 +118,45 @@ class DicomReaderWriter:
     """
 
     # -- Type annotations for instance attributes ---------------------------
-    images_dictionary: Dict[str, ImageBase]
-    rt_dictionary: Dict[str, RTBase]
-    rd_dictionary: Dict[str, RDBase]
-    rp_dictionary: Dict[str, PlanBase]
-    rois_in_index_dict: Dict[int, List[str]]
-    dicom_handle: Optional[sitk.Image]
-    dose_handle: Optional[sitk.Image]
-    annotation_handle: Optional[sitk.Image]
-    all_rois: List[str]
-    roi_class_list: List[ROIClass]
-    rois_in_loaded_index: List[str]
-    indexes_with_contours: List[int]
-    roi_groups: Dict[str, List[str]]
-    all_RTs: Dict[str, List[str]]
-    RTs_with_ROI_Names: Dict[str, List[str]]
-    series_instances_dictionary: Dict[int, ImageBase]
-    mask_dictionary: Dict[str, sitk.Image]
-    mask: Optional[np.ndarray]
+    images_dictionary: dict[str, ImageBase]
+    rt_dictionary: dict[str, RTBase]
+    rd_dictionary: dict[str, RDBase]
+    rp_dictionary: dict[str, PlanBase]
+    rois_in_index_dict: dict[int, list[str]]
+    dicom_handle: sitk.Image | None
+    dose_handle: sitk.Image | None
+    annotation_handle: sitk.Image | None
+    all_rois: list[str]
+    roi_class_list: list[ROIClass]
+    rois_in_loaded_index: list[str]
+    indexes_with_contours: list[int]
+    roi_groups: dict[str, list[str]]
+    all_RTs: dict[str, list[str]]
+    RTs_with_ROI_Names: dict[str, list[str]]
+    series_instances_dictionary: dict[int, ImageBase]
+    mask_dictionary: dict[str, sitk.Image]
+    mask: np.ndarray | None
 
     def __init__(
         self,
         description: str = "",
-        Contour_Names: Optional[List[str]] = None,
-        associations: Optional[List[ROIAssociationClass]] = None,
+        Contour_Names: list[str] | None = None,
+        associations: list[ROIAssociationClass] | None = None,
         arg_max: bool = True,
         verbose: bool = True,
         create_new_RT: bool = True,
-        template_dir: Optional[str] = None,
+        template_dir: str | None = None,
         delete_previous_rois: bool = True,
         require_all_contours: bool = True,
         iteration: int = 0,
         get_dose_output: bool = False,
-        flip_axes: Tuple[bool, bool, bool] = (False, False, False),
+        flip_axes: tuple[bool, bool, bool] = (False, False, False),
         index: int = 0,
-        series_instances_dictionary: Optional[Dict[int, ImageBase]] = None,
-        plan_pydicom_string_keys: Optional[PyDicomKeys] = None,
-        struct_pydicom_string_keys: Optional[PyDicomKeys] = None,
-        image_sitk_string_keys: Optional[SitkDicomKeys] = None,
-        dose_sitk_string_keys: Optional[SitkDicomKeys] = None,
+        series_instances_dictionary: dict[int, ImageBase] | None = None,
+        plan_pydicom_string_keys: PyDicomKeys | None = None,
+        struct_pydicom_string_keys: PyDicomKeys | None = None,
+        image_sitk_string_keys: SitkDicomKeys | None = None,
+        dose_sitk_string_keys: SitkDicomKeys | None = None,
         group_dose_by_frame_of_reference: bool = True,
     ) -> None:
         # Logging setup
@@ -377,35 +164,35 @@ class DicomReaderWriter:
             logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
         # Internal state
-        self.roi_class_list: List[ROIClass] = []
-        self.dose: Optional[np.ndarray] = None
+        self.roi_class_list: list[ROIClass] = []
+        self.dose: np.ndarray | None = None
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         self.verbose = verbose
-        self.annotation_handle: Optional[sitk.Image] = None
-        self.dicom_handle: Optional[sitk.Image] = None
-        self.dose_handle: Optional[sitk.Image] = None
-        self.rois_in_index_dict: Dict[int, List[str]] = {}
-        self.rt_dictionary: Dict[str, RTBase] = {}
-        self.mask_dictionary: Dict[str, sitk.Image] = {}
-        self._dicom_handle_uid: Optional[str] = None
-        self._dicom_info_uid: Optional[str] = None
-        self._rs_struct_uid: Optional[str] = None
-        self.mask: Optional[np.ndarray] = None
-        self._rd_study_instance_uid: Optional[str] = None
+        self.annotation_handle: sitk.Image | None = None
+        self.dicom_handle: sitk.Image | None = None
+        self.dose_handle: sitk.Image | None = None
+        self.rois_in_index_dict: dict[int, list[str]] = {}
+        self.rt_dictionary: dict[str, RTBase] = {}
+        self.mask_dictionary: dict[str, sitk.Image] = {}
+        self._dicom_handle_uid: str | None = None
+        self._dicom_info_uid: str | None = None
+        self._rs_struct_uid: str | None = None
+        self.mask: np.ndarray | None = None
+        self._rd_study_instance_uid: str | None = None
         self.index = index
-        self.all_RTs: Dict[str, List[str]] = {}
-        self.RTs_with_ROI_Names: Dict[str, List[str]] = {}
-        self.all_rois: List[str] = []
-        self.roi_groups: Dict[str, List[str]] = {}
-        self.indexes_with_contours: List[int] = []
+        self.all_RTs: dict[str, list[str]] = {}
+        self.RTs_with_ROI_Names: dict[str, list[str]] = {}
+        self.all_rois: list[str] = []
+        self.roi_groups: dict[str, list[str]] = {}
+        self.indexes_with_contours: list[int] = []
         self.plan_pydicom_string_keys = plan_pydicom_string_keys
         self.struct_pydicom_string_keys = struct_pydicom_string_keys
         self.image_sitk_string_keys = image_sitk_string_keys
         self.dose_sitk_string_keys = dose_sitk_string_keys
-        self.images_dictionary: Dict[str, ImageBase] = {}
-        self.rd_dictionary: Dict[str, RDBase] = {}
-        self.rp_dictionary: Dict[str, PlanBase] = {}
-        self.series_instances_dictionary: Dict[int, ImageBase] = (
+        self.images_dictionary: dict[str, ImageBase] = {}
+        self.rd_dictionary: dict[str, RDBase] = {}
+        self.rp_dictionary: dict[str, PlanBase] = {}
+        self.series_instances_dictionary: dict[int, ImageBase] = (
             series_instances_dictionary if series_instances_dictionary is not None else {}
         )
         self.get_dose_output = get_dose_output
@@ -419,7 +206,7 @@ class DicomReaderWriter:
         self.template = True
         self.delete_previous_rois = delete_previous_rois
         self.associations = associations
-        self.Contour_Names: List[str] = [c.lower() for c in Contour_Names] if Contour_Names else []
+        self.Contour_Names: list[str] = [c.lower() for c in Contour_Names] if Contour_Names else []
 
         # Backward-compatibility aliases
         self.RS_struct_uid = property(lambda self: self._rs_struct_uid)
@@ -446,35 +233,35 @@ class DicomReaderWriter:
     # These used to be public; keep property access working.
 
     @property
-    def RS_struct_uid(self) -> Optional[str]:  # type: ignore[override]
+    def RS_struct_uid(self) -> str | None:  # type: ignore[override]
         return self._rs_struct_uid
 
     @RS_struct_uid.setter
-    def RS_struct_uid(self, value: Optional[str]) -> None:
+    def RS_struct_uid(self, value: str | None) -> None:
         self._rs_struct_uid = value
 
     @property
-    def dicom_handle_uid(self) -> Optional[str]:  # type: ignore[override]
+    def dicom_handle_uid(self) -> str | None:  # type: ignore[override]
         return self._dicom_handle_uid
 
     @dicom_handle_uid.setter
-    def dicom_handle_uid(self, value: Optional[str]) -> None:
+    def dicom_handle_uid(self, value: str | None) -> None:
         self._dicom_handle_uid = value
 
     @property
-    def rd_study_instance_uid(self) -> Optional[str]:
+    def rd_study_instance_uid(self) -> str | None:
         return self._rd_study_instance_uid
 
     @rd_study_instance_uid.setter
-    def rd_study_instance_uid(self, value: Optional[str]) -> None:
+    def rd_study_instance_uid(self, value: str | None) -> None:
         self._rd_study_instance_uid = value
 
     @property
-    def dicom_info_uid(self) -> Optional[str]:
+    def dicom_info_uid(self) -> str | None:
         return self._dicom_info_uid
 
     @dicom_info_uid.setter
-    def dicom_info_uid(self, value: Optional[str]) -> None:
+    def dicom_info_uid(self, value: str | None) -> None:
         self._dicom_info_uid = value
 
     # -- Index management ---------------------------------------------------
@@ -484,13 +271,66 @@ class DicomReaderWriter:
         self.index = index
         self.rois_in_loaded_index = self.rois_in_index_dict.get(index, [])
 
-    # -- Internal setters (kept with dunder names for compat) ---------------
+    # -- Setters ------------------------------------------------------------
 
-    def __set_description__(self, description: str) -> None:
+    def set_description(self, description: str) -> None:
+        """Set the description string used in NIfTI output filenames."""
         self.description = description
 
-    def __set_iteration__(self, iteration: int = 0) -> None:
+    def set_iteration(self, iteration: int = 0) -> None:
+        """Set the iteration index used in NIfTI output filenames."""
         self.iteration = str(iteration)
+
+    # -- State reset --------------------------------------------------------
+    #
+    # These public methods let callers wipe state between uses or targets —
+    # for example, when reusing one ``DicomReaderWriter`` to process multiple
+    # patient folders, or to switch contour-name targets and rebuild masks
+    # from a known-clean slate. ``set_index`` deliberately does *not* reset
+    # implicitly; it just selects an index against the existing in-memory
+    # caches.
+
+    def reset(self) -> None:
+        """Wipe all loaded state.
+
+        Clears the series, image, RT, and mask dictionaries plus the cached
+        UIDs. Use this between unrelated walks (e.g. before
+        ``walk_through_folders`` on a fresh patient corpus).
+        """
+        self.reset_rts()
+        self._rd_study_instance_uid = None
+        self._dicom_handle_uid = None
+        self._dicom_info_uid = None
+        self.series_instances_dictionary = {}
+        self.rt_dictionary = {}
+        self.images_dictionary = {}
+        self.mask_dictionary = {}
+
+    def reset_mask(self) -> None:
+        """Re-allocate an empty mask sized to the currently-loaded image and
+        clear ``mask_dictionary``.
+
+        Call this after changing ``Contour_Names`` (e.g. via
+        ``set_contour_names_and_associations``) and before ``get_mask()`` so
+        the freshly-allocated mask has the right number of channels for the
+        new contour set.
+        """
+        self._make_empty_mask()
+        self.mask_dictionary = {}
+
+    def reset_rts(self) -> None:
+        """Clear ROI bookkeeping (names, groups, indexes_with_contours).
+
+        Lighter-weight than :meth:`reset`: leaves loaded images intact, only
+        clears the contour-related state. Useful between
+        ``set_contour_names_and_associations`` calls.
+        """
+        self.all_rois = []
+        self.roi_class_list = []
+        self.roi_groups = {}
+        self.indexes_with_contours = []
+        self._rs_struct_uid = None
+        self.RTs_with_ROI_Names = {}
 
     # -- Mask management ----------------------------------------------------
 
@@ -504,36 +344,6 @@ class DicomReaderWriter:
                 (slices, rows, cols, len(self.Contour_Names) + 1), dtype=np.int8
             )
             self.annotation_handle = sitk.GetImageFromArray(self.mask)
-
-    def _reset_mask(self) -> None:
-        self._make_empty_mask()
-        self.mask_dictionary = {}
-
-    # Backward compat
-    __mask_empty_mask__ = _make_empty_mask
-    __reset_mask__ = _reset_mask
-
-    def _reset(self) -> None:
-        self._reset_rts()
-        self._rd_study_instance_uid = None
-        self._dicom_handle_uid = None
-        self._dicom_info_uid = None
-        self.series_instances_dictionary = {}
-        self.rt_dictionary = {}
-        self.images_dictionary = {}
-        self.mask_dictionary = {}
-
-    __reset__ = _reset
-
-    def _reset_rts(self) -> None:
-        self.all_rois = []
-        self.roi_class_list = []
-        self.roi_groups = {}
-        self.indexes_with_contours = []
-        self._rs_struct_uid = None
-        self.RTs_with_ROI_Names = {}
-
-    __reset_RTs__ = _reset_rts
 
     # -- Compilation (linking images ↔ RTs ↔ doses ↔ plans) ----------------
 
@@ -572,8 +382,8 @@ class DicomReaderWriter:
         for rd_uid, rd in self.rd_dictionary.items():
             if rd.ReferencedStructureSetSOPInstanceUID is None:
                 continue
-            for img_key, img in self.series_instances_dictionary.items():
-                for rt_key, rt_entry in img.RTs.items():
+            for _img_key, img in self.series_instances_dictionary.items():
+                for _rt_key, rt_entry in img.RTs.items():
                     if rd.ReferencedStructureSetSOPInstanceUID == rt_entry.SOPInstanceUID:
                         rt_entry.Doses[rd_uid] = rd
                         img.RDs[rd_uid] = rd
@@ -583,8 +393,8 @@ class DicomReaderWriter:
         for rp_uid, rp in self.rp_dictionary.items():
             added = False
             ref = rp.ReferencedStructureSetSOPInstanceUID
-            for img_key, img in self.series_instances_dictionary.items():
-                for rt_key, rt_entry in img.RTs.items():
+            for _img_key, img in self.series_instances_dictionary.items():
+                for _rt_key, rt_entry in img.RTs.items():
                     if ref == rt_entry.SOPInstanceUID:
                         rt_entry.Plans[rp_uid] = rp
                         img.RPs[rp_uid] = rp
@@ -600,12 +410,12 @@ class DicomReaderWriter:
             if rd.ReferencedStructureSetSOPInstanceUID is not None:
                 continue
             plan_ref = rd.ReferencedPlanSOPInstanceUID
-            for img_key, img in self.series_instances_dictionary.items():
-                for rp_key, rp_entry in img.RPs.items():
+            for _img_key, img in self.series_instances_dictionary.items():
+                for _rp_key, rp_entry in img.RPs.items():
                     if plan_ref == rp_entry.SOPInstanceUID:
                         # Find the associated RT via plan's struct ref
                         rt_sop = rp_entry.ReferencedStructureSetSOPInstanceUID
-                        for rt_key, rt_entry in img.RTs.items():
+                        for _rt_key, rt_entry in img.RTs.items():
                             if rt_entry.SOPInstanceUID == rt_sop:
                                 rt_entry.Doses[rd_uid] = rd
                         img.RDs[rd_uid] = rd
@@ -617,7 +427,7 @@ class DicomReaderWriter:
                 continue
             added = False
             if self.group_dose_by_frame_of_reference:
-                for img_key, img in self.series_instances_dictionary.items():
+                for _img_key, img in self.series_instances_dictionary.items():
                     if img.StudyInstanceUID != rd.StudyInstanceUID:
                         continue
                     if img.FrameOfReference == rd.ReferencedFrameOfReference:
@@ -634,14 +444,12 @@ class DicomReaderWriter:
                 self.series_instances_dictionary[next_idx] = tmpl
                 next_idx += 1
 
-    __compile__ = _compile
-
     # -- Contour name management -------------------------------------------
 
     def set_contour_names_and_associations(
         self,
-        contour_names: Optional[List[str]] = None,
-        associations: Optional[List[ROIAssociationClass]] = None,
+        contour_names: list[str] | None = None,
+        associations: list[ROIAssociationClass] | None = None,
         check_contours: bool = True,
     ) -> None:
         """Set ROI names to extract and optional name associations.
@@ -652,12 +460,12 @@ class DicomReaderWriter:
             check_contours: Re-scan indexes for contour availability.
         """
         if contour_names is not None:
-            self._reset_rts()
+            self.reset_rts()
             self.Contour_Names = [n.lower() for n in contour_names]
 
         if associations is not None:
             self.associations = associations
-            self.hierarchy: Dict = {}
+            self.hierarchy: dict = {}
 
         if check_contours:
             self._check_all_contours()
@@ -665,13 +473,11 @@ class DicomReaderWriter:
         if contour_names is not None or self.associations is not None:
             if self.verbose:
                 logger.info("Contour names or associations changed, resetting mask")
-            self._reset_mask()
+            self.reset_mask()
 
-    # Backward-compat alias
-    set_contour_names_and_assocations = set_contour_names_and_associations
 
     def _check_contours_at_index(
-        self, index: int, RTs: Optional[Dict[str, RTBase]] = None
+        self, index: int, RTs: dict[str, RTBase] | None = None
     ) -> None:
         """Check which requested contours exist at a given index."""
         self.rois_in_loaded_index = []
@@ -682,8 +488,8 @@ class DicomReaderWriter:
         if RTs is None:
             RTs = entry.RTs
 
-        true_rois: List[str] = []
-        for rt_key, rt in RTs.items():
+        true_rois: list[str] = []
+        for _rt_key, rt in RTs.items():
             # Collect code associations
             for code, names in rt.CodeAssociations.items():
                 existing = self.roi_groups.get(code, [])
@@ -722,13 +528,10 @@ class DicomReaderWriter:
                 index, entry.path, lacking, self.rois_in_loaded_index,
             )
 
-        if index not in self.indexes_with_contours:
-            if not lacking:
-                self.indexes_with_contours.append(index)
-            elif some_exist and not self.require_all_contours:
-                self.indexes_with_contours.append(index)
-
-    __check_contours_at_index__ = _check_contours_at_index
+        if index not in self.indexes_with_contours and (
+            not lacking or (some_exist and not self.require_all_contours)
+        ):
+            self.indexes_with_contours.append(index)
 
     def _check_all_contours(self) -> None:
         self.indexes_with_contours = []
@@ -736,26 +539,24 @@ class DicomReaderWriter:
             self._check_contours_at_index(index)
             self.rois_in_index_dict[index] = self.rois_in_loaded_index
 
-    __check_if_all_contours_present__ = _check_all_contours
-
     # -- Public query methods -----------------------------------------------
 
-    def return_rois(self, print_rois: bool = True) -> List[str]:
+    def return_rois(self, print_rois: bool = True) -> list[str]:
         """Return all ROI names found across loaded series."""
         if print_rois:
             logger.info("The following ROIs were found:")
             for roi in self.all_rois:
-                print(roi)
+                logger.info("  %s", roi)
         return self.all_rois
 
-    def return_found_rois_with_same_code(self, print_rois: bool = True) -> Dict[str, List[str]]:
+    def return_found_rois_with_same_code(self, print_rois: bool = True) -> dict[str, list[str]]:
         """Return ROIs grouped by their DICOM structure code."""
         if print_rois:
             for code, names in self.roi_groups.items():
-                print(f"Code {code}: {', '.join(names)}")
+                logger.info("Code %s: %s", code, ", ".join(names))
         return self.roi_groups
 
-    def return_files_from_UID(self, UID: str) -> List[str]:
+    def return_files_from_UID(self, UID: str) -> list[str]:
         """Return all file paths associated with an image series UID."""
         if UID not in self.images_dictionary:
             logger.warning("%s not found in images dictionary", UID)
@@ -771,7 +572,7 @@ class DicomReaderWriter:
             out.append(rd.path)
         return out
 
-    def return_files_from_index(self, index: int) -> List[str]:
+    def return_files_from_index(self, index: int) -> list[str]:
         """Return all file paths associated with a series-dictionary index."""
         entry = self.series_instances_dictionary[index]
         reader = sitk.ImageSeriesReader()
@@ -785,20 +586,15 @@ class DicomReaderWriter:
             out.append(rd.path)
         return out
 
-    def return_files_from_patientID(self, patientID: str) -> List[str]:
+    def return_files_from_patientID(self, patientID: str) -> list[str]:
         """Return all file paths associated with a patient ID."""
-        out: List[str] = []
+        out: list[str] = []
         for index, entry in self.series_instances_dictionary.items():
             if entry.PatientID == patientID:
                 out.extend(self.return_files_from_index(index))
         return out
 
-    def where_are_RTs(self, ROIName: str) -> List[str]:
-        """Deprecated – use :meth:`where_is_ROI`."""
-        logger.warning("where_are_RTs() is deprecated; use where_is_ROI()")
-        return self.where_is_ROI(ROIName=ROIName)
-
-    def where_is_ROI(self, ROIName: str) -> List[str]:
+    def where_is_ROI(self, ROIName: str) -> list[str]:
         """Return the RT file paths that contain the given ROI name."""
         key = ROIName.lower()
         if key in self.RTs_with_ROI_Names:
@@ -806,17 +602,17 @@ class DicomReaderWriter:
         logger.warning("%s was not found; check spelling or list all ROIs", ROIName)
         return []
 
-    def which_indexes_have_all_rois(self) -> List[int]:
+    def which_indexes_have_all_rois(self) -> list[int]:
         """Return indexes where all requested ROIs are present."""
         if not self.Contour_Names:
             logger.warning("No contour names set. Use set_contour_names_and_associations().")
             return []
         if self.verbose:
             for idx in self.indexes_with_contours:
-                print(f"Index {idx} at {self.series_instances_dictionary[idx].path}")
+                logger.info("Index %d at %s", idx, self.series_instances_dictionary[idx].path)
         return list(self.indexes_with_contours)
 
-    def which_indexes_lack_all_rois(self) -> List[int]:
+    def which_indexes_lack_all_rois(self) -> list[int]:
         """Return indexes where one or more requested ROIs are missing."""
         if not self.Contour_Names:
             logger.warning("No contour names set. Use set_contour_names_and_associations().")
@@ -824,15 +620,10 @@ class DicomReaderWriter:
         lacking = [i for i in self.series_instances_dictionary if i not in self.indexes_with_contours]
         if self.verbose:
             for idx in lacking:
-                print(f"Index {idx} at {self.series_instances_dictionary[idx].path}")
+                logger.info("Index %d at %s", idx, self.series_instances_dictionary[idx].path)
         return lacking
 
     # -- Folder walking -----------------------------------------------------
-
-    def down_folder(self, input_path: PathLike) -> None:
-        """Deprecated – use :meth:`walk_through_folders`."""
-        logger.warning("down_folder() is deprecated; use walk_through_folders()")
-        self.walk_through_folders(input_path)
 
     def walk_through_folders(
         self,
@@ -845,7 +636,7 @@ class DicomReaderWriter:
             input_path: Root directory to search.
             thread_count: Number of parallel threads for loading.
         """
-        paths_with_dicom: List[str] = []
+        paths_with_dicom: list[str] = []
         for root, _dirs, files in os.walk(input_path):
             if any(f.lower().endswith(".dcm") for f in files):
                 paths_with_dicom.append(root)
@@ -854,7 +645,7 @@ class DicomReaderWriter:
             logger.info("No DICOM files found under %s", input_path)
             return
 
-        loader = _DicomFolderLoader(
+        loader = DicomFolderLoader(
             self.plan_pydicom_string_keys,
             self.struct_pydicom_string_keys,
             self.image_sitk_string_keys,
@@ -863,7 +654,10 @@ class DicomReaderWriter:
 
         pbar = tqdm(total=len(paths_with_dicom), desc="Loading DICOM files")
 
-        # Use thread_count=1 for deterministic/test runs
+        # Use thread_count=1 for deterministic/test runs.
+        # Broad except is intentional here: this is a top-level "process
+        # every folder, skip and log on any failure" loop. We do not want a
+        # corrupt or surprising file to abort the whole walk.
         if thread_count <= 1:
             for path in paths_with_dicom:
                 try:
@@ -897,10 +691,10 @@ class DicomReaderWriter:
 
         if self.verbose or len(self.series_instances_dictionary) > 1:
             for key, entry in self.series_instances_dictionary.items():
-                print(f"Index {key}, description {entry.Description} at {entry.path}")
-            print(
-                f"{len(self.series_instances_dictionary)} unique series IDs found. "
-                "Default is index 0; change with set_index(index)."
+                logger.info("Index %d, description %s at %s", key, entry.Description, entry.path)
+            logger.info(
+                "%d unique series IDs found. Default is index 0; change with set_index(index).",
+                len(self.series_instances_dictionary),
             )
             self.set_index(0)
 
@@ -919,12 +713,12 @@ class DicomReaderWriter:
             self.get_dose()
 
     def get_all_info(self) -> None:
-        """Print every DICOM metadata key/value for the current index."""
+        """Log every DICOM metadata key/value for the current index."""
         self.load_key_information_only()
         for key in self.image_reader.GetMetaDataKeys():
-            print(f"{key} = {self.image_reader.GetMetaData(key)}")
+            logger.info("%s = %s", key, self.image_reader.GetMetaData(key))
 
-    def return_key_info(self, key: str) -> Optional[str]:
+    def return_key_info(self, key: str) -> str | None:
         """Return a specific DICOM metadata value by key string."""
         self.load_key_information_only()
         if not self.image_reader.HasMetaDataKey(key):
@@ -966,9 +760,9 @@ class DicomReaderWriter:
 
         if self.verbose:
             logger.info("Resetting mask for new image set")
-        self._reset_mask()
+        self.reset_mask()
 
-        _add_sops(self.reader, self.series_instances_dictionary)
+        add_sops(self.reader, self.series_instances_dictionary)
 
         if any(self.flip_axes):
             flip_filter = sitk.FlipImageFilter()
@@ -1006,10 +800,10 @@ class DicomReaderWriter:
         self.dose = None
         resampler = ImageResampler()
         reader = sitk.ImageFileReader()
-        output: Optional[sitk.Image] = None
+        output: sitk.Image | None = None
         filter_rds = len(entry.RDs) > 1
 
-        for rd_uid, rd in entry.RDs.items():
+        for _rd_uid, rd in entry.RDs.items():
             if filter_rds and rd.DoseSummationType != dose_type:
                 if self.verbose:
                     logger.info("Skipping dose type %s (loading %s)", rd.DoseSummationType, dose_type)
@@ -1038,20 +832,16 @@ class DicomReaderWriter:
     def _characterize_rt(self, rt: RTBase) -> None:
         """Load and index an RT structure set if not already loaded."""
         if self._rs_struct_uid != rt.SeriesInstanceUID:
-            self.structure_references: Dict[int, int] = {}
+            self.structure_references: dict[int, int] = {}
             self.RS_struct = dcmread(rt.path)
             self._rs_struct_uid = rt.SeriesInstanceUID
             for i, contour_seq in enumerate(self.RS_struct.ROIContourSequence):
                 self.structure_references[contour_seq.ReferencedROINumber] = i
 
-    __characterize_RT__ = _characterize_rt
-
     def _return_mask_for_roi(self, rt: RTBase, roi_name: str) -> np.ndarray:
         self._characterize_rt(rt)
         struct_idx = self.structure_references[rt.ROIs_In_Structure[roi_name].ROINumber]
         return self._contours_to_mask(struct_idx, roi_name)
-
-    __return_mask_for_roi__ = _return_mask_for_roi
 
     def get_mask(self) -> None:
         """Build the annotation mask for the current index and contour names."""
@@ -1070,7 +860,7 @@ class DicomReaderWriter:
             logger.info("Loading images for index %d (mask requested)", self.index)
             self.get_images()
 
-        for rt_key, rt in entry.RTs.items():
+        for _rt_key, rt in entry.RTs.items():
             for roi_name in rt.ROIs_In_Structure:
                 true_name = self._resolve_roi_name(roi_name)
                 if true_name and true_name in self.Contour_Names:
@@ -1109,7 +899,7 @@ class DicomReaderWriter:
         self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
 
-    def _resolve_roi_name(self, roi_name: str) -> Optional[str]:
+    def _resolve_roi_name(self, roi_name: str) -> str | None:
         """Map an ROI name to its canonical contour name, or None."""
         lower = roi_name.lower()
         if lower in self.Contour_Names:
@@ -1182,7 +972,7 @@ class DicomReaderWriter:
                     add_to_mask(mask, z, r, c)
 
     def contour_points_to_mask(
-        self, contour_points: np.ndarray, mask: Optional[np.ndarray] = None
+        self, contour_points: np.ndarray, mask: np.ndarray | None = None
     ) -> np.ndarray:
         """Convert a flat array of physical contour points to a 3-D mask."""
         if mask is None:
@@ -1198,7 +988,7 @@ class DicomReaderWriter:
         size = self.dicom_handle.GetSize()
         mask = np.zeros((size[-1], self.image_size_rows, self.image_size_cols), dtype=np.int8)
 
-        if Tag((0x3006, 0x0039)) not in self.RS_struct.keys():
+        if Tag((0x3006, 0x0039)) not in self.RS_struct:
             logger.warning("Structure set has no contour data. Returning blank mask.")
             return mask
 
@@ -1257,37 +1047,39 @@ class DicomReaderWriter:
     def write_parallel(
         self,
         out_path: PathLike,
-        excel_file: PathLike,
+        index_file: PathLike,
         thread_count: int = _DEFAULT_WORKERS,
     ) -> None:
         """Write all indexed series to NIfTI files in parallel.
 
         Args:
             out_path: Output directory.
-            excel_file: Excel file tracking iterations and volumes.
+            index_file: CSV file tracking iterations and per-ROI volumes.
+                Created on first call; updated in place on subsequent calls
+                so re-runs skip already-converted series.
             thread_count: Number of parallel worker threads.
         """
         os.makedirs(out_path, exist_ok=True)
 
-        if not os.path.exists(excel_file):
+        if not os.path.exists(index_file):
             cols = {"PatientID": [], "Path": [], "Iteration": [], "Folder": [],
                     "SeriesInstanceUID": [], "Pixel_Spacing_X": [], "Pixel_Spacing_Y": [],
                     "Slice_Thickness": []}
             for roi in self.Contour_Names:
                 cols[f"Volume_{roi} [cc]"] = []
             df = pd.DataFrame(cols)
-            df.to_excel(excel_file, index=False)
+            df.to_csv(index_file, index=False)
         else:
-            df = pd.read_excel(excel_file, engine="openpyxl")
+            df = pd.read_csv(index_file)
 
-        # Ensure volume columns exist
+        # Ensure volume columns exist.
         for roi in self.Contour_Names:
             col = f"Volume_{roi} [cc]"
             if col not in df.columns:
                 df[col] = np.nan
-                df.to_excel(excel_file, index=False)
+                df.to_csv(index_file, index=False)
 
-        # Register new series
+        # Register new series.
         rewrite = False
         for index in self.indexes_with_contours:
             uid = self.series_instances_dictionary[index].SeriesInstanceUID
@@ -1307,7 +1099,7 @@ class DicomReaderWriter:
                 })
                 df = pd.concat([df, new_row], ignore_index=True)
         if rewrite:
-            df.to_excel(excel_file, index=False)
+            df.to_csv(index_file, index=False)
 
         # Build work items
         key_dict = {
@@ -1351,7 +1143,7 @@ class DicomReaderWriter:
             try:
                 base.set_index(idx)
                 base.get_images_and_mask()
-                base.__set_iteration__(iteration)
+                base.set_iteration(iteration)
                 base.write_images_annotations(wp)
             except Exception:
                 entry = base.series_instances_dictionary[idx]
@@ -1371,7 +1163,7 @@ class DicomReaderWriter:
                     pbar.update()
         pbar.close()
 
-        # Update volume data
+        # Update volume data.
         for item in items:
             idx = item[1]
             iteration = item[0]
@@ -1381,21 +1173,28 @@ class DicomReaderWriter:
             for ri, roi in enumerate(self.Contour_Names):
                 col = f"Volume_{roi} [cc]"
                 df.loc[df.Iteration == iteration, col] = tags["Volumes"][ri]
-        df.to_excel(excel_file, index=False)
+        df.to_csv(index_file, index=False)
 
-    # -- Excel characterisation -------------------------------------------
+    # -- CSV characterisation ---------------------------------------------
 
-    def characterize_data_to_excel(
+    def characterize_data_to_csv(
         self,
-        wanted_rois: Optional[List[str]] = None,
-        excel_path: PathLike = "./Data.xlsx",
+        wanted_rois: list[str] | None = None,
+        csv_path: PathLike = "./Data.csv",
     ) -> None:
-        """Scan all indexes and record volume data to an Excel file.
+        """Scan all indexes and record per-ROI volume data to two CSV files.
+
+        Two files are produced next to *csv_path*:
+
+        * ``<csv_path>`` — one row per RT structure with per-ROI volumes
+          in cc.
+        * ``<csv_path-stem>_images.csv`` — one row per image series with
+          spacing + thickness.
 
         Args:
             wanted_rois: ROI names to evaluate. Defaults to
                 :attr:`Contour_Names` or all found ROIs.
-            excel_path: Output Excel file path.
+            csv_path: Output CSV file path for the ROIs table.
         """
         self.verbose = False
         loading_rois = self._resolve_wanted_rois(wanted_rois)
@@ -1405,8 +1204,8 @@ class DicomReaderWriter:
                  "SliceThickness": [], "zzzRTPath": [], "zzzImagePath": []}
         image_data = {"PatientID": [], "ImagePath": [], "PixelSpacingX": [],
                       "PixelSpacingY": [], "SliceThickness": []}
-        temp_assoc: Dict[str, str] = {}
-        columns: List[str] = []
+        temp_assoc: dict[str, str] = {}
+        columns: list[str] = []
 
         for roi in loading_rois:
             if self.associations:
@@ -1435,7 +1234,7 @@ class DicomReaderWriter:
             self.get_images()
             dim = np.prod(self.dicom_handle.GetSpacing())
 
-            for rt_idx, rt_base in entry.RTs.items():
+            for _rt_idx, rt_base in entry.RTs.items():
                 self._check_contours_at_index(index)
                 final["PatientID"].append(rt_base.PatientID)
                 final["zzzRTPath"].append(rt_base.path)
@@ -1453,7 +1252,7 @@ class DicomReaderWriter:
                         final[f"{roi} cc"][-1] = vol
         pbar.close()
 
-        for key, target in temp_assoc.items():
+        for target in temp_assoc.values():
             if target not in final:
                 final[target] = [np.nan] * len(final["PatientID"])
 
@@ -1463,16 +1262,18 @@ class DicomReaderWriter:
         df = df.reindex(sorted(df.columns), axis=1)
         df_img = pd.DataFrame(image_data)
 
-        with pd.ExcelWriter(excel_path) as writer:
-            df.to_excel(writer, sheet_name="ROIs", index=False)
-            df_img.to_excel(writer, sheet_name="Images", index=False)
+        rois_path = Path(csv_path)
+        images_path = rois_path.with_name(f"{rois_path.stem}_images{rois_path.suffix or '.csv'}")
+        rois_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(rois_path, index=False)
+        df_img.to_csv(images_path, index=False)
 
-    def _resolve_wanted_rois(self, wanted_rois: Optional[List[str]]) -> List[str]:
+    def _resolve_wanted_rois(self, wanted_rois: list[str] | None) -> list[str]:
         if wanted_rois is None:
             if self.Contour_Names:
                 return list(self.Contour_Names)
             return list(self.all_rois)
-        result: List[str] = []
+        result: list[str] = []
         for roi in wanted_rois:
             if roi in self.all_rois:
                 result.append(roi)
@@ -1488,8 +1289,8 @@ class DicomReaderWriter:
         self,
         prediction_array: np.ndarray,
         output_dir: PathLike,
-        ROI_Names: List[str],
-        ROI_Types: Optional[List[str]] = None,
+        ROI_Names: list[str],
+        ROI_Types: list[str] | None = None,
     ) -> None:
         """Convert a multi-class prediction array into an RT Structure file.
 
@@ -1521,7 +1322,7 @@ class DicomReaderWriter:
         if self.create_new_RT or not entry.RTs:
             self.use_template()
         elif self._rs_struct_uid != entry.SeriesInstanceUID:
-            for uid_key, rt in entry.RTs.items():
+            for _uid_key, rt in entry.RTs.items():
                 self.RS_struct = dcmread(rt.path)
                 self._rs_struct_uid = entry.SeriesInstanceUID
                 break
@@ -1533,8 +1334,8 @@ class DicomReaderWriter:
         max_per_channel[0] = 1  # Keep background
         active = max_per_channel > 0
         prediction_array = prediction_array[..., active]
-        active_names = [n for n, a in zip(ROI_Names, active[1:]) if a]
-        dropped = [n for n, a in zip(ROI_Names, active[1:]) if not a]
+        active_names = [n for n, a in zip(ROI_Names, active[1:], strict=False) if a]
+        dropped = [n for n, a in zip(ROI_Names, active[1:], strict=False) if not a]
         if dropped:
             logger.info("No mask data for ROIs: %s", dropped)
 
@@ -1553,11 +1354,6 @@ class DicomReaderWriter:
         self.annotations = prediction_array
         self._mask_to_contours()
 
-    # Backward compat
-    def with_annotations(self, annotations, output_dir, ROI_Names=None):
-        logger.warning("with_annotations() is deprecated; use prediction_array_to_RT()")
-        self.prediction_array_to_RT(annotations, output_dir, ROI_Names)
-
     def _mask_to_contours(self) -> None:
         """Convert the prediction annotations array to DICOM RT contours."""
         self.PixelSize = self.dicom_handle.GetSpacing()
@@ -1573,7 +1369,7 @@ class DicomReaderWriter:
         new_roi_number = 1000
         base_annotations = copy.deepcopy(self.annotations)
 
-        for name, roi_type in zip(self.ROI_Names, self.ROI_Types):
+        for name, roi_type in zip(self.ROI_Names, self.ROI_Types, strict=False):
             new_roi_number -= 1
             if not available_colors:
                 available_colors = list(color_palette)
@@ -1615,8 +1411,8 @@ class DicomReaderWriter:
             del available_colors[color_idx]
 
             # Build contour points using thread pool
-            contour_dict: Dict[int, List[np.ndarray]] = {}
-            maker = _PointOutputMaker(
+            contour_dict: dict[int, list[np.ndarray]] = {}
+            maker = PointOutputMaker(
                 self.image_size_rows, self.image_size_cols,
                 self.PixelSize, contour_dict,
             )
@@ -1666,22 +1462,21 @@ class DicomReaderWriter:
                 self.RS_struct.RTROIObservationsSequence[i].ReferencedROINumber = i + 1
                 self.RS_struct.ROIContourSequence[i].ReferencedROINumber = i + 1
 
-        os.makedirs(self.output_dir, exist_ok=True)
+        out_dir = Path(self.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
         self.RS_struct.SeriesInstanceUID = pydicom.uid.generate_uid(prefix="1.2.826.0.1.3680043.8.498.")
-        out_name = os.path.join(
-            self.output_dir,
-            f"RS_MRN{self.RS_struct.PatientID}_{self.RS_struct.SeriesInstanceUID}.dcm",
-        )
-        if os.path.exists(out_name):
-            out_name = out_name.replace(".dcm", "1.dcm")
+        out_path = out_dir / f"RS_MRN{self.RS_struct.PatientID}_{self.RS_struct.SeriesInstanceUID}.dcm"
+        # If the target already exists (extremely unlikely given the UID
+        # prefix), append a numeric suffix to the stem rather than naively
+        # patching the extension — handles paths whose stem also contains
+        # ".dcm" without corrupting them.
+        if out_path.exists():
+            out_path = out_path.with_stem(out_path.stem + "_1")
 
-        logger.info("Writing RT structure to %s", self.output_dir)
-        pydicom.dcmwrite(out_name, self.RS_struct)
-        with open(os.path.join(self.output_dir, "Completed.txt"), "w"):
-            pass
+        logger.info("Writing RT structure to %s", out_dir)
+        pydicom.dcmwrite(os.fspath(out_path), self.RS_struct)
+        (out_dir / "Completed.txt").touch()
         logger.info("Finished writing RT structure")
-
-    mask_to_contours = _mask_to_contours
 
     # -- Template management ------------------------------------------------
 
@@ -1697,7 +1492,7 @@ class DicomReaderWriter:
     def change_template(self) -> None:
         """Update template RT struct references to match the current image series."""
         ref_key = Tag(0x3006, 0x0010)
-        if ref_key in self.RS_struct.keys():
+        if ref_key in self.RS_struct:
             ref = self.RS_struct[ref_key]._value[0]
             ref.FrameOfReferenceUID = self.ds.FrameOfReferenceUID
             study_seq = ref.RTReferencedStudySequence[0]
@@ -1729,7 +1524,7 @@ class DicomReaderWriter:
 
     # -- RT rewriting -------------------------------------------------------
 
-    def rewrite_RT(self, lstRSFile: Optional[PathLike] = None) -> None:
+    def rewrite_RT(self, lstRSFile: PathLike | None = None) -> None:
         """Rename ROIs in an existing RT structure file using associations.
 
         Args:
@@ -1740,12 +1535,12 @@ class DicomReaderWriter:
 
         roi_struct = (
             self.RS_struct.StructureSetROISequence
-            if Tag((0x3006, 0x0020)) in self.RS_struct.keys()
+            if Tag((0x3006, 0x0020)) in self.RS_struct
             else []
         )
         obs_seq = (
             self.RS_struct.RTROIObservationsSequence
-            if Tag((0x3006, 0x0080)) in self.RS_struct.keys()
+            if Tag((0x3006, 0x0080)) in self.RS_struct
             else []
         )
 

@@ -6,12 +6,11 @@ stacks in a Jupyter or interactive matplotlib session.
 from __future__ import annotations
 
 import copy
-from typing import Tuple
 
 import numpy as np
 
 
-def plot_scroll_Image(x: np.ndarray) -> Tuple:
+def plot_scroll_Image(x: np.ndarray) -> tuple:
     """Display a scrollable 3-D image stack using matplotlib.
 
     Args:
@@ -20,11 +19,11 @@ def plot_scroll_Image(x: np.ndarray) -> Tuple:
            transpose so slices are on axis-2 for display.
 
     Returns:
-        ``(fig, tracker)`` – the matplotlib figure and the
+        ``(fig, tracker)`` - the matplotlib figure and the
         :class:`IndexTracker` instance so the caller can keep a reference
         (required for the scroll callback to remain active).
     """
-    import matplotlib.pyplot as plt  # Late import – optional dependency
+    import matplotlib.pyplot as plt  # Late import: optional dependency
 
     if x.dtype not in (np.float32, np.float64):
         x = copy.deepcopy(x).astype(np.float32)
@@ -32,12 +31,9 @@ def plot_scroll_Image(x: np.ndarray) -> Tuple:
     x = np.squeeze(x)
     if x.ndim == 2:
         x = np.expand_dims(x, axis=-1)
-    elif x.ndim == 3:
-        # Heuristic: put the "slices" dimension last for display
-        if x.shape[0] != x.shape[1]:
-            x = np.transpose(x, (1, 2, 0))
-        elif x.shape[0] == x.shape[2]:
-            x = np.transpose(x, (1, 2, 0))
+    # Heuristic: put the "slices" dimension last for display.
+    elif x.ndim == 3 and (x.shape[0] != x.shape[1] or x.shape[0] == x.shape[2]):
+        x = np.transpose(x, (1, 2, 0))
 
     fig, ax = plt.subplots(1, 1)
     tracker = IndexTracker(ax, x)
@@ -66,7 +62,7 @@ class IndexTracker:
         self.im = ax.imshow(self.X[:, :, self.ind], cmap="gray")
         self.update()
 
-    def onscroll(self, event) -> None:  # noqa: ANN001
+    def onscroll(self, event) -> None:
         if event.button == "up":
             self.ind = (self.ind + 1) % self.slices
         else:
@@ -75,5 +71,5 @@ class IndexTracker:
 
     def update(self) -> None:
         self.im.set_data(self.X[:, :, self.ind])
-        self.ax.set_ylabel("slice %s" % self.ind)
+        self.ax.set_ylabel(f"slice {self.ind}")
         self.im.axes.figure.canvas.draw()

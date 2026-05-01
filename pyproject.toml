@@ -4,20 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DicomRTTool"
-version = "3.0.3"
+version = "4.0.0"
 description = """Services for reading DICOM files, RT structures, and dose files, \
 as well as tools for converting numpy prediction masks back to an RT structure."""
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
     {name = "Brian Mark Anderson", email = "b5anderson@health.ucsd.edu"},
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
@@ -26,20 +27,21 @@ dependencies = [
     "numpy",
     "opencv-python-headless",
     "pandas",
-    "pydicom",
+    "pydicom>=2.4",
     "scikit-image",
     "scipy",
     "SimpleITK",
     "tqdm",
     "NiftiResampler",
-    "openpyxl",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
-    "flake8",
+    "pytest-cov",
+    "ruff",
     "mypy",
+    "build",
 ]
 viewer = [
     "matplotlib",
@@ -59,9 +61,46 @@ DicomRTTool = ["template_RS.dcm", "key_list.txt"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+addopts = ["-ra", "--strict-markers"]
+
+[tool.coverage.run]
+source = ["DicomRTTool"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["scripts", "Examples", "Images"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line-too-long handled by formatter
+    "B008",  # function call in default argument (common with Tag())
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow assert False in tests
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

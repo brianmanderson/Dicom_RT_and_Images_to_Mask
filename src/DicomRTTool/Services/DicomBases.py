@@ -8,30 +8,28 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import pydicom
 import SimpleITK as sitk
+from pydicom.dataset import Dataset
+from pydicom.sequence import Sequence
 from pydicom.tag import BaseTag, Tag
 
 logger = logging.getLogger(__name__)
 
-# Public type aliases for user-facing key dictionaries
-PyDicomKeys = Dict[str, BaseTag]
+# Public type aliases for user-facing key dictionaries.
+PyDicomKeys = dict[str, BaseTag]
 """Maps user-chosen names to pydicom Tag objects, e.g. ``{"MyPlan": Tag((0x300a, 0x002))}``."""
 
-SitkDicomKeys = Dict[str, str]
+SitkDicomKeys = dict[str, str]
 """Maps user-chosen names to SITK metadata key strings, e.g. ``{"PatientName": "0010|0010"}``."""
 
-PathLike = Union[str, bytes, os.PathLike]
+PathLike = str | bytes | os.PathLike
 
-# ---------------------------------------------------------------------------
-# Compatibility shim: pydicom renamed ``read_file`` → ``dcmread``
-# ---------------------------------------------------------------------------
-if hasattr(pydicom, "read_file"):
-    dcmread = pydicom.read_file
-else:
-    dcmread = pydicom.dcmread
+# pydicom >= 2.0 ships ``dcmread``; we pin >= 2.4 in pyproject.toml so the
+# legacy ``read_file`` compatibility shim is no longer needed.
+dcmread = pydicom.dcmread
 
 
 # ---------------------------------------------------------------------------
@@ -54,12 +52,12 @@ class ROIClass:
 class DICOMBase:
     """Common fields shared across all DICOM-derived records."""
 
-    PatientID: Optional[str] = None
-    SeriesInstanceUID: Optional[str] = None
-    SOPInstanceUID: Optional[str] = None
-    StudyInstanceUID: Optional[str] = None
-    path: Optional[PathLike] = None
-    additional_tags: Dict[str, Any] = field(default_factory=dict)
+    PatientID: str | None = None
+    SeriesInstanceUID: str | None = None
+    SOPInstanceUID: str | None = None
+    StudyInstanceUID: str | None = None
+    path: PathLike | None = None
+    additional_tags: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -69,22 +67,22 @@ class DICOMBase:
 class RDBase(DICOMBase):
     """Parsed metadata for an RT Dose file."""
 
-    Description: Optional[str] = None
-    ReferencedStructureSetSOPInstanceUID: Optional[str] = None
-    ReferencedPlanSOPInstanceUID: Optional[str] = None
+    Description: str | None = None
+    ReferencedStructureSetSOPInstanceUID: str | None = None
+    ReferencedPlanSOPInstanceUID: str | None = None
     ReferencedFrameOfReference: str = ""
     DoseSummationType: str = ""
     DoseType: str = ""
     DoseUnits: str = ""
     Grouped: bool = False
-    Dose_Files: List[str] = field(default_factory=list)
+    Dose_Files: list[str] = field(default_factory=list)
 
     # -- loaders --------------------------------------------------------
 
     def load_info(
         self,
         sitk_dicom_reader: sitk.ImageFileReader,
-        sitk_string_keys: Optional[SitkDicomKeys] = None,
+        sitk_string_keys: SitkDicomKeys | None = None,
     ) -> None:
         """Populate fields from a SimpleITK reader that has already executed."""
         file_name = sitk_dicom_reader.GetFileName()
@@ -127,7 +125,7 @@ class RDBase(DICOMBase):
     def _read_sitk_extra_keys(
         self,
         reader: sitk.ImageFileReader,
-        keys: Optional[SitkDicomKeys],
+        keys: SitkDicomKeys | None,
     ) -> None:
         if keys is None:
             return
@@ -146,18 +144,18 @@ class RDBase(DICOMBase):
 class PlanBase(DICOMBase):
     """Parsed metadata for an RT Plan file."""
 
-    PlanLabel: Optional[str] = None
-    PlanName: Optional[str] = None
-    ReferencedStructureSetSOPInstanceUID: Optional[str] = None
-    ReferencedDoseSOPUID: Optional[str] = None
-    StudyDescription: Optional[str] = None
-    SeriesDescription: Optional[str] = None
+    PlanLabel: str | None = None
+    PlanName: str | None = None
+    ReferencedStructureSetSOPInstanceUID: str | None = None
+    ReferencedDoseSOPUID: str | None = None
+    StudyDescription: str | None = None
+    SeriesDescription: str | None = None
 
     def load_info(
         self,
-        ds: pydicom.Dataset,
+        ds: Dataset,
         path: PathLike,
-        pydicom_string_keys: Optional[PyDicomKeys] = None,
+        pydicom_string_keys: PyDicomKeys | None = None,
     ) -> None:
         if hasattr(ds, "DoseReferenceSequence"):
             dose_ref = ds.DoseReferenceSequence[0]
@@ -174,22 +172,22 @@ class PlanBase(DICOMBase):
         self.PlanLabel = getattr(ds, "RTPlanLabel", None)
         self.PlanName = getattr(ds, "RTPlanName", None)
 
-        if Tag((0x0008, 0x1030)) in ds.keys():
+        if Tag((0x0008, 0x1030)) in ds:
             self.StudyDescription = ds.StudyDescription
-        if Tag((0x0008, 0x103E)) in ds.keys():
+        if Tag((0x0008, 0x103E)) in ds:
             self.SeriesDescription = ds.SeriesDescription
 
         self._read_pydicom_extra_keys(ds, pydicom_string_keys)
 
     def _read_pydicom_extra_keys(
         self,
-        ds: pydicom.Dataset,
-        keys: Optional[PyDicomKeys],
+        ds: Dataset,
+        keys: PyDicomKeys | None,
     ) -> None:
         if keys is None:
             return
         for name, key in keys.items():
-            if key in ds.keys():
+            if key in ds:
                 try:
                     self.additional_tags[name] = ds[key].value
                 except (KeyError, AttributeError):
@@ -203,18 +201,18 @@ class PlanBase(DICOMBase):
 class RTBase(DICOMBase):
     """Parsed metadata for an RT Structure Set."""
 
-    ROI_Names: List[str] = field(default_factory=list)
-    ROIs_In_Structure: Dict[str, ROIClass] = field(default_factory=dict)
-    referenced_series_instance_uid: Optional[str] = None
-    Plans: Dict[str, PlanBase] = field(default_factory=dict)
-    Doses: Dict[str, RDBase] = field(default_factory=dict)
-    CodeAssociations: Dict[str, List[str]] = field(default_factory=dict)
+    ROI_Names: list[str] = field(default_factory=list)
+    ROIs_In_Structure: dict[str, ROIClass] = field(default_factory=dict)
+    referenced_series_instance_uid: str | None = None
+    Plans: dict[str, PlanBase] = field(default_factory=dict)
+    Doses: dict[str, RDBase] = field(default_factory=dict)
+    CodeAssociations: dict[str, list[str]] = field(default_factory=dict)
 
     def load_info(
         self,
-        ds: pydicom.Dataset,
+        ds: Dataset,
         path: PathLike,
-        pydicom_string_keys: Optional[PyDicomKeys] = None,
+        pydicom_string_keys: PyDicomKeys | None = None,
     ) -> None:
         self.StudyInstanceUID = ds.StudyInstanceUID
         self.PatientID = getattr(ds, "PatientID", None)
@@ -226,29 +224,31 @@ class RTBase(DICOMBase):
 
     def _parse_series(
         self,
-        ds: pydicom.Dataset,
-        series_seq: pydicom.Sequence,
+        ds: Dataset,
+        series_seq: Sequence,
         path: PathLike,
-        pydicom_string_keys: Optional[PyDicomKeys],
+        pydicom_string_keys: PyDicomKeys | None,
     ) -> None:
         refed_uid = series_seq.SeriesInstanceUID
 
-        roi_structures = ds.StructureSetROISequence if Tag((0x3006, 0x0020)) in ds.keys() else []
-        roi_observations = ds.RTROIObservationsSequence if Tag((0x3006, 0x0080)) in ds.keys() else []
+        roi_structures = ds.StructureSetROISequence if Tag((0x3006, 0x0020)) in ds else []
+        roi_observations = ds.RTROIObservationsSequence if Tag((0x3006, 0x0080)) in ds else []
 
-        # Build lookup tables from observations
-        code_strings: Dict[int, str] = {}
-        type_strings: Dict[int, str] = {}
+        # Build lookup tables from observations.
+        code_strings: dict[int, str] = {}
+        type_strings: dict[int, str] = {}
         for obs in roi_observations:
             if Tag((0x3006, 0x0086)) in obs:
                 code_strings[obs.ReferencedROINumber] = (
                     obs.RTROIIdentificationCodeSequence[0].CodeValue
                 )
-            if Tag(0x3006, 0x00A4) in obs:
+            # Was: ``Tag(0x3006, 0x00A4)`` (two-arg form). Both work, but the
+            # tuple form is consistent with the rest of the file.
+            if Tag((0x3006, 0x00A4)) in obs:
                 type_strings[obs.ReferencedROINumber] = obs.RTROIInterpretedType
 
-        code_associations: Dict[str, List[str]] = {}
-        rois: List[str] = []
+        code_associations: dict[str, list[str]] = {}
+        rois: list[str] = []
 
         for structure in roi_structures:
             roi_name = structure.ROIName.lower()
@@ -278,7 +278,7 @@ class RTBase(DICOMBase):
 
         if pydicom_string_keys is not None:
             for name, key in pydicom_string_keys.items():
-                if key in ds.keys():
+                if key in ds:
                     try:
                         self.additional_tags[name] = ds[key].value
                     except (KeyError, AttributeError):
@@ -292,23 +292,23 @@ class RTBase(DICOMBase):
 class ImageBase(DICOMBase):
     """Parsed metadata for a DICOM image series."""
 
-    Description: Optional[str] = None
+    Description: str | None = None
     FrameOfReference: str = ""
-    slice_thickness: Optional[float] = None
-    pixel_spacing_x: Optional[float] = None
-    pixel_spacing_y: Optional[float] = None
-    SOPs: List[str] = field(default_factory=list)
-    files: List[str] = field(default_factory=list)
-    RTs: Dict[str, RTBase] = field(default_factory=dict)
-    RDs: Dict[str, RDBase] = field(default_factory=dict)
-    RPs: Dict[str, PlanBase] = field(default_factory=dict)
+    slice_thickness: float | None = None
+    pixel_spacing_x: float | None = None
+    pixel_spacing_y: float | None = None
+    SOPs: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+    RTs: dict[str, RTBase] = field(default_factory=dict)
+    RDs: dict[str, RDBase] = field(default_factory=dict)
+    RPs: dict[str, PlanBase] = field(default_factory=dict)
 
     def load_info(
         self,
-        dicom_names: List[str],
+        dicom_names: list[str],
         sitk_dicom_reader: sitk.ImageFileReader,
         path: PathLike,
-        sitk_string_keys: Optional[SitkDicomKeys] = None,
+        sitk_string_keys: SitkDicomKeys | None = None,
     ) -> None:
         self.SeriesInstanceUID = sitk_dicom_reader.GetMetaData("0020|000e")
         self.FrameOfReference = sitk_dicom_reader.GetMetaData("0020|0052")
