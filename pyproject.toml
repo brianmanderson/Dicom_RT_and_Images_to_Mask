@@ -47,6 +47,12 @@ viewer = [
     "matplotlib",
     "PlotScrollNumpyArrays",
 ]
+# RTMaskConformanceTest — analytical RTSTRUCT->NIfTI accuracy gate.
+# Opt-in: install with `pip install -e .[conformance]` to enable
+# tests/test_conformance.py and the Conformance CI job.
+conformance = [
+    "rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest",
+]
 
 [project.urls]
 Homepage = "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask"

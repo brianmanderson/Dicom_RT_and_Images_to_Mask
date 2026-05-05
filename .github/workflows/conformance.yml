@@ -1,0 +1,42 @@
+name: Conformance
+
+# Runs the RTMaskConformanceTest analytical accuracy gate against
+# DicomRTTool's RTSTRUCT->mask conversion. The fixture (synthetic CT +
+# RTSTRUCT + analytic per-ROI ground-truth NIfTIs) is generated at the
+# start of the job, so this workflow has no committed test data.
+#
+# This is intentionally a separate job (not part of `Tests`) so the
+# Conformance status appears as its own check on PRs — accuracy
+# regressions are easy to spot and easy to gate independently of the
+# existing unit tests.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  conformance:
+    name: RTSTRUCT->mask conformance
+    runs-on: ubuntu-latest
+    # Conformance is an accuracy property; the matrix coverage in
+    # test.yml already exercises Python/OS portability. Pick the most
+    # commonly-deployed combo to keep CI minutes reasonable.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + conformance extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,conformance]"
+
+      - name: Run conformance suite
+        run: pytest tests/test_conformance.py -v
