@@ -15,6 +15,7 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main]
+  workflow_dispatch:  # manual "Run workflow" button on any branch
 
 jobs:
   conformance:
