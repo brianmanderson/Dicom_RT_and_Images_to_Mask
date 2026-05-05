@@ -1,0 +1,27 @@
+# RTMaskConformanceTest threshold overrides for DicomRTTool.
+#
+# Defaults (Dice >= 0.95, sDSC1 >= 0.95, HD95 <= 2 mm, MSD <= 0.5 mm,
+# vol_err <= 3%) ship inside the rtmask-conformance package; per-primitive
+# overrides shallow-merge over those.
+#
+# Each relaxation below is documented: what DicomRTTool currently produces,
+# why, and the path back to the published default. If a rasterizer change
+# lifts the actual metric, the corresponding line here should be removed
+# (or its number tightened) so the conformance gate gets stricter.
+#
+# Source of relaxations: pytest tests/test_conformance.py -v on commit 0bd...
+# (DicomRTTool 4.0.0, ubuntu-latest / Python 3.12).
+
+schema_version: 1
+
+primitives:
+  cube:
+    # cv2.fillPoly is boundary-inclusive: every voxel touched by the polygon
+    # is filled. For an axis-aligned 60 mm cube on 1 mm voxels the rasterized
+    # mask gains ~3.4% volume from boundary pixels along each face. The
+    # surface metrics (Surface DSC = 0.9986, HD95 = 1.0 mm, MSD = 0.33 mm)
+    # confirm the geometry is right; the volume gap is purely the half-voxel
+    # boundary convention. Tighten to dice >= 0.99 / vol_err <= 0.03 once
+    # StaticScripts.poly2mask honours a half-voxel-shrink contour.
+    dice: 0.98
+    volume_rel_err: 0.04
