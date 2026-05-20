@@ -177,6 +177,20 @@ class DicomReaderWriter:
         self._dicom_handle_uid: str | None = None
         self._dicom_info_uid: str | None = None
         self._rs_struct_uid: str | None = None
+        # Per-slice ImagePositionPatient[2] (mm) from the source DICOM
+        # series, in the same order as ``self.dicom_handle``'s Z axis.
+        # Populated by ``get_images()``; used by ``reshape_contour_data`` to
+        # map each contour plane's physical z-mm to a slice index by
+        # nearest-neighbour lookup against the actual per-DICOM IPP[2],
+        # avoiding the uniform-spacing assumption baked into
+        # ``TransformPhysicalPointToIndex``. Critical for non-uniform-Z
+        # CT acquisitions (mixed 3 mm / 6 mm slice gaps, common on
+        # NSCLC-Radiomics): the uniform-spacing path mis-rounds the z
+        # index for several contour planes per ROI and the resulting mask
+        # is missing slices. ``None`` when no series has been loaded yet
+        # or the IPP read failed; ``reshape_contour_data`` falls back to
+        # the legacy uniform-spacing path in that case.
+        self._dicom_slice_z_positions: np.ndarray | None = None
         self.mask: np.ndarray | None = None
         self._rd_study_instance_uid: str | None = None
         self.index = index
@@ -764,10 +778,47 @@ class DicomReaderWriter:
 
         add_sops(self.reader, self.series_instances_dictionary)
 
+        # Read each source DICOM's ImagePositionPatient[2] in the same order
+        # SimpleITK's ImageSeriesReader used (it sorts by IPP projection along
+        # the slice axis). On non-uniform-Z CT acquisitions (mixed 3 mm / 6 mm
+        # slice gaps), this per-slice array is the only correct way to map a
+        # contour z-mm to a CT slice index; SimpleITK's
+        # ``TransformPhysicalPointToIndex`` collapses the per-slice positions
+        # into a single averaged spacing and rounds away from the real slice.
+        # See ``reshape_contour_data`` for the consumer of this array.
+        try:
+            sorted_files = list(self.reader.GetFileNames())
+            slice_zs = []
+            for f in sorted_files:
+                sub = dcmread(f, stop_before_pixels=True)
+                ipp = getattr(sub, "ImagePositionPatient", None)
+                if ipp is None or len(ipp) < 3:
+                    raise ValueError(f"{f} has no ImagePositionPatient")
+                slice_zs.append(float(ipp[2]))
+            self._dicom_slice_z_positions = np.asarray(slice_zs, dtype=np.float64)
+        except Exception as exc:  # pragma: no cover - logged for diagnosis
+            logger.warning(
+                "Could not build per-slice Z lookup; falling back to "
+                "uniform-spacing TransformPhysicalPointToIndex (may misalign "
+                "contours on non-uniform-Z CTs). Reason: %s",
+                exc,
+            )
+            self._dicom_slice_z_positions = None
+
         if any(self.flip_axes):
             flip_filter = sitk.FlipImageFilter()
             flip_filter.SetFlipAxes(self.flip_axes)
             self.dicom_handle = flip_filter.Execute(self.dicom_handle)
+            # FlipImageFilter on the Z axis reverses the in-memory slice
+            # order. Keep the per-slice Z lookup in lockstep so
+            # ``reshape_contour_data`` resolves contour z-mm against the
+            # post-flip indices.
+            if (
+                self._dicom_slice_z_positions is not None
+                and len(self.flip_axes) >= 3
+                and self.flip_axes[2]
+            ):
+                self._dicom_slice_z_positions = self._dicom_slice_z_positions[::-1].copy()
 
         self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
         self.image_size_cols, self.image_size_rows, self.image_size_z = (
@@ -913,11 +964,34 @@ class DicomReaderWriter:
     # -- Contour geometry ---------------------------------------------------
 
     def reshape_contour_data(self, contour_data: np.ndarray) -> np.ndarray:
-        """Convert flat contour data to Nx3 matrix of voxel indices."""
+        """Convert flat contour data to Nx3 matrix of voxel indices.
+
+        Uses SimpleITK's ``TransformPhysicalPointToIndex`` for the in-plane
+        (col, row) coordinates -- those are not sensitive to Z-spacing.
+        For the slice index, prefers a nearest-neighbour lookup against
+        the per-DICOM ``ImagePositionPatient[2]`` array cached in
+        ``self._dicom_slice_z_positions`` (correct on any Z-spacing
+        pattern including the non-uniform CT case). Falls back to the
+        ``TransformPhysicalPointToIndex`` Z when that array isn't
+        available -- which preserves the legacy behaviour on synthetic
+        test images that bypass ``get_images()``.
+        """
         pts = np.asarray(contour_data).reshape(-1, 3)
-        return np.array(
+        indices = np.array(
             [self.dicom_handle.TransformPhysicalPointToIndex(pts[i]) for i in range(len(pts))]
         )
+        if self._dicom_slice_z_positions is not None and len(self._dicom_slice_z_positions) > 0:
+            # Replace SimpleITK's uniform-spacing Z with the actual
+            # nearest-IPP slice index for every contour point. Identical
+            # output on uniform-Z CTs (rounding to the nearest of N
+            # uniform positions and the nearest-IPP lookup against those
+            # same N positions resolve to the same index); meaningfully
+            # different only when the per-slice IPPs are non-uniform.
+            slice_zs = self._dicom_slice_z_positions
+            for i in range(len(pts)):
+                z_mm = pts[i][2]
+                indices[i, 2] = int(np.argmin(np.abs(slice_zs - z_mm)))
+        return indices
 
     def return_mask(
         self, mask: np.ndarray, matrix_points: np.ndarray, geometric_type: str
