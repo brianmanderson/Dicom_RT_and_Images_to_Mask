@@ -33,17 +33,13 @@ This test exercises three layers:
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pydicom
 import pytest
-import SimpleITK as sitk
 
 from DicomRTTool.ReaderWriter import DicomReaderWriter
 
 from . import synthetic
-
 
 # ---------------------------------------------------------------------------
 # Layer 1 -- uniform-Z synthetic dataset (regression: fix is a no-op here)
@@ -127,7 +123,7 @@ def nonuniform_z_dataset(tmp_path_factory) -> dict:
         expected_zs.append(expected_zs[-1] + g)
     assert len(expected_zs) == 12
 
-    for f, z in zip(sorted(ct_dir.glob("slice_*.dcm")), expected_zs):
+    for f, z in zip(sorted(ct_dir.glob("slice_*.dcm")), expected_zs, strict=True):
         ds = pydicom.dcmread(str(f))
         ipp = list(ds.ImagePositionPatient)
         ipp[2] = float(z)
@@ -211,9 +207,8 @@ def test_reshape_contour_data_uses_nearest_ipp_when_available(synthetic_dataset)
     # Mixed 3 mm / 6 mm pattern, anchored at the synthetic origin so
     # X/Y indexing stays sensible.
     origin_z = r.dicom_handle.GetOrigin()[2]
-    spacing_z = r.dicom_handle.GetSpacing()[2]
     gaps = [3.0 if i % 4 != 2 else 6.0 for i in range(n_slices - 1)]
-    custom_zs = np.cumsum([0.0] + gaps) + origin_z
+    custom_zs = np.cumsum([0.0, *gaps]) + origin_z
     r._dicom_slice_z_positions = custom_zs
 
     # Pick a Z position that lands between two slices on the custom
