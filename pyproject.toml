@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "DicomRTTool"
-version = "4.0.0"
+version = "4.0.1"
 description = """Services for reading DICOM files, RT structures, and dose files, \
 as well as tools for converting numpy prediction masks back to an RT structure."""
 readme = "README.md"
@@ -46,12 +46,6 @@ dev = [
 viewer = [
     "matplotlib",
     "PlotScrollNumpyArrays",
-]
-# RTMaskConformanceTest — analytical RTSTRUCT->NIfTI accuracy gate.
-# Opt-in: install with `pip install -e .[conformance]` to enable
-# tests/test_conformance.py and the Conformance CI job.
-conformance = [
-    "rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest",
 ]
 
 [project.urls]

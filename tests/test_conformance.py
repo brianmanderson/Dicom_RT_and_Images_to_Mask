@@ -12,9 +12,9 @@ definitions) — independent of any rasterizer — so a Dice failure here is
 a real accuracy regression, not a discretization artifact.
 
 This module is opt-in: it imports the third-party ``rtmask_conformance``
-package, which is installed via the ``conformance`` extra::
+package, which is installed via the conformance requirements file::
 
-    pip install -e .[conformance]
+    pip install -e .[dev] -r requirements-conformance.txt
 
 If the package is not installed the entire module is skipped via
 ``pytest.importorskip``, so the default ``pytest`` run is unaffected.
@@ -33,7 +33,7 @@ import SimpleITK as sitk
 
 rtmask_conformance = pytest.importorskip(
     "rtmask_conformance",
-    reason="install the `conformance` extra: pip install -e .[conformance]",
+    reason="install rtmask-conformance: pip install -e .[dev] -r requirements-conformance.txt",
 )
 
 from rtmask_conformance import CONFORMANCE_ROIS, generate_fixture, load_config  # noqa: E402
