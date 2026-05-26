@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:  # manual "Run workflow" button on any branch
