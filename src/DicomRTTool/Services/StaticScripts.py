@@ -107,7 +107,7 @@ def resample_to_spacing(
     in_size = handle.GetSize()
     in_spacing = handle.GetSpacing()
     new_size = [
-        max(1, int(math.ceil(in_size[i] * in_spacing[i] / output_spacing[i])))
+        max(1, math.ceil(in_size[i] * in_spacing[i] / output_spacing[i]))
         for i in range(3)
     ]
 
