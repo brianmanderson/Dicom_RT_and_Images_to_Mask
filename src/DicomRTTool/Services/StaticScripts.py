@@ -2,6 +2,7 @@
 
 Provides functions to convert RT Structure contour polygons into binary
 mask arrays and to interpolate non-planar contour segments onto a voxel grid.
+Also provides a spacing-tuple resampler used by the NIfTI export helpers.
 """
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import math
 
 import cv2
 import numpy as np
+import SimpleITK as sitk
 
 
 def poly2mask(
@@ -60,3 +62,60 @@ def add_to_mask(
         for r in (r_lo, r_hi):
             for c in (c_lo, c_hi):
                 mask[z, r, c] = mask_value
+
+
+# Interpolator string -> SimpleITK enum. ``"Linear"`` for images and dose,
+# ``"Nearest"`` for label masks (so labels are never blended).
+_INTERPOLATORS = {
+    "Linear": sitk.sitkLinear,
+    "Nearest": sitk.sitkNearestNeighbor,
+    "NearestNeighbor": sitk.sitkNearestNeighbor,
+    "BSpline": sitk.sitkBSpline,
+}
+
+
+def resample_to_spacing(
+    handle: sitk.Image,
+    output_spacing: tuple[float, float, float],
+    interpolator: str = "Linear",
+) -> sitk.Image:
+    """Resample a SimpleITK image to a target voxel spacing.
+
+    The output covers the same physical extent as the input: the new size
+    along each axis is ``ceil(in_size * in_spacing / out_spacing)`` (clamped
+    to a minimum of 1), while the origin and direction cosines are preserved.
+    This mirrors the C# ``ResampleToSpacing`` used by the reference tool.
+
+    Args:
+        handle: Input image.
+        output_spacing: Desired ``(x, y, z)`` spacing in mm.
+        interpolator: ``"Linear"`` (images / dose) or ``"Nearest"`` (masks).
+            Also accepts ``"NearestNeighbor"`` / ``"BSpline"``.
+
+    Returns:
+        A resampled :class:`SimpleITK.Image`.
+    """
+    if interpolator not in _INTERPOLATORS:
+        raise ValueError(
+            f"Unknown interpolator '{interpolator}'. "
+            f"Expected one of {sorted(_INTERPOLATORS)}."
+        )
+    output_spacing = tuple(float(s) for s in output_spacing)
+    if len(output_spacing) != 3 or any(s <= 0 for s in output_spacing):
+        raise ValueError(f"output_spacing must be three positive numbers; got {output_spacing}")
+
+    in_size = handle.GetSize()
+    in_spacing = handle.GetSpacing()
+    new_size = [
+        max(1, int(math.ceil(in_size[i] * in_spacing[i] / output_spacing[i])))
+        for i in range(3)
+    ]
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetOutputSpacing(output_spacing)
+    resampler.SetSize(new_size)
+    resampler.SetOutputOrigin(handle.GetOrigin())
+    resampler.SetOutputDirection(handle.GetDirection())
+    resampler.SetInterpolator(_INTERPOLATORS[interpolator])
+    resampler.SetDefaultPixelValue(0)
+    return resampler.Execute(handle)

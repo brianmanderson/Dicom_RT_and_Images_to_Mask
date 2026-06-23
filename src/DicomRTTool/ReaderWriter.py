@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from pydicom.tag import Tag
 from tqdm import tqdm
 
 from ._internal import DEFAULT_WORKERS as _DEFAULT_WORKERS
+from ._internal.anonymizer import DEFAULT_SALT, AnonymizationKey, hash_series
 from ._internal.indexer import (
     DicomFolderLoader,
     add_sops,
@@ -53,13 +55,29 @@ from .Services.DicomBases import (
     SitkDicomKeys,
     dcmread,
 )
-from .Services.StaticScripts import add_to_mask, poly2mask
+from .Services.StaticScripts import add_to_mask, poly2mask, resample_to_spacing
 from .Viewer import plot_scroll_Image  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility.
 dcmread_function = dcmread
+
+# Filename sanitisation for the per-ROI export layout (Windows-safe).
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_FILENAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _sanitize_filename(name: str) -> str:
+    """Return *name* stripped of characters illegal in Windows filenames."""
+    cleaned = _INVALID_FILENAME_CHARS.sub("_", name or "").strip().rstrip(". ")
+    if cleaned.upper() in _RESERVED_FILENAMES:
+        cleaned = f"_{cleaned}"
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -1082,32 +1100,52 @@ class DicomReaderWriter:
 
     # -- NIfTI I/O ----------------------------------------------------------
 
-    def write_images_annotations(self, out_path: PathLike) -> None:
+    def write_images_annotations(
+        self,
+        out_path: PathLike,
+        output_spacing: tuple[float, float, float] | None = None,
+    ) -> None:
         """Write the current image and mask to NIfTI files.
 
         Args:
             out_path: Directory for output files.
+            output_spacing: Optional ``(x, y, z)`` spacing in mm to resample
+                the outputs to. The image and dose are resampled with linear
+                interpolation; the label mask uses nearest-neighbour so labels
+                are never blended. When ``None`` (default) outputs keep the
+                native DICOM geometry and behaviour is unchanged.
         """
         os.makedirs(out_path, exist_ok=True)
         img_path = os.path.join(out_path, f"Overall_Data_{self.description}_{self.iteration}.nii.gz")
         ann_path = os.path.join(out_path, f"Overall_mask_{self.description}_y{self.iteration}.nii.gz")
 
         handle = self.dicom_handle
+        if output_spacing is not None:
+            handle = resample_to_spacing(handle, output_spacing, "Linear")
         if handle.GetPixelIDTypeAsString().find("32-bit signed integer") != 0:
             handle = sitk.Cast(handle, sitk.sitkFloat32)
         sitk.WriteImage(handle, img_path)
 
         ann = self.annotation_handle
-        ann.SetSpacing(self.dicom_handle.GetSpacing())
-        ann.SetOrigin(self.dicom_handle.GetOrigin())
-        ann.SetDirection(self.dicom_handle.GetDirection())
+        if output_spacing is None:
+            # Keep the legacy behaviour: copy geometry from the image handle.
+            ann.SetSpacing(self.dicom_handle.GetSpacing())
+            ann.SetOrigin(self.dicom_handle.GetOrigin())
+            ann.SetDirection(self.dicom_handle.GetDirection())
+        else:
+            # The resampled mask already carries the new geometry; copying the
+            # native spacing back would corrupt it.
+            ann = resample_to_spacing(ann, output_spacing, "Nearest")
         if ann.GetPixelIDTypeAsString().find("int") == -1:
             ann = sitk.Cast(ann, sitk.sitkUInt8)
         sitk.WriteImage(ann, ann_path)
 
         if self.dose_handle:
             dose_path = os.path.join(out_path, f"Overall_dose_{self.description}_{self.iteration}.nii.gz")
-            sitk.WriteImage(self.dose_handle, dose_path)
+            dose = self.dose_handle
+            if output_spacing is not None:
+                dose = resample_to_spacing(dose, output_spacing, "Linear")
+            sitk.WriteImage(dose, dose_path)
 
         marker = os.path.join(
             self.series_instances_dictionary[self.index].path,
@@ -1248,6 +1286,246 @@ class DicomReaderWriter:
                 col = f"Volume_{roi} [cc]"
                 df.loc[df.Iteration == iteration, col] = tags["Volumes"][ri]
         df.to_csv(index_file, index=False)
+
+    # -- Per-ROI NIfTI writing (C#-compatible layout) ----------------------
+
+    def write_per_roi(
+        self,
+        out_path: PathLike,
+        output_spacing: tuple[float, float, float] | None = None,
+        anonymize: bool = False,
+        salt: str = DEFAULT_SALT,
+        thread_count: int = _DEFAULT_WORKERS,
+        rois: list[str] | None = None,
+        manifest_name: str = "manifest.csv",
+        key_file_name: str = "anonymization_key.json",
+        dose_type: str = "PLAN",
+    ) -> None:
+        """Export every series-with-contours to a per-ROI NIfTI layout.
+
+        For each series an ``<case_id>/`` folder is written containing:
+
+        * ``image.nii.gz`` — the image volume;
+        * ``masks/<roi>.nii.gz`` — one binary mask per ROI;
+        * ``doses/<desc>.nii.gz`` — the summed dose grid, only when the series
+          carries dose *and* this reader was built with ``get_dose_output=True``.
+
+        A single ``manifest.csv`` (no persistent iteration index) is written at
+        *out_path* with one row per series: identifiers (raw and/or hashed),
+        the output spacing, and per-ROI volume in cc (``-1`` when an ROI is
+        absent for that series).
+
+        When ``output_spacing`` is given the image and dose are resampled with
+        linear interpolation and masks with nearest-neighbour. When
+        ``anonymize`` is ``True`` the case folder is named by the series hash,
+        only hashed identifiers are written to the manifest, and an
+        ``anonymization_key.json`` reverse-lookup file is saved at *out_path*.
+
+        Args:
+            out_path: Output directory.
+            output_spacing: Optional ``(x, y, z)`` mm spacing to resample to.
+            anonymize: Hash identifiers + folder names and write a key file.
+            salt: Salt for the deterministic hashes.
+            thread_count: Number of parallel worker threads.
+            rois: ROI names to export. Defaults to :attr:`Contour_Names`.
+            manifest_name: Filename of the manifest CSV.
+            key_file_name: Filename of the anonymization key JSON.
+            dose_type: ``DoseSummationType`` filter used when loading dose.
+        """
+        os.makedirs(out_path, exist_ok=True)
+        wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
+        if not wanted_rois:
+            logger.warning("No ROIs to export. Set Contour_Names or pass rois=...")
+            return
+
+        items = list(self.indexes_with_contours)
+        if not items:
+            logger.warning("No indexes with contours found; nothing to export.")
+            return
+
+        key_dict = {
+            "series_instances_dictionary": self.series_instances_dictionary,
+            "associations": self.associations, "arg_max": self.arg_max,
+            "require_all_contours": self.require_all_contours,
+            "Contour_Names": self.Contour_Names, "description": self.description,
+            "get_dose_output": self.get_dose_output,
+        }
+
+        pbar = tqdm(total=len(items), desc="Writing per-ROI NIfTI files...")
+
+        def _worker(index: int) -> dict | None:
+            base = DicomReaderWriter(**key_dict)
+            base.verbose = False
+            try:
+                base.set_index(index)
+                base.get_images_and_mask()
+                return self._export_one_series(
+                    base, index, out_path, wanted_rois,
+                    output_spacing, anonymize, salt, dose_type,
+                )
+            except Exception:
+                entry = base.series_instances_dictionary.get(index)
+                logger.warning("Failed on %s", getattr(entry, "path", index), exc_info=True)
+                return None
+
+        rows: list[dict] = []
+        if thread_count <= 1:
+            for index in items:
+                result = _worker(index)
+                if result is not None:
+                    rows.append(result)
+                pbar.update()
+        else:
+            with ThreadPoolExecutor(max_workers=thread_count) as pool:
+                futures = {pool.submit(_worker, index): index for index in items}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        rows.append(result)
+                    pbar.update()
+        pbar.close()
+
+        if not rows:
+            logger.warning("No series exported; manifest not written.")
+            return
+
+        self._write_manifest(rows, wanted_rois, out_path, manifest_name, anonymize)
+
+        if anonymize:
+            key = AnonymizationKey(salt=salt)
+            for row in rows:
+                key.patients.setdefault(row["patient_hash"], row["_mrn"])
+                key.studies.setdefault(row["study_hash"], row["_study_uid"])
+                key.series.setdefault(row["series_hash"], row["_series_uid"])
+            key.save(os.path.join(out_path, key_file_name))
+
+    def _export_one_series(
+        self,
+        base: DicomReaderWriter,
+        index: int,
+        out_path: PathLike,
+        wanted_rois: list[str],
+        output_spacing: tuple[float, float, float] | None,
+        anonymize: bool,
+        salt: str,
+        dose_type: str,
+    ) -> dict:
+        """Write one series' image/masks/dose tree and return its manifest data."""
+        from ._internal.anonymizer import hash_patient, hash_study  # local: keep import surface small
+
+        entry = base.series_instances_dictionary[index]
+        mrn = entry.PatientID or ""
+        study_uid = entry.StudyInstanceUID or ""
+        series_uid = entry.SeriesInstanceUID or ""
+
+        patient_hash = hash_patient(mrn, salt)
+        study_hash = hash_study(study_uid, salt)
+        series_hash = hash_series(series_uid, salt)
+
+        case_id = (
+            series_hash if anonymize
+            else _sanitize_filename(f"{mrn}_{series_uid[-8:]}") or series_hash
+        )
+
+        case_dir = os.path.join(out_path, case_id)
+        masks_dir = os.path.join(case_dir, "masks")
+        os.makedirs(masks_dir, exist_ok=True)
+
+        # ROIs genuinely present in this series' RT structure(s). ``get_mask``
+        # allocates an all-zero mask for *every* ``Contour_Name``, so the mask
+        # dictionary alone cannot distinguish "absent" from "empty"; resolve
+        # the RT membership instead so absent ROIs become -1 in the manifest
+        # and no empty mask file is written.
+        present_rois: set[str] = set()
+        for rt in entry.RTs.values():
+            for raw_name in rt.ROIs_In_Structure:
+                canonical = base._resolve_roi_name(raw_name)
+                if canonical:
+                    present_rois.add(canonical)
+
+        # --- image (linear) ---
+        image_handle = base.dicom_handle
+        if output_spacing is not None:
+            image_handle = resample_to_spacing(image_handle, output_spacing, "Linear")
+        if image_handle.GetPixelIDTypeAsString().find("32-bit signed integer") != 0:
+            image_handle = sitk.Cast(image_handle, sitk.sitkFloat32)
+        sitk.WriteImage(image_handle, os.path.join(case_dir, "image.nii.gz"))
+
+        # --- masks (nearest neighbour) ---
+        native_spacing = base.dicom_handle.GetSpacing()
+        out_spacing = tuple(float(s) for s in (output_spacing if output_spacing is not None else native_spacing))
+        voxel_cc = float(np.prod(out_spacing)) / 1000.0
+        roi_volumes: dict[str, float] = {}
+        for roi in wanted_rois:
+            if roi not in present_rois or roi not in base.mask_dictionary:
+                continue
+            mask_img = base.mask_dictionary[roi]
+            if output_spacing is not None:
+                mask_img = resample_to_spacing(mask_img, output_spacing, "Nearest")
+            mask_img = sitk.Cast(mask_img, sitk.sitkUInt8)
+            sitk.WriteImage(mask_img, os.path.join(masks_dir, f"{_sanitize_filename(roi)}.nii.gz"))
+            n_vox = int(np.sum(sitk.GetArrayViewFromImage(mask_img)))
+            roi_volumes[roi] = round(n_vox * voxel_cc, 3)
+
+        # --- dose (linear), only when present ---
+        if base.dose_handle is not None:
+            doses_dir = os.path.join(case_dir, "doses")
+            os.makedirs(doses_dir, exist_ok=True)
+            dose_img = base.dose_handle
+            if output_spacing is not None:
+                dose_img = resample_to_spacing(dose_img, output_spacing, "Linear")
+            desc = None
+            for rd in entry.RDs.values():
+                if rd.Description:
+                    desc = rd.Description
+                    break
+            desc = _sanitize_filename(desc or dose_type or "dose") or "dose"
+            sitk.WriteImage(dose_img, os.path.join(doses_dir, f"{desc}.nii.gz"))
+
+        return {
+            "case_id": case_id,
+            "patient_hash": patient_hash,
+            "study_hash": study_hash,
+            "series_hash": series_hash,
+            "_mrn": mrn,
+            "_study_uid": study_uid,
+            "_series_uid": series_uid,
+            "spacing_x": out_spacing[0],
+            "spacing_y": out_spacing[1],
+            "spacing_z": out_spacing[2],
+            "volumes": roi_volumes,
+        }
+
+    def _write_manifest(
+        self,
+        rows: list[dict],
+        wanted_rois: list[str],
+        out_path: PathLike,
+        manifest_name: str,
+        anonymize: bool,
+    ) -> None:
+        """Write the single per-series manifest CSV (one row per series)."""
+        records = []
+        for row in rows:
+            record: dict = {
+                "case_id": row["case_id"],
+                "patient_hash": row["patient_hash"],
+                "study_hash": row["study_hash"],
+                "series_hash": row["series_hash"],
+            }
+            if not anonymize:
+                record["PatientID"] = row["_mrn"]
+                record["StudyInstanceUID"] = row["_study_uid"]
+                record["SeriesInstanceUID"] = row["_series_uid"]
+            record["spacing_x"] = row["spacing_x"]
+            record["spacing_y"] = row["spacing_y"]
+            record["spacing_z"] = row["spacing_z"]
+            for roi in wanted_rois:
+                record[f"{roi} cc"] = row["volumes"].get(roi, -1)
+            records.append(record)
+
+        df = pd.DataFrame(records)
+        df.to_csv(os.path.join(out_path, manifest_name), index=False)
 
     # -- CSV characterisation ---------------------------------------------
 

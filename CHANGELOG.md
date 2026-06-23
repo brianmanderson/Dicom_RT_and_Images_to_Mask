@@ -5,6 +5,57 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Ports the DICOM→NIfTI feature set from the companion C# `DicomRtNifti.Cli`
+tool. All additions are backward compatible — existing APIs are unchanged.
+
+### Added
+
+- **`DicomReaderWriter.write_per_roi(...)`** — bulk export of every
+  series-with-contours to a per-ROI NIfTI layout that matches the C# tool:
+  `<case_id>/image.nii.gz`, `<case_id>/masks/<roi>.nii.gz`, and
+  `<case_id>/doses/<desc>.nii.gz` (the latter only when `get_dose_output=True`
+  and the series carries dose). A single `manifest.csv` is written with one
+  row per series — patient/study/series identifiers, output spacing, and the
+  per-ROI mask volume in cc (`-1` when an ROI is absent for that series). No
+  persistent iteration index is maintained (unlike `write_parallel`, which is
+  kept for backward compatibility).
+- **Output resampling** — an optional `output_spacing` tuple on both
+  `write_per_roi` and `write_images_annotations` resamples outputs to a target
+  voxel spacing: **linear** interpolation for images and dose, **nearest
+  neighbour** for masks (labels are never blended). The reusable
+  `resample_to_spacing(handle, output_spacing, interpolator)` helper is
+  exported from the package.
+- **Anonymization** — deterministic SHA-256 identifier hashing matching the
+  C# `AnonymizationService` byte-for-byte: `hash_patient` (prefix `P`, 5
+  bytes), `hash_study` (`ST`, 6 bytes), `hash_series` (`SE`, 6 bytes), the
+  low-level `deterministic_hash_string`, and an `AnonymizationKey` class that
+  loads/saves the reverse-lookup JSON key file. With `write_per_roi(...,
+  anonymize=True)` the manifest carries only hashes, case folders are named by
+  the series hash, and an `anonymization_key.json` is written.
+- **New public exports** from `DicomRTTool`: `resample_to_spacing`,
+  `hash_patient`, `hash_study`, `hash_series`, `deterministic_hash_string`,
+  `AnonymizationKey`.
+- **Cross-tool evaluation harness** under `evaluation/`
+  (`compare_with_csharp.py` + `csharp_eval.py`) that runs DicomRTTool and the
+  C# tool live on TCIA LCTSC patients and compares mask generation (Dice /
+  volume), image generation (voxel MAE / geometry), and the resampling
+  feature. An opt-in `tests/test_csharp_parity.py` exercises it and
+  auto-skips unless `DICOMRTTOOL_LCTSC_DIR` and `DICOMRTTOOL_CSHARP_EXE` are
+  set, so the hermetic suite and CI are unaffected. New hermetic unit tests:
+  `tests/test_anonymizer.py`, `tests/test_resample.py`,
+  `tests/test_per_roi_export.py`.
+
+### Notes
+
+- The two tools use different polygon-boundary conventions (DicomRTTool is
+  boundary-inclusive; the C# tool fills the polygon interior), so masks agree
+  closely but are not byte-identical. On a 10-patient LCTSC sweep the live
+  comparison gives a median Dice of ~0.99 for large OARs (lower for thin
+  structures such as esophagus/cord), MAE 0.0 for native image generation,
+  and ~0.4 HU MAE for resample parity.
+
 ## [4.0.0] — 2026-05-01
 
 A modernization release. Breaking changes are limited to the removal of

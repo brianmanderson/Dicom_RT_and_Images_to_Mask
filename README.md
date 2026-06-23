@@ -99,6 +99,95 @@ reader.prediction_array_to_RT(
 )
 ```
 
+## Bulk export to a per-ROI NIfTI layout
+
+`write_per_roi` converts every indexed series-with-contours into a tidy,
+per-case folder tree — one file per ROI — plus a single `manifest.csv`
+(one row per series). No persistent iteration index is maintained. This
+mirrors the layout used by the companion C# DICOM→NIfTI tool:
+
+```text
+out/
+  <case_id>/
+    image.nii.gz
+    masks/
+      tumor.nii.gz
+      cord.nii.gz
+    doses/                 # only when get_dose_output=True and dose exists
+      plan.nii.gz
+  manifest.csv             # patient/study/series ids, spacing, per-ROI volume (cc)
+```
+
+```python
+reader = DicomReaderWriter(
+    description="export",
+    Contour_Names=["tumor", "cord"],
+    require_all_contours=False,   # a series may carry only some ROIs (others -> -1)
+)
+reader.walk_through_folders("/path/to/dicom")
+reader.write_per_roi("/path/to/out")
+```
+
+Each manifest row records the patient/study/series identifiers, the output
+spacing, and the mask volume in cc for every requested ROI (`-1` when an ROI
+is absent from that series).
+
+### Resampling outputs to a target spacing
+
+Pass an `output_spacing` tuple (mm) to resample on the way out. Images and
+dose are resampled with **linear** interpolation, masks with
+**nearest-neighbour** so labels are never blended. The same option is
+available on the single-series writer `write_images_annotations`:
+
+```python
+reader.write_per_roi("/path/to/out", output_spacing=(1.0, 1.0, 3.0))
+reader.write_images_annotations("/path/to/out", output_spacing=(1.0, 1.0, 3.0))
+
+# Or resample any SimpleITK handle directly:
+from DicomRTTool import resample_to_spacing
+resampled = resample_to_spacing(reader.dicom_handle, (1.0, 1.0, 3.0), "Linear")
+```
+
+### Anonymized export
+
+With `anonymize=True`, identifiers are replaced by deterministic SHA-256
+hashes (patient MRN → patient hash, study hash, series hash), the case folder
+is named by the series hash, and an `anonymization_key.json` reverse-lookup
+file is written alongside the manifest. The hashing matches the companion C#
+tool byte-for-byte, so the two tools produce identical hashes for the same
+salt:
+
+```python
+reader.write_per_roi("/path/to/out", anonymize=True, salt="MyProjectSalt")
+
+# Stand-alone helpers are exported too:
+from DicomRTTool import hash_patient, hash_study, hash_series, AnonymizationKey
+hash_patient("1234567")          # -> 'P...'  (prefix + 5 bytes of SHA-256)
+```
+
+## Cross-tool evaluation
+
+The [`evaluation/`](evaluation/) directory contains an opt-in harness that
+runs DicomRTTool and the companion C# `DicomRtNifti.Cli` tool side by side on
+TCIA LCTSC patients and compares mask generation (Dice / volume), image
+generation (voxel MAE / geometry), and the resampling feature. See
+[`evaluation/README.md`](evaluation/README.md). It is never part of the
+hermetic test suite — the parity pytest auto-skips unless you point it at the
+external dataset and the built C# binary.
+
+## What's new since v4.0
+
+- **`write_per_roi`** — bulk DICOM→NIfTI export to a per-ROI layout
+  (`<case>/image.nii.gz`, `<case>/masks/<roi>.nii.gz`, `<case>/doses/…`) with
+  a single `manifest.csv` and no persistent index.
+- **Output resampling** — `output_spacing` on `write_per_roi` and
+  `write_images_annotations`, plus the public `resample_to_spacing` helper
+  (linear for image/dose, nearest-neighbour for masks).
+- **Anonymization** — deterministic SHA-256 hashing (`hash_patient` /
+  `hash_study` / `hash_series` / `AnonymizationKey`) for anonymized exports,
+  matching the companion C# tool.
+- **Cross-tool evaluation harness** under `evaluation/`.
+
 ## What's new in v4.0
 
 - **Python 3.10+** required (3.8 / 3.9 are end-of-life).
