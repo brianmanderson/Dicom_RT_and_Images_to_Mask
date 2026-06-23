@@ -38,7 +38,13 @@ from pydicom.tag import Tag
 from tqdm import tqdm
 
 from ._internal import DEFAULT_WORKERS as _DEFAULT_WORKERS
-from ._internal.anonymizer import DEFAULT_SALT, AnonymizationKey, hash_series
+from ._internal.anonymizer import (
+    DEFAULT_SALT,
+    AnonymizationKey,
+    hash_patient,
+    hash_series,
+    hash_study,
+)
 from ._internal.indexer import (
     DicomFolderLoader,
     add_sops,
@@ -1411,8 +1417,6 @@ class DicomReaderWriter:
         dose_type: str,
     ) -> dict:
         """Write one series' image/masks/dose tree and return its manifest data."""
-        from ._internal.anonymizer import hash_patient, hash_study  # local: keep import surface small
-
         entry = base.series_instances_dictionary[index]
         mrn = entry.PatientID or ""
         study_uid = entry.StudyInstanceUID or ""
@@ -1496,6 +1500,36 @@ class DicomReaderWriter:
             "volumes": roi_volumes,
         }
 
+    def _manifest_record(
+        self,
+        row: dict,
+        wanted_rois: list[str],
+        anonymize: bool,
+        include_case_id: bool = True,
+    ) -> dict:
+        """Flatten one collected series ``row`` into a manifest CSV record.
+
+        Columns: optional ``case_id``, the three hashes, the raw identifiers
+        (omitted when *anonymize*), the output spacing, and one ``<roi> cc``
+        column per wanted ROI (``-1`` when the ROI is absent for that series).
+        """
+        record: dict = {}
+        if include_case_id and "case_id" in row:
+            record["case_id"] = row["case_id"]
+        record["patient_hash"] = row["patient_hash"]
+        record["study_hash"] = row["study_hash"]
+        record["series_hash"] = row["series_hash"]
+        if not anonymize:
+            record["PatientID"] = row["_mrn"]
+            record["StudyInstanceUID"] = row["_study_uid"]
+            record["SeriesInstanceUID"] = row["_series_uid"]
+        record["spacing_x"] = row["spacing_x"]
+        record["spacing_y"] = row["spacing_y"]
+        record["spacing_z"] = row["spacing_z"]
+        for roi in wanted_rois:
+            record[f"{roi} cc"] = row["volumes"].get(roi, -1)
+        return record
+
     def _write_manifest(
         self,
         rows: list[dict],
@@ -1505,27 +1539,175 @@ class DicomReaderWriter:
         anonymize: bool,
     ) -> None:
         """Write the single per-series manifest CSV (one row per series)."""
-        records = []
-        for row in rows:
-            record: dict = {
-                "case_id": row["case_id"],
-                "patient_hash": row["patient_hash"],
-                "study_hash": row["study_hash"],
-                "series_hash": row["series_hash"],
-            }
-            if not anonymize:
-                record["PatientID"] = row["_mrn"]
-                record["StudyInstanceUID"] = row["_study_uid"]
-                record["SeriesInstanceUID"] = row["_series_uid"]
-            record["spacing_x"] = row["spacing_x"]
-            record["spacing_y"] = row["spacing_y"]
-            record["spacing_z"] = row["spacing_z"]
-            for roi in wanted_rois:
-                record[f"{roi} cc"] = row["volumes"].get(roi, -1)
-            records.append(record)
-
+        records = [self._manifest_record(row, wanted_rois, anonymize) for row in rows]
         df = pd.DataFrame(records)
         df.to_csv(os.path.join(out_path, manifest_name), index=False)
+
+    def _collect_series_row(
+        self,
+        base: DicomReaderWriter,
+        index: int,
+        wanted_rois: list[str],
+        salt: str,
+    ) -> dict:
+        """Compute identifiers, native image spacing, and per-ROI cc volumes.
+
+        Does not write any NIfTI files -- used by :meth:`create_manifest`.
+        Volumes are taken from the native-resolution masks; an ROI absent from
+        the series' RT structure(s) is simply omitted (becomes ``-1`` at CSV
+        write time).
+        """
+        entry = base.series_instances_dictionary[index]
+        mrn = entry.PatientID or ""
+        study_uid = entry.StudyInstanceUID or ""
+        series_uid = entry.SeriesInstanceUID or ""
+
+        spacing = tuple(float(s) for s in base.dicom_handle.GetSpacing())
+        voxel_cc = float(np.prod(spacing)) / 1000.0
+
+        present_rois: set[str] = set()
+        for rt in entry.RTs.values():
+            for raw_name in rt.ROIs_In_Structure:
+                canonical = base._resolve_roi_name(raw_name)
+                if canonical:
+                    present_rois.add(canonical)
+
+        volumes: dict[str, float] = {}
+        for roi in wanted_rois:
+            if roi in present_rois and roi in base.mask_dictionary:
+                n_vox = int(np.sum(sitk.GetArrayViewFromImage(base.mask_dictionary[roi])))
+                volumes[roi] = round(n_vox * voxel_cc, 3)
+
+        return {
+            "patient_hash": hash_patient(mrn, salt),
+            "study_hash": hash_study(study_uid, salt),
+            "series_hash": hash_series(series_uid, salt),
+            "_mrn": mrn,
+            "_study_uid": study_uid,
+            "_series_uid": series_uid,
+            "spacing_x": spacing[0],
+            "spacing_y": spacing[1],
+            "spacing_z": spacing[2],
+            "volumes": volumes,
+        }
+
+    def create_manifest(
+        self,
+        output_path: PathLike,
+        anonymize: bool = False,
+        salt: str = DEFAULT_SALT,
+        rois: list[str] | None = None,
+        thread_count: int = _DEFAULT_WORKERS,
+    ) -> None:
+        """Build, or incrementally extend, a metadata manifest CSV.
+
+        Writes one row per series-with-contours to *output_path*, mirroring the
+        C# tool's ``export_manifest.csv``: identifiers (raw and/or hashed),
+        the image spacing (``spacing_x/y/z``), and the mask volume in cc for
+        every ROI name (one ``<roi> cc`` column each; ``-1`` when an ROI is
+        absent from that series). Unlike :meth:`write_per_roi`, no NIfTI files
+        are written -- this produces the manifest only.
+
+        If *output_path* already exists it is read and **extended in place**:
+        rows for series already recorded (matched by ``SeriesInstanceUID`` or
+        ``series_hash``) are left untouched, only new series are appended, and
+        any new ROI columns are added (filled with ``-1`` for pre-existing
+        rows). This makes it safe to call repeatedly as more data is walked.
+
+        Args:
+            output_path: CSV path to create or extend.
+            anonymize: Write only the hashed identifiers (no raw IDs).
+            salt: Salt for the deterministic identifier hashes.
+            rois: ROI names to record. Defaults to :attr:`Contour_Names`.
+            thread_count: Number of parallel worker threads.
+        """
+        wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
+        if not wanted_rois:
+            logger.warning("No ROIs to record. Set Contour_Names or pass rois=...")
+            return
+        if not self.indexes_with_contours:
+            logger.warning("No indexes with contours found; manifest not written.")
+            return
+
+        # Load any existing manifest so we only append genuinely new series.
+        existing_df = None
+        existing_keys: set[str] = set()
+        if os.path.exists(output_path):
+            existing_df = pd.read_csv(output_path)
+            for col in ("SeriesInstanceUID", "series_hash"):
+                if col in existing_df.columns:
+                    existing_keys.update(existing_df[col].dropna().astype(str).tolist())
+
+        # Skip series already present (cheap -- no image load needed).
+        todo: list[int] = []
+        for index in self.indexes_with_contours:
+            entry = self.series_instances_dictionary[index]
+            series_uid = entry.SeriesInstanceUID or ""
+            if series_uid in existing_keys or hash_series(series_uid, salt) in existing_keys:
+                continue
+            todo.append(index)
+
+        key_dict = {
+            "series_instances_dictionary": self.series_instances_dictionary,
+            "associations": self.associations, "arg_max": self.arg_max,
+            "require_all_contours": self.require_all_contours,
+            "Contour_Names": self.Contour_Names, "description": self.description,
+            "get_dose_output": self.get_dose_output,
+        }
+
+        rows: list[dict] = []
+        if todo:
+            pbar = tqdm(total=len(todo), desc="Building manifest...")
+
+            def _worker(index: int) -> dict | None:
+                base = DicomReaderWriter(**key_dict)
+                base.verbose = False
+                try:
+                    base.set_index(index)
+                    base.get_images_and_mask()
+                    return self._collect_series_row(base, index, wanted_rois, salt)
+                except Exception:
+                    entry = base.series_instances_dictionary.get(index)
+                    logger.warning("Failed on %s", getattr(entry, "path", index), exc_info=True)
+                    return None
+
+            if thread_count <= 1:
+                for index in todo:
+                    result = _worker(index)
+                    if result is not None:
+                        rows.append(result)
+                    pbar.update()
+            else:
+                with ThreadPoolExecutor(max_workers=thread_count) as pool:
+                    futures = {pool.submit(_worker, index): index for index in todo}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result is not None:
+                            rows.append(result)
+                        pbar.update()
+            pbar.close()
+
+        new_df = pd.DataFrame(
+            [self._manifest_record(row, wanted_rois, anonymize, include_case_id=False) for row in rows]
+        )
+
+        if existing_df is not None and not existing_df.empty:
+            combined = pd.concat([existing_df, new_df], ignore_index=True) if not new_df.empty else existing_df
+        else:
+            combined = new_df
+
+        if combined is None or combined.empty:
+            logger.warning("No manifest rows to write.")
+            return
+
+        # Absent ROI volume cells (new columns on old rows, or vice versa) -> -1.
+        for col in [c for c in combined.columns if str(c).endswith(" cc")]:
+            combined[col] = combined[col].fillna(-1)
+
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        combined.to_csv(output_path, index=False)
 
     # -- CSV characterisation ---------------------------------------------
 

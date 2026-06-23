@@ -165,6 +165,57 @@ from DicomRTTool import hash_patient, hash_study, hash_series, AnonymizationKey
 hash_patient("1234567")          # -> 'P...'  (prefix + 5 bytes of SHA-256)
 ```
 
+## Metadata manifest (`create_manifest`)
+
+When you only want the metadata table — **not** the NIfTI files —
+`create_manifest` writes a single CSV that mirrors the companion C# tool's
+`export_manifest.csv`: one row per series-with-contours, with the image
+spacing and the mask volume (cc) of every ROI. It records, per series:
+
+- the identifiers (`patient_hash`, `study_hash`, `series_hash`, and the raw
+  `PatientID` / `StudyInstanceUID` / `SeriesInstanceUID` unless `anonymize=True`);
+- the image spacing (`spacing_x`, `spacing_y`, `spacing_z`);
+- one `<roi> cc` column per ROI name — the mask volume in cubic centimetres,
+  or `-1` when that ROI is absent from the series.
+
+```python
+reader = DicomReaderWriter(
+    description="manifest",
+    Contour_Names=["tumor", "cord"],
+    require_all_contours=False,   # include series that carry only some ROIs
+)
+reader.walk_through_folders("/path/to/dicom")
+reader.create_manifest("/path/to/manifest.csv")
+
+# Anonymized identifiers only:
+reader.create_manifest("/path/to/manifest.csv", anonymize=True, salt="MyProjectSalt")
+```
+
+### Incremental updates (resumes an existing file)
+
+If the target CSV already exists, `create_manifest` **reads it and extends it
+in place** instead of overwriting. Series already recorded (matched by
+`SeriesInstanceUID`, or `series_hash` when anonymized) are left untouched, only
+newly walked series are appended, and any new ROI columns are added — with `-1`
+backfilled for the rows that predate them. This makes it safe to call
+repeatedly as you walk more data:
+
+```python
+# First batch
+reader.walk_through_folders("/data/batch1")
+reader.create_manifest("/path/to/manifest.csv")
+
+# Later: walk more patients and keep populating the same file —
+# existing rows are preserved, only new series are added.
+reader.reset()
+reader.walk_through_folders("/data/batch2")
+reader.create_manifest("/path/to/manifest.csv")
+```
+
+(`write_per_roi` writes the same-shape manifest alongside the NIfTI tree; use
+`create_manifest` when you want the table on its own or want to grow it over
+multiple runs.)
+
 ## Cross-tool evaluation
 
 The [`evaluation/`](evaluation/) directory contains an opt-in harness that
@@ -180,6 +231,8 @@ external dataset and the built C# binary.
 - **`write_per_roi`** — bulk DICOM→NIfTI export to a per-ROI layout
   (`<case>/image.nii.gz`, `<case>/masks/<roi>.nii.gz`, `<case>/doses/…`) with
   a single `manifest.csv` and no persistent index.
+- **`create_manifest`** — write (or incrementally extend) a metadata-only CSV
+  of per-series image spacing and per-ROI volumes, mirroring the C# manifest.
 - **Output resampling** — `output_spacing` on `write_per_roi` and
   `write_images_annotations`, plus the public `resample_to_spacing` helper
   (linear for image/dose, nearest-neighbour for masks).

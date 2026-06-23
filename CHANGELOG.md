@@ -21,6 +21,15 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   per-ROI mask volume in cc (`-1` when an ROI is absent for that series). No
   persistent iteration index is maintained (unlike `write_parallel`, which is
   kept for backward compatibility).
+- **`DicomReaderWriter.create_manifest(output_path, ...)`** — a metadata-only
+  manifest writer mirroring the C# `export_manifest.csv`: one row per
+  series-with-contours with the image spacing (`spacing_x/y/z`) and the mask
+  volume in cc for every ROI name (`-1` when absent). No NIfTI files are
+  written. If the CSV already exists it is **read and extended in place** —
+  series already present (matched by `SeriesInstanceUID` or `series_hash`) are
+  left untouched, new series are appended, and new ROI columns are backfilled
+  with `-1` for pre-existing rows — so it is safe to call repeatedly while
+  walking more data. Supports `anonymize=True` for hashed-only identifiers.
 - **Output resampling** — an optional `output_spacing` tuple on both
   `write_per_roi` and `write_images_annotations` resamples outputs to a target
   voxel spacing: **linear** interpolation for images and dose, **nearest
@@ -45,7 +54,7 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   auto-skips unless `DICOMRTTOOL_LCTSC_DIR` and `DICOMRTTOOL_CSHARP_EXE` are
   set, so the hermetic suite and CI are unaffected. New hermetic unit tests:
   `tests/test_anonymizer.py`, `tests/test_resample.py`,
-  `tests/test_per_roi_export.py`.
+  `tests/test_per_roi_export.py`, `tests/test_create_manifest.py`.
 
 ### Notes
 
