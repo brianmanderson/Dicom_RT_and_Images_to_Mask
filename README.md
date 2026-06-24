@@ -22,142 +22,143 @@ pip install "DicomRTTool[viewer]"
 
 **Supported Python versions:** 3.10, 3.11, 3.12, 3.13.
 
-## Quick Start
+## Getting started: a typical workflow
+
+A first pass through a new DICOM corpus usually moves from **discover →
+survey → select → export**:
+
+1. **Discover** — walk the folder tree and list the ROIs that are present.
+2. **Survey** — write a metadata manifest of everything found (spacing + ROI volumes).
+3. **Select** — choose the ROIs you want and map their name aliases.
+4. **Export** — write NIfTI files, resampled to your target voxel spacing.
+
+Everything else in this README (loading a single series into NumPy, writing
+predictions back to RT structures, anonymization, performance tuning, …) builds
+on these four steps and is covered afterwards.
+
+### Step 1 — Discover: walk the folders
+
+`walk_through_folders` recursively scans a directory tree, groups files by
+`SeriesInstanceUID`, and links each RT structure and dose to its image series.
+The images and RT files do **not** need to live in the same folder.
 
 ```python
-from pathlib import Path
+from DicomRTTool.ReaderWriter import DicomReaderWriter
 
-from DicomRTTool.ReaderWriter import DicomReaderWriter, ROIAssociationClass
+reader = DicomReaderWriter()
+reader.walk_through_folders("/path/to/dicom")
 
-dicom_path = Path("/path/to/dicom")
-reader = DicomReaderWriter(description="Examples", arg_max=True)
-reader.walk_through_folders(dicom_path)
-
-# Inspect available ROIs.
+# What ROIs exist across everything that was found?
 all_rois = reader.return_rois(print_rois=True)
+```
 
-# Define target ROIs with optional name aliases.
-contour_names = ["tumor"]
-associations = [ROIAssociationClass("tumor", ["tumor_mr", "tumor_ct"])]
+### Step 2 — Survey: write a metadata manifest
+
+Before committing to an export, get a one-row-per-series overview with
+`create_manifest`. With no ROIs selected yet it records **every ROI it found**,
+so you can see what is available and how large each structure is:
+
+```python
+reader.create_manifest("/path/to/manifest.csv")
+```
+
+Each row holds the identifiers, the image spacing (`spacing_x/y/z`), and one
+`<roi> cc` column per ROI giving its mask volume in cubic centimetres (`-1`
+when that ROI is absent from the series). Add `anonymize=True,
+salt="MyProjectSalt"` to write only hashed identifiers. Re-runs **extend the
+file in place** rather than overwriting it (see
+[Incremental manifests](#incremental-manifests)), so you can keep growing one
+manifest as you walk more data.
+
+### Step 3 — Select: choose ROIs and map aliases
+
+Real-world ROI names are inconsistent (`Lung_L`, `Lung-Left`, `left lung`).
+`ROIAssociationClass` maps any number of aliases onto one canonical name, and
+`set_contour_names_and_associations` picks the ROIs you actually want:
+
+```python
+from DicomRTTool.ReaderWriter import ROIAssociationClass
+
 reader.set_contour_names_and_associations(
-    contour_names=contour_names,
-    associations=associations,
+    contour_names=["lung_l", "lung_r", "cord"],
+    associations=[
+        ROIAssociationClass("lung_l", ["lung-left", "left lung"]),
+        ROIAssociationClass("lung_r", ["lung-right", "right lung"]),
+        ROIAssociationClass("cord", ["spinal cord", "spinalcord"]),
+    ],
 )
 
-# Load images and masks for the first index that contains all target ROIs.
-reader.set_index(reader.indexes_with_contours[0])
-reader.get_images_and_mask()
-
-image_numpy   = reader.ArrayDicom          # NumPy image array
-mask_numpy    = reader.mask                # NumPy mask array
-image_handle  = reader.dicom_handle        # SimpleITK Image
-mask_handle   = reader.annotation_handle   # SimpleITK Image
+# Which series contain the selected ROIs?
+print(reader.indexes_with_contours)
 ```
 
-## Reading extra DICOM tags
+ROI names are matched case-insensitively. Build the reader with
+`require_all_contours=False` to also include series that carry only *some* of
+the selected ROIs.
+
+### Step 4 — Export: NIfTI with voxel resampling
+
+`write_per_roi` writes every selected series to a tidy per-case tree — one file
+per ROI — plus a `manifest.csv`. Pass `output_spacing` (mm) to resample on the
+way out: **linear** interpolation for the image and dose, **nearest-neighbour**
+for masks (labels are never blended). The dose is resampled onto the resampled
+image grid, so the image, masks, and dose all come out the same size and
+geometry.
 
 ```python
-from pydicom.tag import Tag
-
-plan_keys  = {"MyNamedRTPlan": Tag((0x300a, 0x002))}
-image_keys = {"MyPatientName": "0010|0010"}
-
-reader = DicomReaderWriter(
-    description="Examples",
-    arg_max=True,
-    plan_pydicom_string_keys=plan_keys,
-    image_sitk_string_keys=image_keys,
+# Build with get_dose_output=True if you also want the dose loaded/resampled.
+reader.write_per_roi(
+    "/path/to/out",
+    output_spacing=(1.0, 1.0, 3.0),     # omit to keep native spacing
+    anonymize=True, salt="MyProjectSalt",
 )
 ```
-
-## Resetting state between uses
-
-`DicomReaderWriter` instances can be reused across multiple corpora; call
-the appropriate reset method before walking a fresh folder tree or
-swapping target ROIs:
-
-```python
-reader.reset()        # wipe everything (images, RTs, masks, cached UIDs)
-reader.reset_rts()    # clear ROI bookkeeping only; keep loaded images
-reader.reset_mask()   # re-allocate an empty mask after changing Contour_Names
-```
-
-## Writing predictions back to an RT structure
-
-```python
-import numpy as np
-
-# 4-channel one-hot prediction matching the loaded image shape:
-# (slices, rows, cols, num_classes + 1) — channel 0 is background.
-predictions = np.zeros((*reader.ArrayDicom.shape, 3), dtype=np.float32)
-# ... populate `predictions` from your model ...
-
-reader.prediction_array_to_RT(
-    prediction_array=predictions,
-    output_dir="/path/to/output",
-    ROI_Names=["organ_a", "organ_b"],
-)
-```
-
-## Bulk export to a per-ROI NIfTI layout
-
-`write_per_roi` converts every indexed series-with-contours into a tidy,
-per-case folder tree — one file per ROI — plus a single `manifest.csv`
-(one row per series). No persistent iteration index is maintained. This
-mirrors the layout used by the companion C# DICOM→NIfTI tool:
 
 ```text
 out/
-  <case_id>/
+  <case_id>/                 # series hash when anonymized, else <patient>_<series>
     image.nii.gz
     masks/
-      tumor.nii.gz
+      lung_l.nii.gz
+      lung_r.nii.gz
       cord.nii.gz
-    doses/                 # only when get_dose_output=True and dose exists
+    doses/                   # only when get_dose_output=True and dose exists
       plan.nii.gz
-  manifest.csv             # patient/study/series ids, spacing, per-ROI volume (cc)
+  manifest.csv               # identifiers, spacing, per-ROI volume (cc)
+  anonymization_key.json     # only when anonymize=True (reverse lookup)
 ```
+
+This layout mirrors the companion C# DICOM→NIfTI tool. The `manifest.csv` has
+the same shape as the one from [Step 2](#step-2--survey-write-a-metadata-manifest).
+
+---
+
+That's the core loop. The sections below are reference material for everything
+else.
+
+## Load a single series into NumPy / SimpleITK
+
+For in-memory analysis (e.g. feeding a model) instead of exporting files, load
+one series directly:
 
 ```python
-reader = DicomReaderWriter(
-    description="export",
-    Contour_Names=["tumor", "cord"],
-    require_all_contours=False,   # a series may carry only some ROIs (others -> -1)
-)
-reader.walk_through_folders("/path/to/dicom")
-reader.write_per_roi("/path/to/out")
+reader.set_index(reader.indexes_with_contours[0])
+reader.get_images_and_mask()
+
+image_numpy  = reader.ArrayDicom         # NumPy image array
+mask_numpy   = reader.mask               # NumPy mask array
+image_handle = reader.dicom_handle       # SimpleITK Image
+mask_handle  = reader.annotation_handle  # SimpleITK Image
 ```
 
-Each manifest row records the patient/study/series identifiers, the output
-spacing, and the mask volume in cc for every requested ROI (`-1` when an ROI
-is absent from that series).
+## Anonymized export
 
-### Resampling outputs to a target spacing
-
-Pass an `output_spacing` tuple (mm) to resample on the way out. Images and
-dose are resampled with **linear** interpolation, masks with
-**nearest-neighbour** so labels are never blended. The dose is resampled onto
-the **resampled image grid**, so the image, masks, and dose all come out the
-same size and geometry. The same option is available on the single-series
-writer `write_images_annotations`:
-
-```python
-reader.write_per_roi("/path/to/out", output_spacing=(1.0, 1.0, 3.0))
-reader.write_images_annotations("/path/to/out", output_spacing=(1.0, 1.0, 3.0))
-
-# Or resample any SimpleITK handle directly:
-from DicomRTTool import resample_to_spacing
-resampled = resample_to_spacing(reader.dicom_handle, (1.0, 1.0, 3.0), "Linear")
-```
-
-### Anonymized export
-
-With `anonymize=True`, identifiers are replaced by deterministic SHA-256
-hashes (patient MRN → patient hash, study hash, series hash), the case folder
-is named by the series hash, and an `anonymization_key.json` reverse-lookup
-file is written alongside the manifest. The hashing matches the companion C#
-tool byte-for-byte, so the two tools produce identical hashes for the same
-salt:
+`anonymize=True` (on `write_per_roi` or `create_manifest`) replaces identifiers
+with deterministic SHA-256 hashes (patient MRN → patient hash, study hash,
+series hash). For `write_per_roi` the case folder is named by the series hash
+and an `anonymization_key.json` reverse-lookup file is written alongside the
+manifest. The hashing matches the companion C# tool byte-for-byte, so both
+tools produce identical hashes for the same salt:
 
 ```python
 reader.write_per_roi("/path/to/out", anonymize=True, salt="MyProjectSalt")
@@ -167,40 +168,18 @@ from DicomRTTool import hash_patient, hash_study, hash_series, AnonymizationKey
 hash_patient("1234567")          # -> 'P...'  (prefix + 5 bytes of SHA-256)
 ```
 
-## Metadata manifest (`create_manifest`)
+## Metadata manifest details
 
-When you only want the metadata table — **not** the NIfTI files —
-`create_manifest` writes a single CSV that mirrors the companion C# tool's
-`export_manifest.csv`: one row per series-with-contours, with the image
-spacing and the mask volume (cc) of every ROI. It records, per series:
-
-- the identifiers (`patient_hash`, `study_hash`, `series_hash`, and the raw
-  `PatientID` / `StudyInstanceUID` / `SeriesInstanceUID` unless `anonymize=True`);
-- the image spacing (`spacing_x`, `spacing_y`, `spacing_z`);
-- one `<roi> cc` column per ROI name — the mask volume in cubic centimetres,
-  or `-1` when that ROI is absent from the series.
-
-If you don't set `Contour_Names` (and don't pass `rois=`), `create_manifest`
-records **every ROI discovered during the walk** — so the simplest case just
-works:
-
-```python
-reader = DicomReaderWriter(description="manifest")
-reader.walk_through_folders("/path/to/dicom")
-reader.create_manifest("/path/to/manifest.csv")   # one column per discovered ROI
-
-# Anonymized identifiers only:
-reader.create_manifest("/path/to/manifest.csv", anonymize=True, salt="MyProjectSalt")
-```
-
-To restrict the manifest to specific ROIs, either set `Contour_Names` on the
-reader or pass them explicitly:
+`create_manifest` ([Step 2](#step-2--survey-write-a-metadata-manifest)) defaults
+to **every ROI discovered during the walk**. To restrict it to specific ROIs,
+either set `Contour_Names` on the reader (as in
+[Step 3](#step-3--select-choose-rois-and-map-aliases)) or pass them explicitly:
 
 ```python
 reader.create_manifest("/path/to/manifest.csv", rois=["tumor", "cord"])
 ```
 
-### Incremental updates (resumes an existing file)
+### Incremental manifests
 
 If the target CSV already exists, `create_manifest` **reads it and extends it
 in place** instead of overwriting. Series already recorded (matched by
@@ -225,7 +204,67 @@ reader.create_manifest("/path/to/manifest.csv")
 `create_manifest` when you want the table on its own or want to grow it over
 multiple runs.)
 
-### Performance
+## Resampling any SimpleITK handle
+
+The resampling helpers used by the writers are exported for direct use:
+
+```python
+from DicomRTTool import resample_to_spacing, resample_to_reference
+
+# To a target voxel spacing (linear for images/dose, "Nearest" for masks):
+resampled = resample_to_spacing(reader.dicom_handle, (1.0, 1.0, 3.0), "Linear")
+
+# Onto another image's exact grid (size/spacing/origin/direction):
+dose_on_image = resample_to_reference(reader.dose_handle, resampled, "Linear")
+```
+
+`write_images_annotations` also accepts `output_spacing` for the single-series
+combined-file output (`Overall_Data_*` / `Overall_mask_*` / `Overall_dose_*`).
+
+## Writing predictions back to an RT structure
+
+```python
+import numpy as np
+
+# 4-channel one-hot prediction matching the loaded image shape:
+# (slices, rows, cols, num_classes + 1) — channel 0 is background.
+predictions = np.zeros((*reader.ArrayDicom.shape, 3), dtype=np.float32)
+# ... populate `predictions` from your model ...
+
+reader.prediction_array_to_RT(
+    prediction_array=predictions,
+    output_dir="/path/to/output",
+    ROI_Names=["organ_a", "organ_b"],
+)
+```
+
+## Reading extra DICOM tags
+
+```python
+from pydicom.tag import Tag
+
+plan_keys  = {"MyNamedRTPlan": Tag((0x300a, 0x002))}
+image_keys = {"MyPatientName": "0010|0010"}
+
+reader = DicomReaderWriter(
+    plan_pydicom_string_keys=plan_keys,
+    image_sitk_string_keys=image_keys,
+)
+```
+
+## Resetting state between uses
+
+`DicomReaderWriter` instances can be reused across multiple corpora; call the
+appropriate reset method before walking a fresh folder tree or swapping target
+ROIs:
+
+```python
+reader.reset()        # wipe everything (images, RTs, masks, cached UIDs)
+reader.reset_rts()    # clear ROI bookkeeping only; keep loaded images
+reader.reset_mask()   # re-allocate an empty mask after changing Contour_Names
+```
+
+## Performance
 
 Both `create_manifest` and `write_per_roi` parallelise across series, and
 auto-tune per-ROI rasterisation threads so a single series with many ROIs still
@@ -257,11 +296,14 @@ external dataset and the built C# binary.
 - **`create_manifest`** — write (or incrementally extend) a metadata-only CSV
   of per-series image spacing and per-ROI volumes, mirroring the C# manifest.
 - **Output resampling** — `output_spacing` on `write_per_roi` and
-  `write_images_annotations`, plus the public `resample_to_spacing` helper
-  (linear for image/dose, nearest-neighbour for masks).
+  `write_images_annotations`, plus the public `resample_to_spacing` /
+  `resample_to_reference` helpers (linear for image/dose, nearest-neighbour for
+  masks; dose lands on the resampled image grid).
 - **Anonymization** — deterministic SHA-256 hashing (`hash_patient` /
   `hash_study` / `hash_series` / `AnonymizationKey`) for anonymized exports,
   matching the companion C# tool.
+- **Faster, parallel rasterisation** — `mask_thread_count` plus the removal of
+  a per-ROI full-array rescan (~2.4× on multi-ROI series).
 - **Cross-tool evaluation harness** under `evaluation/`.
 
 ## What's new in v4.0
