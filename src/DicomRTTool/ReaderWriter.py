@@ -86,6 +86,24 @@ def _sanitize_filename(name: str) -> str:
     return cleaned
 
 
+# Cap per-ROI rasterisation threads: past ~4 the GIL-bound parts dominate and
+# returns diminish (8 threads measured slower than 4).
+_MAX_MASK_THREADS = 4
+
+
+def _mask_threads_for(total_workers: int, n_series: int) -> int:
+    """Split a thread budget between series-level and per-ROI parallelism.
+
+    When many series are processed at once, series-level parallelism already
+    saturates the cores, so each series rasterises serially (1). When only a
+    few series are processed (e.g. a single multi-ROI series), the leftover
+    cores are handed to per-ROI rasterisation inside ``get_mask``.
+    """
+    if n_series <= 0:
+        return 1
+    return max(1, min(_MAX_MASK_THREADS, total_workers // n_series))
+
+
 # ---------------------------------------------------------------------------
 # ROI association helper (public API — kept here intentionally)
 # ---------------------------------------------------------------------------
@@ -182,6 +200,7 @@ class DicomReaderWriter:
         image_sitk_string_keys: SitkDicomKeys | None = None,
         dose_sitk_string_keys: SitkDicomKeys | None = None,
         group_dose_by_frame_of_reference: bool = True,
+        mask_thread_count: int = 1,
     ) -> None:
         # Logging setup
         if verbose:
@@ -191,6 +210,10 @@ class DicomReaderWriter:
         self.roi_class_list: list[ROIClass] = []
         self.dose: np.ndarray | None = None
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
+        # Per-ROI rasterisation threads inside get_mask(). 1 = serial (default).
+        # The bulk writers auto-tune this so per-ROI threads only spin up when
+        # there are spare cores not already used by series-level parallelism.
+        self.mask_thread_count = mask_thread_count
         self.verbose = verbose
         self.annotation_handle: sitk.Image | None = None
         self.dicom_handle: sitk.Image | None = None
@@ -935,14 +958,41 @@ class DicomReaderWriter:
             logger.info("Loading images for index %d (mask requested)", self.index)
             self.get_images()
 
+        channel_of = {name: i + 1 for i, name in enumerate(self.Contour_Names)}
         for _rt_key, rt in entry.RTs.items():
+            # Warm the RT-struct cache once (serial) so the per-ROI workers below
+            # only ever *read* self.RS_struct / self.structure_references.
+            self._characterize_rt(rt)
+            jobs: list[tuple[int, str, int]] = []
             for roi_name in rt.ROIs_In_Structure:
                 true_name = self._resolve_roi_name(roi_name)
                 if true_name and true_name in self.Contour_Names:
-                    mask = self._return_mask_for_roi(rt, roi_name)
-                    ch = self.Contour_Names.index(true_name) + 1
-                    self.mask[..., ch] += mask
-                    self.mask[self.mask > 1] = 1
+                    struct_idx = self.structure_references[rt.ROIs_In_Structure[roi_name].ROINumber]
+                    jobs.append((struct_idx, roi_name, channel_of[true_name]))
+            if not jobs:
+                continue
+
+            # Rasterise each ROI into its own array. The ROIs are independent and
+            # only read shared state, so this parallelises across ROIs; the heavy
+            # inner ops (SimpleITK transforms, cv2.fillPoly, numpy) release the
+            # GIL. ``mask_thread_count == 1`` keeps the legacy serial path.
+            def _raster(job: tuple[int, str, int]) -> tuple[int, np.ndarray]:
+                struct_idx, roi_name, ch = job
+                return ch, self._contours_to_mask(struct_idx, roi_name)
+
+            if self.mask_thread_count > 1 and len(jobs) > 1:
+                with ThreadPoolExecutor(max_workers=self.mask_thread_count) as pool:
+                    results = list(pool.map(_raster, jobs))
+            else:
+                results = [_raster(job) for job in jobs]
+
+            for ch, roi_mask in results:
+                # Union the ROI into its channel, keeping it binary. Operate only
+                # on the (z, rows, cols) channel view -- the previous
+                # ``self.mask[self.mask > 1] = 1`` rescanned the entire 4-D array
+                # once per ROI (O(n_rois) passes over ~all voxels).
+                channel = self.mask[..., ch]
+                np.maximum(channel, roi_mask, out=channel)
 
         # Build per-ROI sitk handles
         for name in self.Contour_Names:
@@ -1355,6 +1405,8 @@ class DicomReaderWriter:
             "require_all_contours": self.require_all_contours,
             "Contour_Names": self.Contour_Names, "description": self.description,
             "get_dose_output": self.get_dose_output,
+            # Spare cores go to per-ROI rasterisation when few series are written.
+            "mask_thread_count": _mask_threads_for(thread_count, len(items)),
         }
 
         pbar = tqdm(total=len(items), desc="Writing per-ROI NIfTI files...")
@@ -1674,6 +1726,9 @@ class DicomReaderWriter:
             "require_all_contours": self.require_all_contours,
             "Contour_Names": wanted_rois, "description": self.description,
             "get_dose_output": self.get_dose_output,
+            # Hand leftover cores to per-ROI rasterisation when few series are
+            # being processed (e.g. a single multi-ROI series).
+            "mask_thread_count": _mask_threads_for(thread_count, len(todo)),
         }
 
         rows: list[dict] = []

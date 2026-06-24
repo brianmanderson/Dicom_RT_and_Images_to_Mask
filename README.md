@@ -223,6 +223,20 @@ reader.create_manifest("/path/to/manifest.csv")
 `create_manifest` when you want the table on its own or want to grow it over
 multiple runs.)
 
+### Performance
+
+Both `create_manifest` and `write_per_roi` parallelise across series, and
+auto-tune per-ROI rasterisation threads so a single series with many ROIs still
+uses your spare cores. You can also set it explicitly — useful when calling
+`get_images_and_mask()` directly on one big multi-ROI series:
+
+```python
+reader = DicomReaderWriter(Contour_Names=[...], mask_thread_count=4)
+```
+
+`mask_thread_count=1` (the default) is the serial path; the parallel path
+produces byte-identical masks.
+
 ## Cross-tool evaluation
 
 The [`evaluation/`](evaluation/) directory contains an opt-in harness that

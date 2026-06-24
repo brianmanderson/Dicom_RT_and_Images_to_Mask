@@ -56,6 +56,24 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   `tests/test_anonymizer.py`, `tests/test_resample.py`,
   `tests/test_per_roi_export.py`, `tests/test_create_manifest.py`.
 
+### Performance
+
+- **Mask rasterisation is ~2.4× faster.** `get_mask` no longer rescans the
+  entire multi-channel mask array once per ROI (the old
+  `self.mask[self.mask > 1] = 1` was an O(n_rois) pass over every voxel); it
+  now unions each ROI into its own channel with `np.maximum`. On a 46-ROI head
+  CT this alone cut `get_mask` from ~61 s to ~27 s.
+- **Per-ROI rasterisation can run in parallel.** A new `mask_thread_count`
+  constructor argument (default `1` = serial, unchanged behaviour) rasterises
+  independent ROIs across threads — the heavy inner work (SimpleITK transforms,
+  `cv2.fillPoly`, numpy) releases the GIL, giving ~2× on that stage. The bulk
+  writers (`create_manifest`, `write_per_roi`) auto-tune it: spare cores go to
+  per-ROI threads when only a few series are processed, while many-series runs
+  keep masks serial so the existing series-level parallelism isn't
+  oversubscribed. End to end, `create_manifest` on a single 46-ROI series drops
+  from ~64 s to ~26 s. Output is byte-identical to the serial path (covered by
+  `tests/test_mask_rasterization.py`).
+
 ### Notes
 
 - The two tools use different polygon-boundary conventions (DicomRTTool is
