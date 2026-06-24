@@ -136,8 +136,10 @@ is absent from that series).
 
 Pass an `output_spacing` tuple (mm) to resample on the way out. Images and
 dose are resampled with **linear** interpolation, masks with
-**nearest-neighbour** so labels are never blended. The same option is
-available on the single-series writer `write_images_annotations`:
+**nearest-neighbour** so labels are never blended. The dose is resampled onto
+the **resampled image grid**, so the image, masks, and dose all come out the
+same size and geometry. The same option is available on the single-series
+writer `write_images_annotations`:
 
 ```python
 reader.write_per_roi("/path/to/out", output_spacing=(1.0, 1.0, 3.0))

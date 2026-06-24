@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from DicomRTTool import resample_to_spacing
+from DicomRTTool import resample_to_reference, resample_to_spacing
 
 
 def _make_image(
@@ -80,3 +80,26 @@ class TestInterpolatorBehaviour:
             resample_to_spacing(img, (2.0, -1.0, 2.0))
         with pytest.raises(ValueError):
             resample_to_spacing(img, (2.0, 2.0))  # type: ignore[arg-type]
+
+
+class TestResampleToReference:
+    def test_output_matches_reference_grid(self):
+        moving = _make_image(size=(40, 40, 20), spacing=(0.5, 0.5, 1.0))
+        reference = _make_image(size=(20, 16, 10), spacing=(1.0, 2.0, 3.0), origin=(1.0, 2.0, 3.0))
+        out = resample_to_reference(moving, reference, "Linear")
+        assert out.GetSize() == reference.GetSize()
+        assert out.GetSpacing() == pytest.approx(reference.GetSpacing())
+        assert out.GetOrigin() == pytest.approx(reference.GetOrigin())
+        assert out.GetDirection() == pytest.approx(reference.GetDirection())
+
+    def test_nearest_keeps_mask_binary(self):
+        moving = _make_image(binary=True)
+        reference = _make_image(size=(15, 12, 8), spacing=(1.3, 1.4, 1.5))
+        out = resample_to_reference(moving, reference, "Nearest")
+        values = set(np.unique(sitk.GetArrayFromImage(out)).tolist())
+        assert values.issubset({0.0, 1.0})
+
+    def test_unknown_interpolator_raises(self):
+        img = _make_image()
+        with pytest.raises(ValueError):
+            resample_to_reference(img, img, "Cubic")

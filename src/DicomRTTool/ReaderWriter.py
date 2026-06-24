@@ -61,7 +61,12 @@ from .Services.DicomBases import (
     SitkDicomKeys,
     dcmread,
 )
-from .Services.StaticScripts import add_to_mask, poly2mask, resample_to_spacing
+from .Services.StaticScripts import (
+    add_to_mask,
+    poly2mask,
+    resample_to_reference,
+    resample_to_spacing,
+)
 from .Viewer import plot_scroll_Image  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
@@ -1178,6 +1183,8 @@ class DicomReaderWriter:
         handle = self.dicom_handle
         if output_spacing is not None:
             handle = resample_to_spacing(handle, output_spacing, "Linear")
+        # Grid the dose is resampled onto so image/mask/dose share geometry.
+        resampled_image_grid = handle
         if handle.GetPixelIDTypeAsString().find("32-bit signed integer") != 0:
             handle = sitk.Cast(handle, sitk.sitkFloat32)
         sitk.WriteImage(handle, img_path)
@@ -1200,7 +1207,9 @@ class DicomReaderWriter:
             dose_path = os.path.join(out_path, f"Overall_dose_{self.description}_{self.iteration}.nii.gz")
             dose = self.dose_handle
             if output_spacing is not None:
-                dose = resample_to_spacing(dose, output_spacing, "Linear")
+                # Onto the resampled image grid, so the dose matches the image
+                # and mask size & geometry exactly.
+                dose = resample_to_reference(dose, resampled_image_grid, "Linear")
             sitk.WriteImage(dose, dose_path)
 
         marker = os.path.join(
@@ -1503,6 +1512,9 @@ class DicomReaderWriter:
         image_handle = base.dicom_handle
         if output_spacing is not None:
             image_handle = resample_to_spacing(image_handle, output_spacing, "Linear")
+        # The resampled image defines the grid the dose is resampled onto, so
+        # image, masks, and dose all share one size & geometry.
+        resampled_image_grid = image_handle
         if image_handle.GetPixelIDTypeAsString().find("32-bit signed integer") != 0:
             image_handle = sitk.Cast(image_handle, sitk.sitkFloat32)
         sitk.WriteImage(image_handle, os.path.join(case_dir, "image.nii.gz"))
@@ -1529,7 +1541,9 @@ class DicomReaderWriter:
             os.makedirs(doses_dir, exist_ok=True)
             dose_img = base.dose_handle
             if output_spacing is not None:
-                dose_img = resample_to_spacing(dose_img, output_spacing, "Linear")
+                # Resample onto the resampled *image* grid (not the dose's own
+                # grid) so dose, image, and masks share size & geometry.
+                dose_img = resample_to_reference(dose_img, resampled_image_grid, "Linear")
             desc = None
             for rd in entry.RDs.values():
                 if rd.Description:

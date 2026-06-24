@@ -33,9 +33,13 @@ tool. All additions are backward compatible — existing APIs are unchanged.
 - **Output resampling** — an optional `output_spacing` tuple on both
   `write_per_roi` and `write_images_annotations` resamples outputs to a target
   voxel spacing: **linear** interpolation for images and dose, **nearest
-  neighbour** for masks (labels are never blended). The reusable
-  `resample_to_spacing(handle, output_spacing, interpolator)` helper is
-  exported from the package.
+  neighbour** for masks (labels are never blended). When resampling, the dose
+  is resampled onto the **resampled image grid** (via the new
+  `resample_to_reference` helper) rather than its own grid, so the image,
+  masks, and dose all share one size & geometry. The reusable
+  `resample_to_spacing(handle, output_spacing, interpolator)` and
+  `resample_to_reference(handle, reference, interpolator)` helpers are exported
+  from the package.
 - **Anonymization** — deterministic SHA-256 identifier hashing matching the
   C# `AnonymizationService` byte-for-byte: `hash_patient` (prefix `P`, 5
   bytes), `hash_study` (`ST`, 6 bytes), `hash_series` (`SE`, 6 bytes), the

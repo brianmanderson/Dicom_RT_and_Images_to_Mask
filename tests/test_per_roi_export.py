@@ -132,3 +132,22 @@ class TestWritePerRoiWithDose:
         case = next(p for p in out.iterdir() if p.is_dir())
         doses = list((case / "doses").glob("*.nii.gz")) if (case / "doses").exists() else []
         assert doses, "expected a dose NIfTI in doses/"
+
+    def test_resampled_dose_shares_image_and_mask_grid(
+        self, synthetic_dataset_with_dose, tmp_path: Path,
+    ):
+        r = _build_reader(synthetic_dataset_with_dose, with_dose=True)
+        out = tmp_path / "out"
+        r.write_per_roi(str(out), output_spacing=(1.5, 2.5, 3.5))
+        case = next(p for p in out.iterdir() if p.is_dir())
+
+        image = sitk.ReadImage(str(case / "image.nii.gz"))
+        dose = sitk.ReadImage(str(next((case / "doses").glob("*.nii.gz"))))
+        mask = sitk.ReadImage(str(next((case / "masks").glob("*.nii.gz"))))
+
+        # Dose, image, and mask must be voxel-aligned on one grid.
+        for other in (dose, mask):
+            assert other.GetSize() == image.GetSize()
+            assert other.GetSpacing() == pytest.approx(image.GetSpacing())
+            assert other.GetOrigin() == pytest.approx(image.GetOrigin())
+            assert other.GetDirection() == pytest.approx(image.GetDirection())

@@ -119,3 +119,33 @@ def resample_to_spacing(
     resampler.SetInterpolator(_INTERPOLATORS[interpolator])
     resampler.SetDefaultPixelValue(0)
     return resampler.Execute(handle)
+
+
+def resample_to_reference(
+    handle: sitk.Image,
+    reference: sitk.Image,
+    interpolator: str = "Linear",
+) -> sitk.Image:
+    """Resample *handle* onto *reference*'s exact grid.
+
+    The output takes the reference's size, spacing, origin, and direction, so
+    the result is voxel-aligned with *reference*. Used to put the dose on the
+    resampled image's grid so image, masks, and dose share one geometry.
+
+    Args:
+        handle: Image to resample.
+        reference: Image whose grid the output should match.
+        interpolator: ``"Linear"`` (images / dose) or ``"Nearest"`` (masks).
+
+    Returns:
+        A resampled :class:`SimpleITK.Image` on *reference*'s grid.
+    """
+    if interpolator not in _INTERPOLATORS:
+        raise ValueError(
+            f"Unknown interpolator '{interpolator}'. "
+            f"Expected one of {sorted(_INTERPOLATORS)}."
+        )
+    return sitk.Resample(
+        handle, reference, sitk.Transform(),
+        _INTERPOLATORS[interpolator], 0.0, handle.GetPixelID(),
+    )

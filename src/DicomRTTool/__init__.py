@@ -22,7 +22,7 @@ from ._internal.anonymizer import (
     hash_study,
 )
 from .ReaderWriter import DicomReaderWriter, ROIAssociationClass
-from .Services.StaticScripts import resample_to_spacing
+from .Services.StaticScripts import resample_to_reference, resample_to_spacing
 from .Viewer import plot_scroll_Image
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "hash_series",
     "hash_study",
     "plot_scroll_Image",
+    "resample_to_reference",
     "resample_to_spacing",
     "sitk",
 ]
