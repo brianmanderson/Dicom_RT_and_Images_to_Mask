@@ -178,17 +178,24 @@ spacing and the mask volume (cc) of every ROI. It records, per series:
 - one `<roi> cc` column per ROI name — the mask volume in cubic centimetres,
   or `-1` when that ROI is absent from the series.
 
+If you don't set `Contour_Names` (and don't pass `rois=`), `create_manifest`
+records **every ROI discovered during the walk** — so the simplest case just
+works:
+
 ```python
-reader = DicomReaderWriter(
-    description="manifest",
-    Contour_Names=["tumor", "cord"],
-    require_all_contours=False,   # include series that carry only some ROIs
-)
+reader = DicomReaderWriter(description="manifest")
 reader.walk_through_folders("/path/to/dicom")
-reader.create_manifest("/path/to/manifest.csv")
+reader.create_manifest("/path/to/manifest.csv")   # one column per discovered ROI
 
 # Anonymized identifiers only:
 reader.create_manifest("/path/to/manifest.csv", anonymize=True, salt="MyProjectSalt")
+```
+
+To restrict the manifest to specific ROIs, either set `Contour_Names` on the
+reader or pass them explicitly:
+
+```python
+reader.create_manifest("/path/to/manifest.csv", rois=["tumor", "cord"])
 ```
 
 ### Incremental updates (resumes an existing file)

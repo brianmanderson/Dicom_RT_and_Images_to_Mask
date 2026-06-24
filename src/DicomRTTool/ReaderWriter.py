@@ -1618,15 +1618,33 @@ class DicomReaderWriter:
             output_path: CSV path to create or extend.
             anonymize: Write only the hashed identifiers (no raw IDs).
             salt: Salt for the deterministic identifier hashes.
-            rois: ROI names to record. Defaults to :attr:`Contour_Names`.
+            rois: ROI names to record. Defaults to :attr:`Contour_Names` when
+                set, otherwise every ROI discovered during the walk.
             thread_count: Number of parallel worker threads.
         """
-        wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
+        # ROIs to record: explicit ``rois=``, else ``Contour_Names``, else
+        # *every* ROI discovered during the walk (matches the C# manifest, which
+        # records all ROIs it finds). Defaulting to all ROIs means a plain
+        # ``walk_through_folders`` -> ``create_manifest`` call "just works"
+        # without first calling ``set_contour_names_and_associations``.
+        if rois is not None:
+            wanted_rois = [r.lower() for r in rois]
+        elif self.Contour_Names:
+            wanted_rois = list(self.Contour_Names)
+        else:
+            wanted_rois = [r.lower() for r in self.all_rois]
         if not wanted_rois:
-            logger.warning("No ROIs to record. Set Contour_Names or pass rois=...")
+            logger.warning("No ROIs found to record. Walk a folder containing RT structures first.")
             return
-        if not self.indexes_with_contours:
-            logger.warning("No indexes with contours found; manifest not written.")
+
+        # Every series that carries at least one RT structure (independent of
+        # ``indexes_with_contours``, which is gated by ``Contour_Names``).
+        candidates = [
+            idx for idx, entry in self.series_instances_dictionary.items()
+            if entry.SeriesInstanceUID is not None and entry.RTs
+        ]
+        if not candidates:
+            logger.warning("No series with RT structures found; manifest not written.")
             return
 
         # Load any existing manifest so we only append genuinely new series.
@@ -1640,18 +1658,21 @@ class DicomReaderWriter:
 
         # Skip series already present (cheap -- no image load needed).
         todo: list[int] = []
-        for index in self.indexes_with_contours:
+        for index in candidates:
             entry = self.series_instances_dictionary[index]
             series_uid = entry.SeriesInstanceUID or ""
             if series_uid in existing_keys or hash_series(series_uid, salt) in existing_keys:
                 continue
             todo.append(index)
 
+        # The worker rasterises masks for exactly the ROIs we record (not the
+        # parent's possibly-empty ``Contour_Names``), so volumes are populated
+        # even when the caller never set contour names.
         key_dict = {
             "series_instances_dictionary": self.series_instances_dictionary,
             "associations": self.associations, "arg_max": self.arg_max,
             "require_all_contours": self.require_all_contours,
-            "Contour_Names": self.Contour_Names, "description": self.description,
+            "Contour_Names": wanted_rois, "description": self.description,
             "get_dose_output": self.get_dose_output,
         }
 

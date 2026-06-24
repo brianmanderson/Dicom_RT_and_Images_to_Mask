@@ -68,6 +68,24 @@ class TestCreateManifestBasics:
         series_uid = r.series_instances_dictionary[idx].SeriesInstanceUID
         assert hash_series(series_uid, salt="unit-salt") in df["series_hash"].astype(str).tolist()
 
+    def test_defaults_to_all_rois_when_contour_names_unset(self, synthetic_dataset, tmp_path: Path):
+        # No Contour_Names and no rois= -> record every discovered ROI.
+        r = DicomReaderWriter(description="manifest", verbose=False, require_all_contours=False)
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        assert r.all_rois, "walk should have discovered ROIs"
+        assert not r.Contour_Names
+
+        out = tmp_path / "manifest.csv"
+        r.create_manifest(str(out))
+
+        assert out.exists(), "manifest should be written even without Contour_Names"
+        df = pd.read_csv(out)
+        assert len(df) >= 1
+        roi_cols = [c for c in df.columns if c.endswith(" cc")]
+        assert len(roi_cols) == len(r.all_rois)
+        # At least one real volume was computed (masks were actually rasterised).
+        assert (df[roi_cols] > 0).any().any()
+
     def test_absent_roi_is_negative_one(self, synthetic_dataset, tmp_path: Path):
         r = DicomReaderWriter(
             description="manifest",
