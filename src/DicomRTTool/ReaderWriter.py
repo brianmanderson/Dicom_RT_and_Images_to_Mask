@@ -75,6 +75,10 @@ logger = logging.getLogger(__name__)
 # Re-export for backward compatibility.
 dcmread_function = dcmread
 
+# A computed series hash is ``"SE"`` + 6 bytes of SHA-256 hex (12 chars); a raw
+# SeriesInstanceUID is dotted-numeric, so this never matches one.
+_SERIES_HASH_RE = re.compile(r"^SE[0-9a-f]{12}$")
+
 # Filename sanitisation for the per-ROI export layout (Windows-safe).
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED_FILENAMES = {
@@ -180,6 +184,9 @@ class DicomReaderWriter:
         dose_sitk_string_keys: Extra SITK keys to read from dose files.
         group_dose_by_frame_of_reference: Fall back to frame-of-reference
             matching when dose cannot be associated via plan/structure refs.
+        anonymize: Default for the export writers -- when ``True`` they hash
+            identifiers and folder names. Overridable per call.
+        salt: Default salt for the deterministic anonymization hashes.
     """
 
     # -- Type annotations for instance attributes ---------------------------
@@ -224,6 +231,8 @@ class DicomReaderWriter:
         dose_sitk_string_keys: SitkDicomKeys | None = None,
         group_dose_by_frame_of_reference: bool = True,
         mask_thread_count: int = 1,
+        anonymize: bool = False,
+        salt: str = DEFAULT_SALT,
     ) -> None:
         # Logging setup
         if verbose:
@@ -237,6 +246,9 @@ class DicomReaderWriter:
         # The bulk writers auto-tune this so per-ROI threads only spin up when
         # there are spare cores not already used by series-level parallelism.
         self.mask_thread_count = mask_thread_count
+        # Default anonymization for the export writers; overridable per call.
+        self.anonymize = anonymize
+        self.salt = salt
         self.verbose = verbose
         self.annotation_handle: sitk.Image | None = None
         self.dicom_handle: sitk.Image | None = None
@@ -1370,14 +1382,14 @@ class DicomReaderWriter:
                 df.loc[df.Iteration == iteration, col] = tags["Volumes"][ri]
         df.to_csv(index_file, index=False)
 
-    # -- Per-ROI NIfTI writing (C#-compatible layout) ----------------------
+    # -- Folder export (C#-compatible nested layout) -----------------------
 
-    def write_per_roi(
+    def write_to_folder(
         self,
         out_path: PathLike,
         output_spacing: tuple[float, float, float] | None = None,
-        anonymize: bool = False,
-        salt: str = DEFAULT_SALT,
+        anonymize: bool | None = None,
+        salt: str | None = None,
         thread_count: int = _DEFAULT_WORKERS,
         rois: list[str] | None = None,
         manifest_name: str = "manifest.csv",
@@ -1385,37 +1397,36 @@ class DicomReaderWriter:
         dose_type: str = "PLAN",
         metadata_file_name: str = "metadata.json",
     ) -> None:
-        """Export every series-with-contours to a per-ROI NIfTI layout.
+        """Export series to a nested ``<patient>/<study>/<series>/`` folder tree.
 
-        Each series is written to a nested
-        ``<patient>/<study>/<series>/`` folder containing:
+        Each exported series folder may contain:
 
-        * ``image.nii.gz`` — the image volume;
-        * ``masks/<roi>.nii.gz`` — one binary mask per ROI;
+        * ``image.nii.gz`` — the image volume (always);
+        * ``masks/<roi>.nii.gz`` — one binary mask per requested ROI;
         * ``doses/<desc>.nii.gz`` — the summed dose grid, only when the series
           carries dose *and* this reader was built with ``get_dose_output=True``;
         * ``metadata.json`` — a ``{name: value}`` dict of any extra DICOM tags
-          requested via ``image_sitk_string_keys`` /
-          ``struct_pydicom_string_keys`` / ``dose_sitk_string_keys`` /
-          ``plan_pydicom_string_keys`` (written only when some were found).
+          requested via the ``*_string_keys`` constructor arguments (written
+          only when some were found).
+
+        When ROIs are selected (via :attr:`Contour_Names` or ``rois=``) only the
+        series carrying those contours are exported, with their masks. When no
+        ROIs are selected, **every image series** is exported as image (+ dose,
+        if present) only -- so you can export just the images and dose.
 
         The ``<patient>/<study>/<series>`` folders are named by hash when
-        ``anonymize`` is ``True`` and by the (sanitised) original identifiers
-        otherwise. A single ``manifest.csv`` (no persistent iteration index) is
-        written at *out_path* with one row per series: identifiers (hashed or
-        raw), the output spacing, and per-ROI volume in cc (``-1`` when an ROI
-        is absent for that series).
-
-        When ``output_spacing`` is given the image and dose are resampled with
-        linear interpolation and masks with nearest-neighbour. When
-        ``anonymize`` is ``True`` an ``anonymization_key.json`` reverse-lookup
-        file is saved at *out_path*.
+        ``anonymize`` and by the (sanitised) original identifiers otherwise. A
+        single ``manifest.csv`` is written at *out_path*; with ``anonymize`` an
+        ``anonymization_key.json`` reverse-lookup file is written there too.
+        ``output_spacing`` resamples on the way out (linear for image/dose,
+        nearest-neighbour for masks).
 
         Args:
             out_path: Output directory.
             output_spacing: Optional ``(x, y, z)`` mm spacing to resample to.
-            anonymize: Hash identifiers + folder names and write a key file.
-            salt: Salt for the deterministic hashes.
+            anonymize: Hash identifiers + folder names. Defaults to the
+                reader's :attr:`anonymize` (set at construction).
+            salt: Salt for the hashes. Defaults to the reader's :attr:`salt`.
             thread_count: Number of parallel worker threads.
             rois: ROI names to export. Defaults to :attr:`Contour_Names`.
             manifest_name: Filename of the manifest CSV.
@@ -1423,35 +1434,54 @@ class DicomReaderWriter:
             dose_type: ``DoseSummationType`` filter used when loading dose.
             metadata_file_name: Filename of the per-series extra-tags JSON.
         """
+        anonymize = self.anonymize if anonymize is None else anonymize
+        salt = self.salt if salt is None else salt
         os.makedirs(out_path, exist_ok=True)
         wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
-        if not wanted_rois:
-            logger.warning("No ROIs to export. Set Contour_Names or pass rois=...")
-            return
 
-        items = list(self.indexes_with_contours)
+        # With ROIs selected, export the series that carry them (with masks).
+        # Without ROIs, export every image series as image (+ dose) only.
+        if wanted_rois:
+            items = list(self.indexes_with_contours)
+        else:
+            items = [
+                idx for idx, entry in self.series_instances_dictionary.items()
+                if entry.SeriesInstanceUID is not None and entry.files
+            ]
+            if items:
+                logger.info(
+                    "No ROIs selected; exporting image%s only for %d series.",
+                    " + dose" if self.get_dose_output else "", len(items),
+                )
         if not items:
-            logger.warning("No indexes with contours found; nothing to export.")
+            logger.warning("Nothing to export (no matching series found).")
             return
 
         key_dict = {
             "series_instances_dictionary": self.series_instances_dictionary,
             "associations": self.associations, "arg_max": self.arg_max,
             "require_all_contours": self.require_all_contours,
-            "Contour_Names": self.Contour_Names, "description": self.description,
+            # Rasterise exactly the ROIs being exported (empty -> image/dose only).
+            "Contour_Names": wanted_rois, "description": self.description,
             "get_dose_output": self.get_dose_output,
             # Spare cores go to per-ROI rasterisation when few series are written.
             "mask_thread_count": _mask_threads_for(thread_count, len(items)),
         }
 
-        pbar = tqdm(total=len(items), desc="Writing per-ROI NIfTI files...")
+        pbar = tqdm(total=len(items), desc="Writing to folder...")
 
         def _worker(index: int) -> dict | None:
             base = DicomReaderWriter(**key_dict)
             base.verbose = False
             try:
                 base.set_index(index)
-                base.get_images_and_mask()
+                if wanted_rois:
+                    base.get_images_and_mask()
+                else:
+                    # Image (+ dose) only -- skip get_mask (and its no-ROI warning).
+                    base.get_images()
+                    if base.get_dose_output:
+                        base.get_dose()
                 return self._export_one_series(
                     base, index, out_path, wanted_rois,
                     output_spacing, anonymize, salt, dose_type, metadata_file_name,
@@ -1491,6 +1521,9 @@ class DicomReaderWriter:
                 key.studies.setdefault(row["study_hash"], row["_study_uid"])
                 key.series.setdefault(row["series_hash"], row["_series_uid"])
             key.save(os.path.join(out_path, key_file_name))
+
+    # Backward-compatible alias for the former method name.
+    write_per_roi = write_to_folder
 
     def _extra_tags_for_series(self, entry: ImageBase) -> dict:
         """Collect the user-requested extra DICOM tags for one series.
@@ -1554,7 +1587,7 @@ class DicomReaderWriter:
         case_id = "/".join((patient_level, study_level, series_level))
         case_dir = os.path.join(out_path, patient_level, study_level, series_level)
         masks_dir = os.path.join(case_dir, "masks")
-        os.makedirs(masks_dir, exist_ok=True)
+        os.makedirs(case_dir, exist_ok=True)
 
         # ROIs genuinely present in this series' RT structure(s). ``get_mask``
         # allocates an all-zero mask for *every* ``Contour_Name``, so the mask
@@ -1591,6 +1624,7 @@ class DicomReaderWriter:
             if output_spacing is not None:
                 mask_img = resample_to_spacing(mask_img, output_spacing, "Nearest")
             mask_img = sitk.Cast(mask_img, sitk.sitkUInt8)
+            os.makedirs(masks_dir, exist_ok=True)   # lazy: only when a mask exists
             sitk.WriteImage(mask_img, os.path.join(masks_dir, f"{_sanitize_filename(roi)}.nii.gz"))
             n_vox = int(np.sum(sitk.GetArrayViewFromImage(mask_img)))
             roi_volumes[roi] = round(n_vox * voxel_cc, 3)
@@ -1667,24 +1701,27 @@ class DicomReaderWriter:
         return record
 
     @staticmethod
-    def _upsert_manifest(existing_df, new_df):
+    def _upsert_manifest(existing_df, new_df, new_keys, canon):
         """Merge *new_df* into *existing_df*, replacing rows for matched series.
 
-        Rows are matched on the ``series_hash`` column (the hash when
-        anonymizing, else the raw SeriesInstanceUID): existing rows whose series
-        also appears in *new_df* are replaced by the fresh row, untouched series
-        are kept, and genuinely new series are appended.
+        Matching is on the **canonical series hash** so it is independent of
+        whether the ``series_hash`` column currently holds a hash or a raw
+        SeriesInstanceUID (i.e. it still works if ``anonymize`` is toggled
+        between runs on the same file). *new_keys* is the set of canonical
+        hashes for the new rows; *canon* maps an existing ``series_hash`` cell
+        to its canonical hash. Existing rows whose series is in *new_keys* are
+        replaced by the fresh row; untouched series are kept; new series are
+        appended.
         """
         if existing_df is None or existing_df.empty:
             return new_df
         if new_df is None or new_df.empty:
             return existing_df
-        key_col = "series_hash"
-        if key_col in existing_df.columns and key_col in new_df.columns:
-            updated = set(new_df[key_col].astype(str))
-            kept = existing_df[~existing_df[key_col].astype(str).isin(updated)]
-            return pd.concat([kept, new_df], ignore_index=True)
-        return pd.concat([existing_df, new_df], ignore_index=True)
+        if "series_hash" not in existing_df.columns:
+            return pd.concat([existing_df, new_df], ignore_index=True)
+        existing_keys = existing_df["series_hash"].astype(str).map(canon)
+        kept = existing_df[~existing_keys.isin(set(new_keys))]
+        return pd.concat([kept, new_df], ignore_index=True)
 
     def _write_manifest(
         self,
@@ -1750,8 +1787,8 @@ class DicomReaderWriter:
     def create_manifest(
         self,
         output_path: PathLike,
-        anonymize: bool = False,
-        salt: str = DEFAULT_SALT,
+        anonymize: bool | None = None,
+        salt: str | None = None,
         rois: list[str] | None = None,
         thread_count: int = _DEFAULT_WORKERS,
         key_file_name: str = "anonymization_key.json",
@@ -1777,14 +1814,17 @@ class DicomReaderWriter:
         Args:
             output_path: CSV path to create or update.
             anonymize: Put hashes in the identifier columns instead of raw IDs.
+                Defaults to the reader's :attr:`anonymize` (set at construction).
             salt: Salt for the hashes (ignored if a key file already exists,
-                whose salt is reused).
+                whose salt is reused). Defaults to the reader's :attr:`salt`.
             rois: ROI names to record. Defaults to :attr:`Contour_Names` when
                 set, otherwise every ROI discovered during the walk.
             thread_count: Number of parallel worker threads.
             key_file_name: Filename of the anonymization key JSON written
                 alongside the manifest.
         """
+        anonymize = self.anonymize if anonymize is None else anonymize
+        salt = self.salt if salt is None else salt
         # ROIs to record: explicit ``rois=``, else ``Contour_Names``, else
         # *every* ROI discovered during the walk (matches the C# manifest, which
         # records all ROIs it finds). Defaulting to all ROIs means a plain
@@ -1883,7 +1923,17 @@ class DicomReaderWriter:
         new_df = pd.DataFrame(
             [self._manifest_record(row, wanted_rois, anonymize, include_case_id=False) for row in rows]
         )
-        combined = self._upsert_manifest(existing_df, new_df)
+        # Match the upsert on the canonical series hash (mode-independent), so an
+        # existing row written with a different ``anonymize`` setting -- a hash
+        # vs. a raw SeriesInstanceUID in the ``series_hash`` column -- is still
+        # recognised as the same series and updated rather than duplicated.
+        new_keys = {row["series_hash"] for row in rows}
+
+        def _canon(value: str) -> str:
+            value = str(value)
+            return value if _SERIES_HASH_RE.match(value) else hash_series(value, salt)
+
+        combined = self._upsert_manifest(existing_df, new_df, new_keys, _canon)
 
         if combined is None or combined.empty:
             logger.warning("No manifest rows to write.")

@@ -1,4 +1,4 @@
-"""Tests for the C#-compatible per-ROI NIfTI export (``write_per_roi``)."""
+"""Tests for the C#-compatible folder export (``write_to_folder``)."""
 from __future__ import annotations
 
 import json
@@ -37,7 +37,7 @@ class TestWritePerRoiLayout:
     ):
         r = _build_reader(synthetic_dataset)
         out = tmp_path / f"out_t{thread_count}"
-        r.write_per_roi(str(out), thread_count=thread_count)
+        r.write_to_folder(str(out), thread_count=thread_count)
 
         assert (out / "manifest.csv").exists()
         case = _case_dir(out)
@@ -49,7 +49,7 @@ class TestWritePerRoiLayout:
     def test_nested_patient_study_series_structure(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
         out = tmp_path / "out"
-        r.write_per_roi(str(out), anonymize=True, salt="s")
+        r.write_to_folder(str(out), anonymize=True, salt="s")
 
         entry = r.series_instances_dictionary[r.indexes_with_contours[0]]
         case = (
@@ -63,7 +63,7 @@ class TestWritePerRoiLayout:
     def test_manifest_columns_and_volumes(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
 
         df = pd.read_csv(out / "manifest.csv")
         for col in ["case_id", "patient_hash", "study_hash", "series_hash",
@@ -84,7 +84,7 @@ class TestWritePerRoiLayout:
         )
         r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
 
         df = pd.read_csv(out / "manifest.csv")
         assert (df["not_a_real_roi cc"] == -1).all()
@@ -92,7 +92,7 @@ class TestWritePerRoiLayout:
     def test_no_dose_subfolder_when_dose_absent(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
         assert not (_case_dir(out) / "doses").exists()
 
 
@@ -100,7 +100,7 @@ class TestWritePerRoiMetadata:
     def test_metadata_json_written_for_extra_tags(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset, image_keys={"MyPatientID": "0010|0020", "MyModality": "0008|0060"})
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
 
         meta_path = _case_dir(out) / "metadata.json"
         assert meta_path.exists()
@@ -110,7 +110,7 @@ class TestWritePerRoiMetadata:
     def test_no_metadata_json_without_extra_tags(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)   # no *_string_keys requested
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
         assert not list(out.rglob("metadata.json"))
 
 
@@ -118,7 +118,7 @@ class TestWritePerRoiAnonymize:
     def test_folders_named_by_hash_and_key_file_written(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
         out = tmp_path / "out"
-        r.write_per_roi(str(out), anonymize=True, salt="unit-test-salt")
+        r.write_to_folder(str(out), anonymize=True, salt="unit-test-salt")
 
         entry = r.series_instances_dictionary[r.indexes_with_contours[0]]
         case = (
@@ -140,7 +140,7 @@ class TestWritePerRoiResample:
         r = _build_reader(synthetic_dataset)
         out = tmp_path / "out"
         target = (3.0, 3.0, 3.0)
-        r.write_per_roi(str(out), output_spacing=target)
+        r.write_to_folder(str(out), output_spacing=target)
 
         case = _case_dir(out)
         img = sitk.ReadImage(str(case / "image.nii.gz"))
@@ -158,7 +158,7 @@ class TestWritePerRoiWithDose:
     def test_dose_subfolder_written(self, synthetic_dataset_with_dose, tmp_path: Path):
         r = _build_reader(synthetic_dataset_with_dose, with_dose=True)
         out = tmp_path / "out"
-        r.write_per_roi(str(out))
+        r.write_to_folder(str(out))
         case = _case_dir(out)
         doses = list((case / "doses").glob("*.nii.gz")) if (case / "doses").exists() else []
         assert doses, "expected a dose NIfTI in doses/"
@@ -168,7 +168,7 @@ class TestWritePerRoiWithDose:
     ):
         r = _build_reader(synthetic_dataset_with_dose, with_dose=True)
         out = tmp_path / "out"
-        r.write_per_roi(str(out), output_spacing=(1.5, 2.5, 3.5))
+        r.write_to_folder(str(out), output_spacing=(1.5, 2.5, 3.5))
         case = _case_dir(out)
 
         image = sitk.ReadImage(str(case / "image.nii.gz"))
@@ -180,3 +180,78 @@ class TestWritePerRoiWithDose:
             assert other.GetSpacing() == pytest.approx(image.GetSpacing())
             assert other.GetOrigin() == pytest.approx(image.GetOrigin())
             assert other.GetDirection() == pytest.approx(image.GetDirection())
+
+
+class TestWriteToFolderImageOnly:
+    def test_no_rois_exports_image_only(self, synthetic_dataset, tmp_path: Path):
+        # No Contour_Names and no rois= -> image only, no masks folder.
+        r = DicomReaderWriter(description="img", verbose=False)
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        out = tmp_path / "out"
+        r.write_to_folder(str(out))
+
+        case = _case_dir(out)
+        assert (case / "image.nii.gz").exists()
+        assert not (case / "masks").exists(), "no empty masks/ folder for image-only export"
+        assert (out / "manifest.csv").exists()
+
+    def test_no_rois_exports_image_and_dose(self, synthetic_dataset_with_dose, tmp_path: Path):
+        r = DicomReaderWriter(description="img", verbose=False, get_dose_output=True)
+        r.walk_through_folders(str(synthetic_dataset_with_dose.walk_root), thread_count=1)
+        out = tmp_path / "out"
+        r.write_to_folder(str(out))
+
+        case = _case_dir(out)
+        assert (case / "image.nii.gz").exists()
+        assert list((case / "doses").glob("*.nii.gz")), "dose should be exported when present"
+        assert not (case / "masks").exists()
+
+
+class TestWriteToFolderAnonymizeDefault:
+    def test_constructor_anonymize_default(self, synthetic_dataset, tmp_path: Path):
+        r = DicomReaderWriter(
+            description="per-roi",
+            Contour_Names=[p.name for p in synthetic_dataset.primitives],
+            verbose=False,
+            anonymize=True, salt="ctor-salt",
+        )
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        out = tmp_path / "out"
+        r.write_to_folder(str(out))   # no anonymize= passed -> uses ctor default
+
+        entry = r.series_instances_dictionary[r.indexes_with_contours[0]]
+        case = (
+            out
+            / hash_patient(entry.PatientID, "ctor-salt")
+            / hash_study(entry.StudyInstanceUID, "ctor-salt")
+            / hash_series(entry.SeriesInstanceUID, "ctor-salt")
+        )
+        assert (case / "image.nii.gz").exists()
+        assert (out / "anonymization_key.json").exists()
+
+    def test_per_call_overrides_constructor_default(self, synthetic_dataset, tmp_path: Path):
+        r = DicomReaderWriter(
+            description="per-roi",
+            Contour_Names=[p.name for p in synthetic_dataset.primitives],
+            verbose=False,
+            anonymize=True, salt="ctor-salt",
+        )
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        out = tmp_path / "out"
+        r.write_to_folder(str(out), anonymize=False)   # override off
+
+        entry = r.series_instances_dictionary[r.indexes_with_contours[0]]
+        # Folder named by the raw (sanitised) PatientID, not the hash.
+        assert (out / str(entry.PatientID)).is_dir()
+        assert not (out / "anonymization_key.json").exists()
+        df = pd.read_csv(out / "manifest.csv")
+        assert str(entry.PatientID) in df["patient_hash"].astype(str).tolist()
+
+
+class TestBackwardCompatAlias:
+    def test_write_per_roi_alias(self, synthetic_dataset, tmp_path: Path):
+        r = _build_reader(synthetic_dataset)
+        out = tmp_path / "out"
+        r.write_per_roi(str(out))   # deprecated alias still works
+        assert (out / "manifest.csv").exists()
+        assert (_case_dir(out) / "image.nii.gz").exists()

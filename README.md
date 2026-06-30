@@ -100,7 +100,7 @@ the selected ROIs.
 
 ### Step 4 — Export: NIfTI with voxel resampling
 
-`write_per_roi` writes every selected series to a tidy per-case tree — one file
+`write_to_folder` writes every selected series to a tidy per-case tree — one file
 per ROI — plus a `manifest.csv`. Pass `output_spacing` (mm) to resample on the
 way out: **linear** interpolation for the image and dose, **nearest-neighbour**
 for masks (labels are never blended). The dose is resampled onto the resampled
@@ -109,7 +109,7 @@ geometry.
 
 ```python
 # Build with get_dose_output=True if you also want the dose loaded/resampled.
-reader.write_per_roi(
+reader.write_to_folder(
     "/path/to/out",
     output_spacing=(1.0, 1.0, 3.0),     # omit to keep native spacing
     anonymize=True, salt="MyProjectSalt",
@@ -137,6 +137,19 @@ tool. The `manifest.csv` has the same shape as the one from
 written only when you requested extra DICOM tags (see
 [Reading extra DICOM tags](#reading-extra-dicom-tags)).
 
+The method name implies the breadth: **skip ROI selection** entirely (no
+`Contour_Names`, no `rois=`) and `write_to_folder` exports *every image series*
+as **image + dose only** — handy when you just want the images. You can also set
+`anonymize` (and `salt`) **once at construction** to make it the default for
+every export, and still override it per call:
+
+```python
+reader = DicomReaderWriter(anonymize=True, salt="MyProjectSalt")   # default on
+reader.walk_through_folders("/path/to/dicom")
+reader.write_to_folder("/path/to/anon")                  # uses the default
+reader.write_to_folder("/path/to/clear", anonymize=False)  # override off
+```
+
 ---
 
 That's the core loop. The sections below are reference material for everything
@@ -159,15 +172,15 @@ mask_handle  = reader.annotation_handle  # SimpleITK Image
 
 ## Anonymized export
 
-`anonymize=True` (on `write_per_roi` or `create_manifest`) replaces identifiers
+`anonymize=True` (on `write_to_folder` or `create_manifest`) replaces identifiers
 with deterministic SHA-256 hashes (patient MRN → patient hash, study hash,
-series hash). For `write_per_roi` the case folder is named by the series hash
+series hash). For `write_to_folder` the case folder is named by the series hash
 and an `anonymization_key.json` reverse-lookup file is written alongside the
 manifest. The hashing matches the companion C# tool byte-for-byte, so both
 tools produce identical hashes for the same salt:
 
 ```python
-reader.write_per_roi("/path/to/out", anonymize=True, salt="MyProjectSalt")
+reader.write_to_folder("/path/to/out", anonymize=True, salt="MyProjectSalt")
 
 # Stand-alone helpers are exported too:
 from DicomRTTool import hash_patient, hash_study, hash_series, AnonymizationKey
@@ -208,7 +221,7 @@ reader.walk_through_folders("/data/batch2")
 reader.create_manifest("/path/to/manifest.csv")
 ```
 
-(`write_per_roi` writes the same-shape manifest alongside the NIfTI tree; use
+(`write_to_folder` writes the same-shape manifest alongside the NIfTI tree; use
 `create_manifest` when you want the table on its own or want to grow it over
 multiple runs.)
 
@@ -266,7 +279,7 @@ entry = reader.series_instances_dictionary[0]
 print(entry.additional_tags)        # {"MyPatientName": ..., "Manufacturer": ...}
 ```
 
-When you export with `write_per_roi`, these requested tags are also written to a
+When you export with `write_to_folder`, these requested tags are also written to a
 `metadata.json` (a `{name: value}` dict) inside each series folder. Note that
 the values are written verbatim — if you anonymize the folder names, make sure
 the tags you pull don't themselves carry identifying information.
@@ -285,7 +298,7 @@ reader.reset_mask()   # re-allocate an empty mask after changing Contour_Names
 
 ## Performance
 
-Both `create_manifest` and `write_per_roi` parallelise across series, and
+Both `create_manifest` and `write_to_folder` parallelise across series, and
 auto-tune per-ROI rasterisation threads so a single series with many ROIs still
 uses your spare cores. You can also set it explicitly — useful when calling
 `get_images_and_mask()` directly on one big multi-ROI series:
@@ -309,12 +322,12 @@ external dataset and the built C# binary.
 
 ## What's new since v4.0
 
-- **`write_per_roi`** — bulk DICOM→NIfTI export to a per-ROI layout
+- **`write_to_folder`** — bulk DICOM→NIfTI export to a per-ROI layout
   (`<case>/image.nii.gz`, `<case>/masks/<roi>.nii.gz`, `<case>/doses/…`) with
   a single `manifest.csv` and no persistent index.
 - **`create_manifest`** — write (or incrementally extend) a metadata-only CSV
   of per-series image spacing and per-ROI volumes, mirroring the C# manifest.
-- **Output resampling** — `output_spacing` on `write_per_roi` and
+- **Output resampling** — `output_spacing` on `write_to_folder` and
   `write_images_annotations`, plus the public `resample_to_spacing` /
   `resample_to_reference` helpers (linear for image/dose, nearest-neighbour for
   masks; dose lands on the resampled image grid).

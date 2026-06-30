@@ -9,9 +9,9 @@ C# `DicomRtNifti.Cli.exe`.
 
 | Comparison | C# command | Python feature | Metrics |
 |---|---|---|---|
-| **Mask generation** | `--forward` (per-ROI masks) | `write_per_roi` masks | Dice, volume (cc) agreement |
+| **Mask generation** | `--forward` (per-ROI masks) | `write_to_folder` masks | Dice, volume (cc) agreement |
 | **Image generation** | `--image-forward` | per-ROI `image.nii.gz` | voxel mean-abs-error, size/spacing |
-| **Resampling** | `--image-forward --target-spacing X,Y,Z` | `write_per_roi(output_spacing=…)` | voxel MAE, size/spacing |
+| **Resampling** | `--image-forward --target-spacing X,Y,Z` | `write_to_folder(output_spacing=…)` | voxel MAE, size/spacing |
 
 Both tools are run on identical, short-path-staged inputs (TCIA's deeply
 nested UID folders exceed the Windows 260-char path limit, so each patient's

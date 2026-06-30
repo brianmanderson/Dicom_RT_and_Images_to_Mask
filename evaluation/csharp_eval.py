@@ -4,11 +4,11 @@ Runs *both* converters live on a handful of TCIA LCTSC patients and compares
 their NIfTI outputs in physical space:
 
 * **mask generation** — C# ``--forward`` per-ROI masks vs Python
-  ``DicomReaderWriter.write_per_roi`` masks (Dice, volume agreement);
+  ``DicomReaderWriter.write_to_folder`` masks (Dice, volume agreement);
 * **image generation** — C# ``--image-forward`` image vs the Python image
   (voxel mean-absolute-error, geometry);
 * **resampling** — C# ``--image-forward --target-spacing X,Y,Z`` vs the Python
-  resample feature (``write_per_roi(output_spacing=...)``).
+  resample feature (``write_to_folder(output_spacing=...)``).
 
 The two tools use different polygon-boundary conventions (DicomRTTool is
 boundary-inclusive; the C# tool fills the polygon interior), so masks are
@@ -203,7 +203,7 @@ def run_python_export(
     # Walk the staged patient root (image folder + rtstruct are siblings).
     walk_root = os.path.dirname(inputs.image_folder)
     reader.walk_through_folders(walk_root, thread_count=1)
-    reader.write_per_roi(out_dir, output_spacing=output_spacing, thread_count=1)
+    reader.write_to_folder(out_dir, output_spacing=output_spacing, thread_count=1)
 
     case_dirs = [p for p in Path(out_dir).iterdir() if p.is_dir()]
     if not case_dirs:

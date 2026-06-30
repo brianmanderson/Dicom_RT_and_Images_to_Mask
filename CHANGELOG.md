@@ -12,18 +12,23 @@ tool. All additions are backward compatible — existing APIs are unchanged.
 
 ### Added
 
-- **`DicomReaderWriter.write_per_roi(...)`** — bulk export of every
-  series-with-contours to a per-ROI NIfTI layout that matches the C# tool. Each
-  series is written to a nested `<patient>/<study>/<series>/` folder (named by
-  hash when anonymizing, else by the sanitised original identifiers) containing
-  `image.nii.gz`, `masks/<roi>.nii.gz`, `doses/<desc>.nii.gz` (only when
-  `get_dose_output=True` and the series carries dose), and a `metadata.json`
-  ``{name: value}`` dict of any extra DICOM tags requested via the
-  `*_string_keys` constructor arguments. A single `manifest.csv` is written
-  with one row per series — patient/study/series identifiers, output spacing,
-  and the per-ROI mask volume in cc (`-1` when an ROI is absent for that
-  series). No persistent iteration index is maintained (unlike
-  `write_parallel`, which is kept for backward compatibility).
+- **`DicomReaderWriter.write_to_folder(...)`** (formerly `write_per_roi`, kept
+  as a backward-compatible alias) — bulk export to a nested
+  `<patient>/<study>/<series>/` folder layout that matches the C# tool (named by
+  hash when anonymizing, else by the sanitised original identifiers). Each
+  series folder may contain `image.nii.gz`, `masks/<roi>.nii.gz`,
+  `doses/<desc>.nii.gz` (only when `get_dose_output=True` and the series carries
+  dose), and a `metadata.json` ``{name: value}`` dict of any extra DICOM tags
+  requested via the `*_string_keys` constructor arguments. **With no ROIs
+  selected** (no `Contour_Names`, no `rois=`) it exports *every image series* as
+  image + dose only. A single `manifest.csv` is written with one row per series
+  — patient/study/series identifiers, output spacing, and the per-ROI mask
+  volume in cc (`-1` when absent). No persistent iteration index is maintained
+  (unlike `write_parallel`, which is kept for backward compatibility).
+- **`anonymize` / `salt` reader defaults** — set on the `DicomReaderWriter`
+  constructor (`anonymize=False`, `salt="DicomToNifti"` by default) and used by
+  `write_to_folder` / `create_manifest` when not given a per-call value, so the
+  default is defined once and can still be overridden per call.
 - **`DicomReaderWriter.create_manifest(output_path, ...)`** — a metadata-only
   manifest writer mirroring the C# `export_manifest.csv`: one row per
   series-with-contours with `patient_hash` / `study_hash` / `series_hash`, the
@@ -38,7 +43,7 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   are backfilled with `-1`, and the key file's existing hash mappings and salt
   are reused so identifiers stay stable across runs.
 - **Output resampling** — an optional `output_spacing` tuple on both
-  `write_per_roi` and `write_images_annotations` resamples outputs to a target
+  `write_to_folder` and `write_images_annotations` resamples outputs to a target
   voxel spacing: **linear** interpolation for images and dose, **nearest
   neighbour** for masks (labels are never blended). When resampling, the dose
   is resampled onto the **resampled image grid** (via the new
@@ -51,7 +56,7 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   C# `AnonymizationService` byte-for-byte: `hash_patient` (prefix `P`, 5
   bytes), `hash_study` (`ST`, 6 bytes), `hash_series` (`SE`, 6 bytes), the
   low-level `deterministic_hash_string`, and an `AnonymizationKey` class that
-  loads/saves the reverse-lookup JSON key file. With `write_per_roi(...,
+  loads/saves the reverse-lookup JSON key file. With `write_to_folder(...,
   anonymize=True)` the manifest carries only hashes, case folders are named by
   the series hash, and an `anonymization_key.json` is written.
 - **New public exports** from `DicomRTTool`: `resample_to_spacing`,
@@ -78,7 +83,7 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   constructor argument (default `1` = serial, unchanged behaviour) rasterises
   independent ROIs across threads — the heavy inner work (SimpleITK transforms,
   `cv2.fillPoly`, numpy) releases the GIL, giving ~2× on that stage. The bulk
-  writers (`create_manifest`, `write_per_roi`) auto-tune it: spare cores go to
+  writers (`create_manifest`, `write_to_folder`) auto-tune it: spare cores go to
   per-ROI threads when only a few series are processed, while many-series runs
   keep masks serial so the existing series-level parallelism isn't
   oversubscribed. End to end, `create_manifest` on a single 46-ROI series drops

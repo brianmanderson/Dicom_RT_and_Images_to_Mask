@@ -130,6 +130,23 @@ class TestCreateManifestKeyFile:
         series_hash = hash_series(entry.SeriesInstanceUID, salt="unit-salt")
         assert data["Series"][series_hash] == entry.SeriesInstanceUID
 
+    def test_constructor_anonymize_default(self, synthetic_dataset, tmp_path: Path):
+        # anonymize set at construction is used when not passed per-call.
+        r = DicomReaderWriter(
+            description="manifest",
+            Contour_Names=[p.name for p in synthetic_dataset.primitives],
+            verbose=False,
+            anonymize=True, salt="ctor-salt",
+        )
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        entry = _primary_entry(r)
+        out = tmp_path / "manifest.csv"
+        r.create_manifest(str(out))   # no anonymize= -> uses ctor default
+
+        df = pd.read_csv(out)
+        assert hash_series(entry.SeriesInstanceUID, salt="ctor-salt") in df["series_hash"].astype(str).tolist()
+        assert str(entry.SeriesInstanceUID) not in df["series_hash"].astype(str).tolist()
+
     def test_existing_key_salt_is_reused(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
         entry = _primary_entry(r)
@@ -163,6 +180,28 @@ class TestCreateManifestUpsert:
         df = pd.read_csv(out)
         assert len(df) == n_first
         assert df["series_hash"].is_unique
+
+    def test_toggling_anonymize_updates_not_duplicates(self, synthetic_dataset, tmp_path: Path):
+        # Same manifest, anonymize True then False: the series must be updated
+        # in place (matched on the canonical hash), not duplicated.
+        r = _build_reader(synthetic_dataset)
+        entry = _primary_entry(r)
+        out = tmp_path / "manifest.csv"
+
+        r.create_manifest(str(out), anonymize=True, salt="toggle-salt")
+        n1 = len(pd.read_csv(out))
+
+        r.create_manifest(str(out), anonymize=False, salt="toggle-salt")
+        df = pd.read_csv(out)
+        assert len(df) == n1, "toggling anonymize must not duplicate the series"
+        # Row now shows the raw identifier (anonymize=False).
+        assert str(entry.SeriesInstanceUID) in df["series_hash"].astype(str).tolist()
+
+        # And back to anonymized: still one row.
+        r.create_manifest(str(out), anonymize=True, salt="toggle-salt")
+        df = pd.read_csv(out)
+        assert len(df) == n1
+        assert hash_series(entry.SeriesInstanceUID, "toggle-salt") in df["series_hash"].astype(str).tolist()
 
     def test_existing_row_is_refreshed(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)
