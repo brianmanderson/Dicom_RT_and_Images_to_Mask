@@ -195,6 +195,26 @@ class TestWriteToFolderImageOnly:
         assert not (case / "masks").exists(), "no empty masks/ folder for image-only export"
         assert (out / "manifest.csv").exists()
 
+    def test_non_image_modality_series_skipped(self, synthetic_dataset, tmp_path: Path):
+        # A SEG/RTSTRUCT/etc. series (which SimpleITK may load as 4-D) must be
+        # skipped by the image-only export, even if its files are loadable.
+        from DicomRTTool.Services.DicomBases import ImageBase
+
+        r = DicomReaderWriter(description="img", verbose=False)
+        r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+        real = next(e for e in r.series_instances_dictionary.values() if e.files)
+
+        seg = ImageBase()
+        seg.SeriesInstanceUID = (real.SeriesInstanceUID or "x") + ".seg"
+        seg.Modality = "SEG"
+        seg.files = list(real.files)   # loadable, so only the filter excludes it
+        r.series_instances_dictionary[max(r.series_instances_dictionary) + 1] = seg
+
+        out = tmp_path / "out"
+        r.write_to_folder(str(out))
+        # Without the modality filter this would export two images.
+        assert len(list(out.rglob("image.nii.gz"))) == 1
+
     def test_no_rois_exports_image_and_dose(self, synthetic_dataset_with_dose, tmp_path: Path):
         r = DicomReaderWriter(description="img", verbose=False, get_dose_output=True)
         r.walk_through_folders(str(synthetic_dataset_with_dose.walk_root), thread_count=1)

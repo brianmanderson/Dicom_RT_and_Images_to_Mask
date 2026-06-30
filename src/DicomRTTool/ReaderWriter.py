@@ -79,6 +79,14 @@ dcmread_function = dcmread
 # SeriesInstanceUID is dotted-numeric, so this never matches one.
 _SERIES_HASH_RE = re.compile(r"^SE[0-9a-f]{12}$")
 
+# Non-image DICOM modalities that the scanner can still file as a "series" (most
+# notably SEG, which SimpleITK loads as a 4-D volume). They are skipped by the
+# image-only export so it doesn't try to write them as image.nii.gz.
+_NON_IMAGE_MODALITIES = {
+    "SEG", "RTSTRUCT", "RTPLAN", "RTDOSE", "RTRECORD",
+    "REG", "PR", "KO", "SR", "FID", "RWV",
+}
+
 # Filename sanitisation for the per-ROI export layout (Windows-safe).
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED_FILENAMES = {
@@ -1447,6 +1455,7 @@ class DicomReaderWriter:
             items = [
                 idx for idx, entry in self.series_instances_dictionary.items()
                 if entry.SeriesInstanceUID is not None and entry.files
+                and (entry.Modality or "").upper() not in _NON_IMAGE_MODALITIES
             ]
             if items:
                 logger.info(

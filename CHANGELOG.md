@@ -21,7 +21,9 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   dose), and a `metadata.json` ``{name: value}`` dict of any extra DICOM tags
   requested via the `*_string_keys` constructor arguments. **With no ROIs
   selected** (no `Contour_Names`, no `rois=`) it exports *every image series* as
-  image + dose only. A single `manifest.csv` is written with one row per series
+  image + dose only — non-image modalities the scanner files as a series (e.g.
+  DICOM SEG, which SimpleITK loads as 4-D) are skipped via the new
+  `ImageBase.Modality`. A single `manifest.csv` is written with one row per series
   — patient/study/series identifiers, output spacing, and the per-ROI mask
   volume in cc (`-1` when absent). No persistent iteration index is maintained
   (unlike `write_parallel`, which is kept for backward compatibility).
