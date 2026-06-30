@@ -118,20 +118,24 @@ reader.write_per_roi(
 
 ```text
 out/
-  <case_id>/                 # series hash when anonymized, else <patient>_<series>
+  <patient>/<study>/<series>/   # hashes when anonymized, else sanitised IDs
     image.nii.gz
     masks/
       lung_l.nii.gz
       lung_r.nii.gz
       cord.nii.gz
-    doses/                   # only when get_dose_output=True and dose exists
+    doses/                      # only when get_dose_output=True and dose exists
       plan.nii.gz
-  manifest.csv               # identifiers, spacing, per-ROI volume (cc)
-  anonymization_key.json     # only when anonymize=True (reverse lookup)
+    metadata.json               # extra DICOM tags, when any were requested
+  manifest.csv                  # identifiers, spacing, per-ROI volume (cc)
+  anonymization_key.json        # only when anonymize=True (reverse lookup)
 ```
 
-This layout mirrors the companion C# DICOM→NIfTI tool. The `manifest.csv` has
-the same shape as the one from [Step 2](#step-2--survey-write-a-metadata-manifest).
+This nested `patient/study/series` layout mirrors the companion C# DICOM→NIfTI
+tool. The `manifest.csv` has the same shape as the one from
+[Step 2](#step-2--survey-write-a-metadata-manifest). The `metadata.json` is
+written only when you requested extra DICOM tags (see
+[Reading extra DICOM tags](#reading-extra-dicom-tags)).
 
 ---
 
@@ -244,17 +248,28 @@ reader.prediction_array_to_RT(
 
 ## Reading extra DICOM tags
 
+Pull additional tags by name. SITK keys (`image_sitk_string_keys`,
+`dose_sitk_string_keys`) use `"group|element"` strings; pydicom keys
+(`plan_pydicom_string_keys`, `struct_pydicom_string_keys`) use `Tag` objects:
+
 ```python
 from pydicom.tag import Tag
 
-plan_keys  = {"MyNamedRTPlan": Tag((0x300a, 0x002))}
-image_keys = {"MyPatientName": "0010|0010"}
-
 reader = DicomReaderWriter(
-    plan_pydicom_string_keys=plan_keys,
-    image_sitk_string_keys=image_keys,
+    image_sitk_string_keys={"MyPatientName": "0010|0010", "Manufacturer": "0008|0070"},
+    plan_pydicom_string_keys={"MyNamedRTPlan": Tag((0x300a, 0x0002))},
 )
+reader.walk_through_folders("/path/to/dicom")
+
+# Per series, the pulled values are on the entry:
+entry = reader.series_instances_dictionary[0]
+print(entry.additional_tags)        # {"MyPatientName": ..., "Manufacturer": ...}
 ```
+
+When you export with `write_per_roi`, these requested tags are also written to a
+`metadata.json` (a `{name: value}` dict) inside each series folder. Note that
+the values are written verbatim — if you anonymize the folder names, make sure
+the tags you pull don't themselves carry identifying information.
 
 ## Resetting state between uses
 

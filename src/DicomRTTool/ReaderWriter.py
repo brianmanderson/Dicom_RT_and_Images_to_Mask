@@ -23,6 +23,7 @@ Typical usage::
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import os
 import re
@@ -89,6 +90,23 @@ def _sanitize_filename(name: str) -> str:
     if cleaned.upper() in _RESERVED_FILENAMES:
         cleaned = f"_{cleaned}"
     return cleaned
+
+
+def _jsonable_tag(value):
+    """Coerce a DICOM tag value into a JSON-serialisable form.
+
+    SITK metadata is already ``str``; pydicom values may be ``DSfloat`` / ``IS``
+    (numeric subclasses -- kept as numbers), ``MultiValue`` (-> list), or other
+    objects such as ``PersonName`` (-> ``str``).
+    """
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    try:
+        return [_jsonable_tag(v) for v in value]   # MultiValue / list / tuple
+    except TypeError:
+        return str(value)
 
 
 # Cap per-ROI rasterisation threads: past ~4 the GIL-bound parts dominate and
@@ -1365,26 +1383,33 @@ class DicomReaderWriter:
         manifest_name: str = "manifest.csv",
         key_file_name: str = "anonymization_key.json",
         dose_type: str = "PLAN",
+        metadata_file_name: str = "metadata.json",
     ) -> None:
         """Export every series-with-contours to a per-ROI NIfTI layout.
 
-        For each series an ``<case_id>/`` folder is written containing:
+        Each series is written to a nested
+        ``<patient>/<study>/<series>/`` folder containing:
 
         * ``image.nii.gz`` — the image volume;
         * ``masks/<roi>.nii.gz`` — one binary mask per ROI;
         * ``doses/<desc>.nii.gz`` — the summed dose grid, only when the series
-          carries dose *and* this reader was built with ``get_dose_output=True``.
+          carries dose *and* this reader was built with ``get_dose_output=True``;
+        * ``metadata.json`` — a ``{name: value}`` dict of any extra DICOM tags
+          requested via ``image_sitk_string_keys`` /
+          ``struct_pydicom_string_keys`` / ``dose_sitk_string_keys`` /
+          ``plan_pydicom_string_keys`` (written only when some were found).
 
-        A single ``manifest.csv`` (no persistent iteration index) is written at
-        *out_path* with one row per series: identifiers (raw and/or hashed),
-        the output spacing, and per-ROI volume in cc (``-1`` when an ROI is
-        absent for that series).
+        The ``<patient>/<study>/<series>`` folders are named by hash when
+        ``anonymize`` is ``True`` and by the (sanitised) original identifiers
+        otherwise. A single ``manifest.csv`` (no persistent iteration index) is
+        written at *out_path* with one row per series: identifiers (hashed or
+        raw), the output spacing, and per-ROI volume in cc (``-1`` when an ROI
+        is absent for that series).
 
         When ``output_spacing`` is given the image and dose are resampled with
         linear interpolation and masks with nearest-neighbour. When
-        ``anonymize`` is ``True`` the case folder is named by the series hash,
-        only hashed identifiers are written to the manifest, and an
-        ``anonymization_key.json`` reverse-lookup file is saved at *out_path*.
+        ``anonymize`` is ``True`` an ``anonymization_key.json`` reverse-lookup
+        file is saved at *out_path*.
 
         Args:
             out_path: Output directory.
@@ -1396,6 +1421,7 @@ class DicomReaderWriter:
             manifest_name: Filename of the manifest CSV.
             key_file_name: Filename of the anonymization key JSON.
             dose_type: ``DoseSummationType`` filter used when loading dose.
+            metadata_file_name: Filename of the per-series extra-tags JSON.
         """
         os.makedirs(out_path, exist_ok=True)
         wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
@@ -1428,7 +1454,7 @@ class DicomReaderWriter:
                 base.get_images_and_mask()
                 return self._export_one_series(
                     base, index, out_path, wanted_rois,
-                    output_spacing, anonymize, salt, dose_type,
+                    output_spacing, anonymize, salt, dose_type, metadata_file_name,
                 )
             except Exception:
                 entry = base.series_instances_dictionary.get(index)
@@ -1466,6 +1492,34 @@ class DicomReaderWriter:
                 key.series.setdefault(row["series_hash"], row["_series_uid"])
             key.save(os.path.join(out_path, key_file_name))
 
+    def _extra_tags_for_series(self, entry: ImageBase) -> dict:
+        """Collect the user-requested extra DICOM tags for one series.
+
+        Returns a flat ``{name: value}`` dict from the image, RT-struct, dose,
+        and plan records, keyed by the names the caller passed in
+        ``image_sitk_string_keys`` / ``struct_pydicom_string_keys`` /
+        ``dose_sitk_string_keys`` / ``plan_pydicom_string_keys``. Internal keys
+        such as ``"Volumes"`` are excluded because only the requested names are
+        pulled.
+        """
+        tags: dict = {}
+
+        def _pull(source_tags: dict, requested) -> None:
+            if not requested:
+                return
+            for name in requested:
+                if name in source_tags:
+                    tags[name] = _jsonable_tag(source_tags[name])
+
+        _pull(entry.additional_tags, self.image_sitk_string_keys)
+        for rt in entry.RTs.values():
+            _pull(rt.additional_tags, self.struct_pydicom_string_keys)
+        for rd in entry.RDs.values():
+            _pull(rd.additional_tags, self.dose_sitk_string_keys)
+        for rp in entry.RPs.values():
+            _pull(rp.additional_tags, self.plan_pydicom_string_keys)
+        return tags
+
     def _export_one_series(
         self,
         base: DicomReaderWriter,
@@ -1476,6 +1530,7 @@ class DicomReaderWriter:
         anonymize: bool,
         salt: str,
         dose_type: str,
+        metadata_file_name: str = "metadata.json",
     ) -> dict:
         """Write one series' image/masks/dose tree and return its manifest data."""
         entry = base.series_instances_dictionary[index]
@@ -1487,12 +1542,17 @@ class DicomReaderWriter:
         study_hash = hash_study(study_uid, salt)
         series_hash = hash_series(series_uid, salt)
 
-        case_id = (
-            series_hash if anonymize
-            else _sanitize_filename(f"{mrn}_{series_uid[-8:]}") or series_hash
-        )
+        # Nested <patient>/<study>/<series> folders -- named by hash when
+        # anonymizing, else by the (sanitised) original identifiers.
+        if anonymize:
+            patient_level, study_level, series_level = patient_hash, study_hash, series_hash
+        else:
+            patient_level = _sanitize_filename(mrn) or patient_hash
+            study_level = _sanitize_filename(study_uid) or study_hash
+            series_level = _sanitize_filename(series_uid) or series_hash
 
-        case_dir = os.path.join(out_path, case_id)
+        case_id = "/".join((patient_level, study_level, series_level))
+        case_dir = os.path.join(out_path, patient_level, study_level, series_level)
         masks_dir = os.path.join(case_dir, "masks")
         os.makedirs(masks_dir, exist_ok=True)
 
@@ -1551,6 +1611,12 @@ class DicomReaderWriter:
                     break
             desc = _sanitize_filename(desc or dose_type or "dose") or "dose"
             sitk.WriteImage(dose_img, os.path.join(doses_dir, f"{desc}.nii.gz"))
+
+        # --- extra DICOM tags (only when any were requested + found) ---
+        extra_tags = self._extra_tags_for_series(entry)
+        if extra_tags:
+            with open(os.path.join(case_dir, metadata_file_name), "w", encoding="utf-8") as handle:
+                json.dump(extra_tags, handle, indent=2)
 
         return {
             "case_id": case_id,

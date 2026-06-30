@@ -13,14 +13,17 @@ tool. All additions are backward compatible — existing APIs are unchanged.
 ### Added
 
 - **`DicomReaderWriter.write_per_roi(...)`** — bulk export of every
-  series-with-contours to a per-ROI NIfTI layout that matches the C# tool:
-  `<case_id>/image.nii.gz`, `<case_id>/masks/<roi>.nii.gz`, and
-  `<case_id>/doses/<desc>.nii.gz` (the latter only when `get_dose_output=True`
-  and the series carries dose). A single `manifest.csv` is written with one
-  row per series — patient/study/series identifiers, output spacing, and the
-  per-ROI mask volume in cc (`-1` when an ROI is absent for that series). No
-  persistent iteration index is maintained (unlike `write_parallel`, which is
-  kept for backward compatibility).
+  series-with-contours to a per-ROI NIfTI layout that matches the C# tool. Each
+  series is written to a nested `<patient>/<study>/<series>/` folder (named by
+  hash when anonymizing, else by the sanitised original identifiers) containing
+  `image.nii.gz`, `masks/<roi>.nii.gz`, `doses/<desc>.nii.gz` (only when
+  `get_dose_output=True` and the series carries dose), and a `metadata.json`
+  ``{name: value}`` dict of any extra DICOM tags requested via the
+  `*_string_keys` constructor arguments. A single `manifest.csv` is written
+  with one row per series — patient/study/series identifiers, output spacing,
+  and the per-ROI mask volume in cc (`-1` when an ROI is absent for that
+  series). No persistent iteration index is maintained (unlike
+  `write_parallel`, which is kept for backward compatibility).
 - **`DicomReaderWriter.create_manifest(output_path, ...)`** — a metadata-only
   manifest writer mirroring the C# `export_manifest.csv`: one row per
   series-with-contours with `patient_hash` / `study_hash` / `series_hash`, the
