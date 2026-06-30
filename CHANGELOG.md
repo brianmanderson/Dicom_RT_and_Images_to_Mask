@@ -23,13 +23,17 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   kept for backward compatibility).
 - **`DicomReaderWriter.create_manifest(output_path, ...)`** — a metadata-only
   manifest writer mirroring the C# `export_manifest.csv`: one row per
-  series-with-contours with the image spacing (`spacing_x/y/z`) and the mask
-  volume in cc for every ROI name (`-1` when absent). No NIfTI files are
-  written. If the CSV already exists it is **read and extended in place** —
-  series already present (matched by `SeriesInstanceUID` or `series_hash`) are
-  left untouched, new series are appended, and new ROI columns are backfilled
-  with `-1` for pre-existing rows — so it is safe to call repeatedly while
-  walking more data. Supports `anonymize=True` for hashed-only identifiers.
+  series-with-contours with `patient_hash` / `study_hash` / `series_hash`, the
+  image spacing (`spacing_x/y/z`), and the mask volume in cc for every ROI name
+  (`-1` when absent). The hash columns hold the deterministic hashes when
+  `anonymize=True` and the original PatientID / StudyInstanceUID /
+  SeriesInstanceUID otherwise (no separate raw-id columns). No NIfTI files are
+  written. An `anonymization_key.json` reverse-lookup file is written **next to
+  the manifest**. If a manifest and/or key file already exist there they are
+  loaded first: rows for series in the current walk are **upserted** (existing
+  rows updated, new ones appended, matched on `series_hash`), new ROI columns
+  are backfilled with `-1`, and the key file's existing hash mappings and salt
+  are reused so identifiers stay stable across runs.
 - **Output resampling** — an optional `output_spacing` tuple on both
   `write_per_roi` and `write_images_annotations` resamples outputs to a target
   voxel spacing: **linear** interpolation for images and dose, **nearest
