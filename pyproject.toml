@@ -1,10 +1,15 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=64", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# Version is derived from the latest git tag (e.g. tag ``v5.1.0`` -> ``5.1.0``),
+# so it never has to be edited by hand. Between releases it looks like
+# ``5.1.1.dev4+g<sha>``. Requires the tags at build time (CI uses fetch-depth: 0).
+[tool.setuptools_scm]
 
 [project]
 name = "DicomRTTool"
-version = "5.0.1"
+dynamic = ["version"]
 description = """Services for reading DICOM files, RT structures, and dose files, \
 as well as tools for converting numpy prediction masks back to an RT structure."""
 readme = "README.md"

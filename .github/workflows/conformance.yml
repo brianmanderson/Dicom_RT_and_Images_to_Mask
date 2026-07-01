@@ -26,6 +26,9 @@ jobs:
     # commonly-deployed combo to keep CI minutes reasonable.
     steps:
       - uses: actions/checkout@v4
+        with:
+          # setuptools-scm reads the version from git tags during install.
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
