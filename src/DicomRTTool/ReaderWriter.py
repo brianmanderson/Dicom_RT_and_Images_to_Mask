@@ -1601,7 +1601,7 @@ class DicomReaderWriter:
         # ROIs genuinely present in this series' RT structure(s). ``get_mask``
         # allocates an all-zero mask for *every* ``Contour_Name``, so the mask
         # dictionary alone cannot distinguish "absent" from "empty"; resolve
-        # the RT membership instead so absent ROIs become -1 in the manifest
+        # the RT membership instead so absent ROIs are left blank in the manifest
         # and no empty mask file is written.
         present_rois: set[str] = set()
         for rt in entry.RTs.values():
@@ -1689,7 +1689,7 @@ class DicomReaderWriter:
         ``PatientID`` / ``StudyInstanceUID`` / ``SeriesInstanceUID`` otherwise --
         the raw identifiers are never written as separate columns. Plus an
         optional ``case_id``, the output spacing, and one ``<roi> cc`` column per
-        wanted ROI (``-1`` when the ROI is absent for that series).
+        wanted ROI (left **blank** when the ROI is absent for that series).
         """
         record: dict = {}
         if include_case_id and "case_id" in row:
@@ -1706,7 +1706,8 @@ class DicomReaderWriter:
         record["spacing_y"] = row["spacing_y"]
         record["spacing_z"] = row["spacing_z"]
         for roi in wanted_rois:
-            record[f"{roi} cc"] = row["volumes"].get(roi, -1)
+            # ``None`` -> NaN in the DataFrame -> an empty cell in the CSV.
+            record[f"{roi} cc"] = row["volumes"].get(roi, None)
         return record
 
     @staticmethod
@@ -1839,8 +1840,8 @@ class DicomReaderWriter:
         ``study_hash`` / ``series_hash`` (the deterministic hashes when
         *anonymize*, otherwise the original PatientID / StudyInstanceUID /
         SeriesInstanceUID), the image spacing (``spacing_x/y/z``), and the mask
-        volume in cc for every ROI name (one ``<roi> cc`` column each; ``-1``
-        when an ROI is absent from that series). Unlike :meth:`write_per_roi`,
+        volume in cc for every ROI name (one ``<roi> cc`` column each; left
+        blank when an ROI is absent from that series). Unlike :meth:`write_per_roi`,
         no NIfTI files are written -- this produces the manifest only.
 
         An ``anonymization_key.json`` reverse-lookup file is written **next to
@@ -1983,10 +1984,9 @@ class DicomReaderWriter:
             logger.warning("No manifest rows to write.")
             return
 
-        # Absent ROI volume cells (new columns on old rows, or vice versa) -> -1.
+        # Absent ROI volume cells (new columns on old rows, or vice versa) stay
+        # NaN so they render as empty cells in the CSV.
         roi_cols = sorted(c for c in combined.columns if str(c).endswith(" cc"))
-        for col in roi_cols:
-            combined[col] = combined[col].fillna(-1)
         # Stable column order: identifiers, spacing, then ROI volumes.
         lead = [c for c in ("patient_hash", "study_hash", "series_hash",
                             "spacing_x", "spacing_y", "spacing_z") if c in combined.columns]

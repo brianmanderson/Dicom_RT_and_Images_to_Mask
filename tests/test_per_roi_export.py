@@ -74,7 +74,7 @@ class TestWritePerRoiLayout:
             assert col in df.columns
             assert (df[col] > 0).all()
 
-    def test_absent_roi_is_negative_one(self, synthetic_dataset, tmp_path: Path):
+    def test_absent_roi_is_blank(self, synthetic_dataset, tmp_path: Path):
         r = DicomReaderWriter(
             description="per-roi",
             Contour_Names=[p.name for p in synthetic_dataset.primitives] + ["not_a_real_roi"],
@@ -87,7 +87,8 @@ class TestWritePerRoiLayout:
         r.write_to_folder(str(out))
 
         df = pd.read_csv(out / "manifest.csv")
-        assert (df["not_a_real_roi cc"] == -1).all()
+        # An absent ROI leaves an empty cell (NaN when read back), not -1.
+        assert df["not_a_real_roi cc"].isna().all()
 
     def test_no_dose_subfolder_when_dose_absent(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)

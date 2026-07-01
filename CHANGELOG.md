@@ -25,7 +25,7 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   DICOM SEG, which SimpleITK loads as 4-D) are skipped via the new
   `ImageBase.Modality`. A single `manifest.csv` is written with one row per series
   — patient/study/series identifiers, output spacing, and the per-ROI mask
-  volume in cc (`-1` when absent). No persistent iteration index is maintained
+  volume in cc (blank when absent). No persistent iteration index is maintained
   (unlike `write_parallel`, which is kept for backward compatibility).
 - **`anonymize` / `salt` reader defaults** — set on the `DicomReaderWriter`
   constructor (`anonymize=False`, `salt="DicomToNifti"` by default) and used by
@@ -35,14 +35,14 @@ tool. All additions are backward compatible — existing APIs are unchanged.
   manifest writer mirroring the C# `export_manifest.csv`: one row per
   series-with-contours with `patient_hash` / `study_hash` / `series_hash`, the
   image spacing (`spacing_x/y/z`), and the mask volume in cc for every ROI name
-  (`-1` when absent). The hash columns hold the deterministic hashes when
+  (blank when absent). The hash columns hold the deterministic hashes when
   `anonymize=True` and the original PatientID / StudyInstanceUID /
   SeriesInstanceUID otherwise (no separate raw-id columns). No NIfTI files are
   written. An `anonymization_key.json` reverse-lookup file is written **next to
   the manifest**. If a manifest and/or key file already exist there they are
   loaded first: rows for series in the current walk are **upserted** (existing
   rows updated, new ones appended, matched on `series_hash`), new ROI columns
-  are backfilled with `-1`, and the key file's existing hash mappings and salt
+  are left blank, and the key file's existing hash mappings and salt
   are reused so identifiers stay stable across runs.
 - **Output resampling** — an optional `output_spacing` tuple on both
   `write_to_folder` and `write_images_annotations` resamples outputs to a target

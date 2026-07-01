@@ -98,7 +98,7 @@ class TestCreateManifestColumns:
         assert len(roi_cols) == len(r.all_rois)
         assert (df[roi_cols] > 0).any().any()
 
-    def test_absent_roi_is_negative_one(self, synthetic_dataset, tmp_path: Path):
+    def test_absent_roi_is_blank(self, synthetic_dataset, tmp_path: Path):
         r = DicomReaderWriter(
             description="manifest",
             Contour_Names=[p.name for p in synthetic_dataset.primitives] + ["not_a_real_roi"],
@@ -110,7 +110,8 @@ class TestCreateManifestColumns:
         out = tmp_path / "manifest.csv"
         r.create_manifest(str(out))
         df = pd.read_csv(out)
-        assert (df["not_a_real_roi cc"] == -1).all()
+        # An absent ROI leaves an empty cell (NaN when read back), not -1.
+        assert df["not_a_real_roi cc"].isna().all()
 
 
 class TestCreateManifestKeyFile:
@@ -239,11 +240,11 @@ class TestCreateManifestUpsert:
 
         assert "seed.series" in df["series_hash"].astype(str).tolist()
         assert len(df) >= 2
-        # New ROI columns added; the seed row gets -1.
+        # New ROI columns added; the seed row is left blank for them.
         assert f"{roi_name} cc" in df.columns
         seed_row = df[df["series_hash"] == "seed.series"]
-        assert (seed_row[f"{roi_name} cc"] == -1).all()
-        # Legacy column preserved; new rows backfilled to -1.
+        assert seed_row[f"{roi_name} cc"].isna().all()
+        # Legacy column preserved; new rows are blank for it.
         assert "legacy_roi cc" in df.columns
         new_rows = df[df["series_hash"] != "seed.series"]
-        assert (new_rows["legacy_roi cc"] == -1).all()
+        assert new_rows["legacy_roi cc"].isna().all()

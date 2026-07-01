@@ -64,7 +64,7 @@ reader.create_manifest("/path/to/manifest.csv")
 
 Each row has `patient_hash` / `study_hash` / `series_hash`, the image spacing
 (`spacing_x/y/z`), and one `<roi> cc` column per ROI giving its mask volume in
-cubic centimetres (`-1` when that ROI is absent from the series). Add
+cubic centimetres (blank when that ROI is absent from the series). Add
 `anonymize=True, salt="MyProjectSalt"` to put the deterministic hashes in those
 columns; otherwise they hold the original `PatientID` / `StudyInstanceUID` /
 `SeriesInstanceUID`. An `anonymization_key.json` reverse-lookup file is written
@@ -205,7 +205,7 @@ If the target CSV (and its `anonymization_key.json`) already exist,
 Rows for series in the current walk are recomputed and **upserted** — matched on
 the `series_hash` column, so an existing series is updated and a new one is
 appended — while series not in the current walk are left untouched. New ROI
-columns are added with `-1` backfilled for the rows that predate them, and the
+columns are added (left blank for the rows that predate them), and the
 existing key file's hash mappings (and salt) are reused so identifiers stay
 stable. This makes it safe to call repeatedly as you walk more data:
 
