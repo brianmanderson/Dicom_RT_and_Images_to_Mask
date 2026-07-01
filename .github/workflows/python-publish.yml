@@ -56,3 +56,7 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Don't fail the run if a distribution for this version is already on
+          # PyPI (e.g. a re-tag, or a tag-push + release-published double fire).
+          skip-existing: true
