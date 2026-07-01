@@ -1754,10 +1754,12 @@ class DicomReaderWriter:
     ) -> dict:
         """Compute identifiers, native image spacing, and per-ROI cc volumes.
 
-        Does not write any NIfTI files -- used by :meth:`create_manifest`.
-        Volumes are taken from the native-resolution masks; an ROI absent from
-        the series' RT structure(s) is simply omitted (becomes ``-1`` at CSV
-        write time).
+        Does not write any NIfTI files -- used by :meth:`create_manifest`. Only
+        the image is loaded (``base.get_images()``); each wanted ROI present in
+        the series is rasterised on its own as a single 3-D mask, counted, and
+        discarded, so peak memory is one 3-D mask -- never the full
+        ``(slices, rows, cols, n_rois + 1)`` array (which would be gigabytes for
+        a large ROI set). Aliases that map to the same canonical name are unioned.
         """
         entry = base.series_instances_dictionary[index]
         mrn = entry.PatientID or ""
@@ -1767,18 +1769,46 @@ class DicomReaderWriter:
         spacing = tuple(float(s) for s in base.dicom_handle.GetSpacing())
         voxel_cc = float(np.prod(spacing)) / 1000.0
 
-        present_rois: set[str] = set()
-        for rt in entry.RTs.values():
-            for raw_name in rt.ROIs_In_Structure:
-                canonical = base._resolve_roi_name(raw_name)
-                if canonical:
-                    present_rois.add(canonical)
+        wanted = {r.lower() for r in wanted_rois}
+        associations = base.associations
+
+        def _to_wanted(raw_name: str) -> str | None:
+            name = raw_name.lower()
+            if name in wanted:
+                return name
+            if associations:
+                for assoc in associations:
+                    if name in assoc.other_names and assoc.roi_name in wanted:
+                        return assoc.roi_name
+            return None
 
         volumes: dict[str, float] = {}
-        for roi in wanted_rois:
-            if roi in present_rois and roi in base.mask_dictionary:
-                n_vox = int(np.sum(sitk.GetArrayViewFromImage(base.mask_dictionary[roi])))
-                volumes[roi] = round(n_vox * voxel_cc, 3)
+        for rt in entry.RTs.values():
+            base._characterize_rt(rt)   # warm cache before any parallel reads
+            by_canonical: dict[str, list[str]] = {}
+            for raw_name in rt.ROIs_In_Structure:
+                canonical = _to_wanted(raw_name)
+                if canonical and canonical not in volumes:
+                    by_canonical.setdefault(canonical, []).append(raw_name)
+            if not by_canonical:
+                continue
+
+            def _volume(item: tuple[str, list[str]], rt: RTBase = rt) -> tuple[str, float]:
+                canonical, raw_names = item
+                acc: np.ndarray | None = None
+                for raw_name in raw_names:
+                    m = base._return_mask_for_roi(rt, raw_name)   # one 3-D mask
+                    acc = m if acc is None else np.maximum(acc, m, out=acc)
+                return canonical, round(int(acc.sum()) * voxel_cc, 3)
+
+            jobs = list(by_canonical.items())
+            if base.mask_thread_count > 1 and len(jobs) > 1:
+                with ThreadPoolExecutor(max_workers=base.mask_thread_count) as pool:
+                    results = list(pool.map(_volume, jobs))
+            else:
+                results = [_volume(job) for job in jobs]
+            for canonical, vol in results:
+                volumes.setdefault(canonical, vol)
 
         return {
             "patient_hash": hash_patient(mrn, salt),
@@ -1883,25 +1913,30 @@ class DicomReaderWriter:
                 existing_df = existing_df.drop(columns=legacy)
 
         # Process every candidate series (no skipping): present series are
-        # updated, new ones appended. The worker rasterises masks for exactly the
-        # ROIs we record, so volumes populate even with no Contour_Names set.
+        # updated, new ones appended. The worker carries NO Contour_Names, so it
+        # never allocates the full multi-channel mask -- _collect_series_row
+        # rasterises one ROI at a time. verbose=False keeps the per-worker
+        # "contour names changed" logging quiet.
         key_dict = {
             "series_instances_dictionary": self.series_instances_dictionary,
             "associations": self.associations, "arg_max": self.arg_max,
             "require_all_contours": self.require_all_contours,
-            "Contour_Names": wanted_rois, "description": self.description,
+            "description": self.description,
             "get_dose_output": self.get_dose_output,
             "mask_thread_count": _mask_threads_for(thread_count, len(candidates)),
+            "verbose": False,
         }
 
         pbar = tqdm(total=len(candidates), desc="Building manifest...")
 
         def _worker(index: int) -> dict | None:
             base = DicomReaderWriter(**key_dict)
-            base.verbose = False
             try:
                 base.set_index(index)
-                base.get_images_and_mask()
+                base.get_images()   # image only; ROIs are rasterised one at a time
+                # Volumes only need the image *geometry*; drop the pixel-array
+                # copy (a full float32 volume) to keep per-worker memory down.
+                base.ArrayDicom = None
                 return self._collect_series_row(base, index, wanted_rois, salt)
             except Exception:
                 entry = base.series_instances_dictionary.get(index)

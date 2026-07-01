@@ -76,6 +76,15 @@ tool. All additions are backward compatible — existing APIs are unchanged.
 
 ### Performance
 
+- **`create_manifest` no longer builds the full multi-channel mask.** It now
+  loads only the image geometry and rasterises **one ROI at a time** (unioning
+  aliases), counts voxels, and discards — instead of allocating a
+  `(slices, rows, cols, n_rois + 1)` array (gigabytes for a large ROI set) per
+  series. On a 21-series corpus with 55 union ROIs this cut peak memory from
+  ~13 GB to ~3.6 GB (and to ~1.6 GB at `thread_count=2`, with no loss of speed
+  since the rasterisation is GIL-bound). The per-worker readers are also built
+  quietly (`verbose=False`), removing the repeated "contour names changed"
+  log lines, and the unused pixel-array copy is freed per worker.
 - **Mask rasterisation is ~2.4× faster.** `get_mask` no longer rescans the
   entire multi-channel mask array once per ROI (the old
   `self.mask[self.mask > 1] = 1` was an O(n_rois) pass over every voxel); it
