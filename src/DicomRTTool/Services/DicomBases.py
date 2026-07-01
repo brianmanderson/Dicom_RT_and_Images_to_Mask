@@ -293,6 +293,7 @@ class ImageBase(DICOMBase):
     """Parsed metadata for a DICOM image series."""
 
     Description: str | None = None
+    Modality: str | None = None
     FrameOfReference: str = ""
     slice_thickness: float | None = None
     pixel_spacing_x: float | None = None
@@ -318,6 +319,9 @@ class ImageBase(DICOMBase):
 
         meta_keys = sitk_dicom_reader.GetMetaDataKeys()
         self.files = list(dicom_names)
+
+        if "0008|0060" in meta_keys:
+            self.Modality = sitk_dicom_reader.GetMetaData("0008|0060").strip()
 
         if "0008|103e" in meta_keys:
             self.Description = sitk_dicom_reader.GetMetaData("0008|103e")

@@ -5,6 +5,111 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Ports the DICOM→NIfTI feature set from the companion C# `DicomRtNifti.Cli`
+tool. All additions are backward compatible — existing APIs are unchanged.
+
+### Added
+
+- **`DicomReaderWriter.write_to_folder(...)`** (formerly `write_per_roi`, kept
+  as a backward-compatible alias) — bulk export to a nested
+  `<patient>/<study>/<series>/` folder layout that matches the C# tool (named by
+  hash when anonymizing, else by the sanitised original identifiers). Each
+  series folder may contain `image.nii.gz`, `masks/<roi>.nii.gz`,
+  `doses/<desc>.nii.gz` (only when `get_dose_output=True` and the series carries
+  dose), and a `metadata.json` ``{name: value}`` dict of any extra DICOM tags
+  requested via the `*_string_keys` constructor arguments. **With no ROIs
+  selected** (no `Contour_Names`, no `rois=`) it exports *every image series* as
+  image + dose only — non-image modalities the scanner files as a series (e.g.
+  DICOM SEG, which SimpleITK loads as 4-D) are skipped via the new
+  `ImageBase.Modality`. A single `manifest.csv` is written with one row per series
+  — patient/study/series identifiers, output spacing, and the per-ROI mask
+  volume in cc (blank when absent). No persistent iteration index is maintained
+  (unlike `write_parallel`, which is kept for backward compatibility).
+- **`anonymize` / `salt` reader defaults** — set on the `DicomReaderWriter`
+  constructor (`anonymize=False`, `salt="DicomToNifti"` by default) and used by
+  `write_to_folder` / `create_manifest` when not given a per-call value, so the
+  default is defined once and can still be overridden per call.
+- **`DicomReaderWriter.create_manifest(output_path, ...)`** — a metadata-only
+  manifest writer mirroring the C# `export_manifest.csv`: one row per
+  series-with-contours with `patient_hash` / `study_hash` / `series_hash`, the
+  image spacing (`spacing_x/y/z`), and the mask volume in cc for every ROI name
+  (blank when absent). The hash columns hold the deterministic hashes when
+  `anonymize=True` and the original PatientID / StudyInstanceUID /
+  SeriesInstanceUID otherwise (no separate raw-id columns). No NIfTI files are
+  written. An `anonymization_key.json` reverse-lookup file is written **next to
+  the manifest**. If a manifest and/or key file already exist there they are
+  loaded first: rows for series in the current walk are **upserted** (existing
+  rows updated, new ones appended, matched on `series_hash`), new ROI columns
+  are left blank, and the key file's existing hash mappings and salt
+  are reused so identifiers stay stable across runs.
+- **Output resampling** — an optional `output_spacing` tuple on both
+  `write_to_folder` and `write_images_annotations` resamples outputs to a target
+  voxel spacing: **linear** interpolation for images and dose, **nearest
+  neighbour** for masks (labels are never blended). When resampling, the dose
+  is resampled onto the **resampled image grid** (via the new
+  `resample_to_reference` helper) rather than its own grid, so the image,
+  masks, and dose all share one size & geometry. The reusable
+  `resample_to_spacing(handle, output_spacing, interpolator)` and
+  `resample_to_reference(handle, reference, interpolator)` helpers are exported
+  from the package.
+- **Anonymization** — deterministic SHA-256 identifier hashing matching the
+  C# `AnonymizationService` byte-for-byte: `hash_patient` (prefix `P`, 5
+  bytes), `hash_study` (`ST`, 6 bytes), `hash_series` (`SE`, 6 bytes), the
+  low-level `deterministic_hash_string`, and an `AnonymizationKey` class that
+  loads/saves the reverse-lookup JSON key file. With `write_to_folder(...,
+  anonymize=True)` the manifest carries only hashes, case folders are named by
+  the series hash, and an `anonymization_key.json` is written.
+- **New public exports** from `DicomRTTool`: `resample_to_spacing`,
+  `hash_patient`, `hash_study`, `hash_series`, `deterministic_hash_string`,
+  `AnonymizationKey`.
+- **Cross-tool evaluation harness** under `evaluation/`
+  (`compare_with_csharp.py` + `csharp_eval.py`) that runs DicomRTTool and the
+  C# tool live on TCIA LCTSC patients and compares mask generation (Dice /
+  volume), image generation (voxel MAE / geometry), and the resampling
+  feature. An opt-in `tests/test_csharp_parity.py` exercises it and
+  auto-skips unless `DICOMRTTOOL_LCTSC_DIR` and `DICOMRTTOOL_CSHARP_EXE` are
+  set, so the hermetic suite and CI are unaffected. New hermetic unit tests:
+  `tests/test_anonymizer.py`, `tests/test_resample.py`,
+  `tests/test_per_roi_export.py`, `tests/test_create_manifest.py`.
+
+### Performance
+
+- **`create_manifest` no longer builds the full multi-channel mask.** It now
+  loads only the image geometry and rasterises **one ROI at a time** (unioning
+  aliases), counts voxels, and discards — instead of allocating a
+  `(slices, rows, cols, n_rois + 1)` array (gigabytes for a large ROI set) per
+  series. On a 21-series corpus with 55 union ROIs this cut peak memory from
+  ~13 GB to ~3.6 GB (and to ~1.6 GB at `thread_count=2`, with no loss of speed
+  since the rasterisation is GIL-bound). The per-worker readers are also built
+  quietly (`verbose=False`), removing the repeated "contour names changed"
+  log lines, and the unused pixel-array copy is freed per worker.
+- **Mask rasterisation is ~2.4× faster.** `get_mask` no longer rescans the
+  entire multi-channel mask array once per ROI (the old
+  `self.mask[self.mask > 1] = 1` was an O(n_rois) pass over every voxel); it
+  now unions each ROI into its own channel with `np.maximum`. On a 46-ROI head
+  CT this alone cut `get_mask` from ~61 s to ~27 s.
+- **Per-ROI rasterisation can run in parallel.** A new `mask_thread_count`
+  constructor argument (default `1` = serial, unchanged behaviour) rasterises
+  independent ROIs across threads — the heavy inner work (SimpleITK transforms,
+  `cv2.fillPoly`, numpy) releases the GIL, giving ~2× on that stage. The bulk
+  writers (`create_manifest`, `write_to_folder`) auto-tune it: spare cores go to
+  per-ROI threads when only a few series are processed, while many-series runs
+  keep masks serial so the existing series-level parallelism isn't
+  oversubscribed. End to end, `create_manifest` on a single 46-ROI series drops
+  from ~64 s to ~26 s. Output is byte-identical to the serial path (covered by
+  `tests/test_mask_rasterization.py`).
+
+### Notes
+
+- The two tools use different polygon-boundary conventions (DicomRTTool is
+  boundary-inclusive; the C# tool fills the polygon interior), so masks agree
+  closely but are not byte-identical. On a 10-patient LCTSC sweep the live
+  comparison gives a median Dice of ~0.99 for large OARs (lower for thin
+  structures such as esophagus/cord), MAE 0.0 for native image generation,
+  and ~0.4 HU MAE for resample parity.
+
 ## [4.0.0] — 2026-05-01
 
 A modernization release. Breaking changes are limited to the removal of

@@ -71,6 +71,20 @@ class TestWriteImagesAnnotations:
         assert target.is_dir()
         assert any(target.glob("Overall_Data_*.nii.gz"))
 
+    def test_output_spacing_resamples_image_and_mask(
+        self, reader_with_mask: DicomReaderWriter, tmp_path: Path,
+    ):
+        target = (4.0, 4.0, 4.0)
+        reader_with_mask.write_images_annotations(str(tmp_path), output_spacing=target)
+        img = sitk.ReadImage(str(next(tmp_path.glob("Overall_Data_*.nii.gz"))))
+        mask = sitk.ReadImage(str(next(tmp_path.glob("Overall_mask_*.nii.gz"))))
+        assert img.GetSpacing() == pytest.approx(target)
+        assert mask.GetSpacing() == pytest.approx(target)
+        assert img.GetSize() == mask.GetSize()
+        # Nearest-neighbour keeps the mask integer-labelled (no blended values).
+        labels = np.unique(sitk.GetArrayFromImage(mask))
+        assert np.all(labels == labels.astype(np.int32))
+
 
 class TestWriteParallel:
     """Smoke test for the bulk-export entry point."""
