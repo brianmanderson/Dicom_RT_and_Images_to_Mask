@@ -49,6 +49,7 @@ from ._internal.anonymizer import (
 from ._internal.indexer import (
     DicomFolderLoader,
     add_sops,
+    is_dicom_file,
 )
 from ._internal.rt_contours import PointOutputMaker
 from .Services.DicomBases import (
@@ -119,6 +120,34 @@ def _jsonable_tag(value):
         return [_jsonable_tag(v) for v in value]   # MultiValue / list / tuple
     except TypeError:
         return str(value)
+
+
+def _map_parallel(items, worker, desc: str, thread_count: int) -> list:
+    """Run *worker* over *items* with a tqdm bar, collecting non-None results.
+
+    Serial when ``thread_count <= 1`` (deterministic, test-friendly),
+    otherwise a ThreadPoolExecutor with results gathered in completion order.
+    This is the one fan-out harness shared by the walk and the bulk writers;
+    workers are expected to catch their own exceptions and return ``None``.
+    """
+    results: list = []
+    pbar = tqdm(total=len(items), desc=desc)
+    if thread_count <= 1:
+        for item in items:
+            result = worker(item)
+            if result is not None:
+                results.append(result)
+            pbar.update()
+    else:
+        with ThreadPoolExecutor(max_workers=thread_count) as pool:
+            futures = {pool.submit(worker, item): item for item in items}
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+                pbar.update()
+    pbar.close()
+    return results
 
 
 # Cap per-ROI rasterisation threads: past ~4 the GIL-bound parts dominate and
@@ -248,7 +277,17 @@ class DicomReaderWriter:
 
         # Internal state
         self.roi_class_list: list[ROIClass] = []
-        self.dose: np.ndarray | None = None
+        # Backing state for the lazy ``ds`` / ``ArrayDicom`` / ``dose``
+        # properties -- the numpy copies (and the first-slice pydicom read)
+        # are only materialised on first access.
+        self._ds_cache = None
+        self._ds_file: PathLike | None = None
+        self._array_dicom: np.ndarray | None = None
+        self._dose_array: np.ndarray | None = None
+        # True when only the grid geometry was loaded (no pixel data).
+        self._geometry_only = False
+        # Per-ROI volumes (cc) from the last get_mask(), keyed by contour name.
+        self.roi_volumes: dict[str, float] = {}
         self.group_dose_by_frame_of_reference = group_dose_by_frame_of_reference
         # Per-ROI rasterisation threads inside get_mask(). 1 = serial (default).
         # The bulk writers auto-tune this so per-ROI threads only spin up when
@@ -283,6 +322,8 @@ class DicomReaderWriter:
         self._dicom_slice_z_positions: np.ndarray | None = None
         self.mask: np.ndarray | None = None
         self._rd_study_instance_uid: str | None = None
+        # (SeriesInstanceUID, dose_type) the current dose_handle was built for.
+        self._rd_loaded_key: tuple[str | None, str] | None = None
         self.index = index
         self.all_RTs: dict[str, list[str]] = {}
         self.RTs_with_ROI_Names: dict[str, list[str]] = {}
@@ -311,10 +352,6 @@ class DicomReaderWriter:
         self.delete_previous_rois = delete_previous_rois
         self.associations = associations
         self.Contour_Names: list[str] = [c.lower() for c in Contour_Names] if Contour_Names else []
-
-        # Backward-compatibility aliases
-        self.RS_struct_uid = property(lambda self: self._rs_struct_uid)
-        self.dicom_handle_uid = property(lambda self: self._dicom_handle_uid)
 
         self._init_readers()
         self.set_contour_names_and_associations(
@@ -368,6 +405,53 @@ class DicomReaderWriter:
     def dicom_info_uid(self, value: str | None) -> None:
         self._dicom_info_uid = value
 
+    # -- Lazy pixel-data properties ------------------------------------------
+    #
+    # The bulk export/manifest paths never read these numpy copies (they work
+    # from the SimpleITK handles), so each is materialised on first access
+    # instead of eagerly per series.
+
+    @property
+    def ds(self):
+        """First-slice pydicom dataset for the current series (lazy read).
+
+        Only the RT-writing paths need it; loading it on demand saves a full
+        first-slice read (including pixel data) per ``get_images`` call.
+        """
+        if self._ds_cache is None and self._ds_file is not None:
+            self._ds_cache = dcmread(self._ds_file)
+        return self._ds_cache
+
+    @ds.setter
+    def ds(self, value) -> None:
+        self._ds_cache = value
+
+    @property
+    def ArrayDicom(self) -> np.ndarray | None:
+        """Image pixels as a numpy array (lazy copy of ``dicom_handle``)."""
+        if (
+            self._array_dicom is None
+            and self.dicom_handle is not None
+            and not self._geometry_only
+        ):
+            self._array_dicom = sitk.GetArrayFromImage(self.dicom_handle)
+        return self._array_dicom
+
+    @ArrayDicom.setter
+    def ArrayDicom(self, value: np.ndarray | None) -> None:
+        self._array_dicom = value
+
+    @property
+    def dose(self) -> np.ndarray | None:
+        """Dose grid as a numpy array (lazy copy of ``dose_handle``)."""
+        if self._dose_array is None and self.dose_handle is not None:
+            self._dose_array = sitk.GetArrayFromImage(self.dose_handle)
+        return self._dose_array
+
+    @dose.setter
+    def dose(self, value: np.ndarray | None) -> None:
+        self._dose_array = value
+
     # -- Index management ---------------------------------------------------
 
     def set_index(self, index: int) -> None:
@@ -403,6 +487,7 @@ class DicomReaderWriter:
         """
         self.reset_rts()
         self._rd_study_instance_uid = None
+        self._rd_loaded_key = None
         self._dicom_handle_uid = None
         self._dicom_info_uid = None
         self.series_instances_dictionary = {}
@@ -477,6 +562,11 @@ class DicomReaderWriter:
                 idx = list(self.series_instances_dictionary.keys())[existing_uids.index(ref_uid)]
                 self.series_instances_dictionary[idx].RTs[rt_uid] = rt
             else:
+                logger.warning(
+                    "RT structure %s references image series %s, which was not "
+                    "found in the walk; it will not appear in exports or manifests.",
+                    rt.path, ref_uid,
+                )
                 tmpl = ImageBase()
                 tmpl.RTs[rt_uid] = rt
                 self.series_instances_dictionary[next_idx] = tmpl
@@ -504,6 +594,11 @@ class DicomReaderWriter:
                         img.RPs[rp_uid] = rp
                         added = True
             if not added:
+                logger.warning(
+                    "RT plan %s could not be matched to any RT structure from "
+                    "the walk; it will not appear in exports or manifests.",
+                    rp.path,
+                )
                 tmpl = ImageBase()
                 tmpl.RPs[rp_uid] = rp
                 self.series_instances_dictionary[next_idx] = tmpl
@@ -543,6 +638,14 @@ class DicomReaderWriter:
                                 rd.Dose_Files, img.path,
                             )
             if not added:
+                logger.warning(
+                    "Dose file(s) %s could not be grouped with any image series "
+                    "(no struct/plan reference matched%s); they will not appear "
+                    "in exports.",
+                    rd.Dose_Files,
+                    "" if self.group_dose_by_frame_of_reference
+                    else ", frame-of-reference fallback disabled",
+                )
                 tmpl = ImageBase()
                 tmpl.RDs[rd_uid] = rd
                 self.series_instances_dictionary[next_idx] = tmpl
@@ -613,14 +716,9 @@ class DicomReaderWriter:
                     self.roi_class_list.append(roi)
 
                 if self.Contour_Names:
-                    if name in self.Contour_Names:
-                        true_rois.append(name)
-                    elif self.associations:
-                        for assoc in self.associations:
-                            if name in assoc.other_names:
-                                true_rois.append(assoc.roi_name)
-                            elif name in self.Contour_Names:
-                                true_rois.append(name)
+                    canonical = self._resolve_roi_name(name)
+                    if canonical:
+                        true_rois.append(canonical)
 
         # Determine what's missing
         lacking = [r for r in self.Contour_Names if r not in true_rois]
@@ -742,7 +840,9 @@ class DicomReaderWriter:
         """
         paths_with_dicom: list[str] = []
         for root, _dirs, files in os.walk(input_path):
-            if any(f.lower().endswith(".dcm") for f in files):
+            # Short-circuits on the first ``.dcm`` name; extension-less
+            # exports are found by sniffing for the DICM preamble.
+            if any(is_dicom_file(os.path.join(root, f)) for f in files):
                 paths_with_dicom.append(root)
 
         if not paths_with_dicom:
@@ -756,41 +856,19 @@ class DicomReaderWriter:
             self.dose_sitk_string_keys,
         )
 
-        pbar = tqdm(total=len(paths_with_dicom), desc="Loading DICOM files")
-
-        # Use thread_count=1 for deterministic/test runs.
         # Broad except is intentional here: this is a top-level "process
         # every folder, skip and log on any failure" loop. We do not want a
         # corrupt or surprising file to abort the whole walk.
-        if thread_count <= 1:
-            for path in paths_with_dicom:
-                try:
-                    loader.load(
-                        path, self.images_dictionary, self.rt_dictionary,
-                        self.rd_dictionary, self.rp_dictionary, self.verbose,
-                    )
-                except Exception:
-                    logger.warning("Failed on %s", path, exc_info=True)
-                pbar.update()
-        else:
-            with ThreadPoolExecutor(max_workers=thread_count) as pool:
-                futures = {
-                    pool.submit(
-                        loader.load, path, self.images_dictionary,
-                        self.rt_dictionary, self.rd_dictionary,
-                        self.rp_dictionary, self.verbose,
-                    ): path
-                    for path in paths_with_dicom
-                }
-                for future in as_completed(futures):
-                    path = futures[future]
-                    try:
-                        future.result()
-                    except Exception:
-                        logger.warning("Failed on %s", path, exc_info=True)
-                    pbar.update()
+        def _load_one(path: str) -> None:
+            try:
+                loader.load(
+                    path, self.images_dictionary, self.rt_dictionary,
+                    self.rd_dictionary, self.rp_dictionary, self.verbose,
+                )
+            except Exception:
+                logger.warning("Failed on %s", path, exc_info=True)
 
-        pbar.close()
+        _map_parallel(paths_with_dicom, _load_one, "Loading DICOM files", thread_count)
         self._compile()
 
         if self.verbose or len(self.series_instances_dictionary) > 1:
@@ -843,7 +921,12 @@ class DicomReaderWriter:
             self._dicom_info_uid = uid
 
     def get_images(self) -> None:
-        """Load pixel data for the current index into ``self.ArrayDicom``."""
+        """Load the image volume for the current index.
+
+        ``dicom_handle`` holds the SimpleITK image; the ``ArrayDicom`` numpy
+        copy (and the first-slice ``ds`` dataset) materialise lazily on first
+        access.
+        """
         if self.index not in self.series_instances_dictionary:
             logger.error("Index not in dictionary. Use set_index().")
             return
@@ -852,15 +935,17 @@ class DicomReaderWriter:
         if uid is None:
             logger.warning("Index %d has no associated image series", self.index)
             return
-        if self._dicom_handle_uid == uid:
+        if self._dicom_handle_uid == uid and not self._geometry_only:
             return  # Already loaded
 
         if self.verbose:
             logger.info("Loading images for '%s' at %s", entry.Description, entry.path)
 
-        self.ds = dcmread(entry.files[0])
+        self._ds_file = entry.files[0]
+        self._ds_cache = None
         self.reader.SetFileNames(entry.files)
         self.dicom_handle = self.reader.Execute()
+        self._geometry_only = False
 
         if self.verbose:
             logger.info("Resetting mask for new image set")
@@ -877,13 +962,13 @@ class DicomReaderWriter:
         # into a single averaged spacing and rounds away from the real slice.
         # See ``reshape_contour_data`` for the consumer of this array.
         try:
-            sorted_files = list(self.reader.GetFileNames())
+            # MetaDataDictionaryArrayUpdateOn is set on the series reader, so
+            # each slice's header is already in memory -- no extra file reads.
             slice_zs = []
-            for f in sorted_files:
-                sub = dcmread(f, stop_before_pixels=True)
-                ipp = getattr(sub, "ImagePositionPatient", None)
-                if ipp is None or len(ipp) < 3:
-                    raise ValueError(f"{f} has no ImagePositionPatient")
+            for i in range(len(self.reader.GetFileNames())):
+                ipp = self.reader.GetMetaData(i, "0020|0032").split("\\")
+                if len(ipp) < 3:
+                    raise ValueError(f"slice {i} has no ImagePositionPatient")
                 slice_zs.append(float(ipp[2]))
             self._dicom_slice_z_positions = np.asarray(slice_zs, dtype=np.float64)
         except Exception as exc:  # pragma: no cover - logged for diagnosis
@@ -910,52 +995,149 @@ class DicomReaderWriter:
             ):
                 self._dicom_slice_z_positions = self._dicom_slice_z_positions[::-1].copy()
 
-        self.ArrayDicom = sitk.GetArrayFromImage(self.dicom_handle)
+        self._array_dicom = None   # lazy; materialised on first ArrayDicom access
         self.image_size_cols, self.image_size_rows, self.image_size_z = (
             self.dicom_handle.GetSize()
         )
         self._dicom_handle_uid = uid
 
-    # -- Dose loading -------------------------------------------------------
+    def load_image_geometry_only(self) -> None:
+        """Load only the image grid geometry for the current index.
 
-    def get_dose(self, dose_type: str = "PLAN") -> None:
-        """Load radiation dose grids for the current index.
+        Sets ``dicom_handle`` to a 1-voxel reference image carrying the
+        series' origin / spacing / direction, plus ``image_size_cols/rows/z``
+        and the per-slice Z lookup -- everything contour rasterisation and
+        volume measurement need -- **without decoding any pixel data**. Used
+        by :meth:`create_manifest`, whose workers never read a pixel value;
+        on a large corpus the skipped decodes are the dominant cost.
 
-        Args:
-            dose_type: Filter by DoseSummationType (e.g. ``"PLAN"``, ``"BEAM"``).
+        ``ArrayDicom`` stays ``None`` in this mode; a later :meth:`get_images`
+        on the same index performs the full load.
         """
         if self.index not in self.series_instances_dictionary:
             logger.error("Index not in dictionary. Use set_index().")
             return
         entry = self.series_instances_dictionary[self.index]
-        if self._dicom_handle_uid != entry.SeriesInstanceUID:
+        uid = entry.SeriesInstanceUID
+        if uid is None:
+            logger.warning("Index %d has no associated image series", self.index)
+            return
+        if self._dicom_handle_uid == uid:
+            return  # Geometry (or full pixel data) already loaded
+
+        first = dcmread(entry.files[0], stop_before_pixels=True)
+        rows, cols = int(first.Rows), int(first.Columns)
+        iop = [float(v) for v in getattr(
+            first, "ImageOrientationPatient", (1, 0, 0, 0, 1, 0))]
+        row_dir = np.asarray(iop[:3])
+        col_dir = np.asarray(iop[3:])
+        ps = getattr(first, "PixelSpacing", (1.0, 1.0))
+        sy, sx = float(ps[0]), float(ps[1])   # PixelSpacing is (row, col)
+
+        # Per-slice positions in file order (GetGDCMSeriesFileNames already
+        # sorted the files along the normal, same order get_images uses).
+        positions: list[np.ndarray] = []
+        slice_zs: list[float] = []
+        for f in entry.files:
+            ds = first if f == entry.files[0] else dcmread(f, stop_before_pixels=True)
+            ipp = getattr(ds, "ImagePositionPatient", None)
+            if ipp is None or len(ipp) < 3:
+                positions = []
+                break
+            positions.append(np.asarray([float(v) for v in ipp]))
+            slice_zs.append(float(ipp[2]))
+
+        n_slices = len(entry.files)
+        if positions and n_slices > 1:
+            span = positions[-1] - positions[0]
+            length = float(np.linalg.norm(span))
+            sz = (length / (n_slices - 1)) or 1.0
+            slice_dir = span / (length or 1.0)
+            origin = tuple(positions[0])
+        else:
+            sz = float(entry.slice_thickness
+                       or getattr(first, "SliceThickness", None) or 1.0)
+            slice_dir = np.cross(row_dir, col_dir)
+            origin = tuple(
+                float(v) for v in getattr(first, "ImagePositionPatient", (0.0, 0.0, 0.0))
+            )
+
+        ref = sitk.Image(1, 1, 1, sitk.sitkUInt8)
+        ref.SetOrigin(origin)
+        ref.SetSpacing((sx, sy, sz))
+        # ITK direction columns are the physical directions of the image axes.
+        ref.SetDirection(tuple(np.stack([row_dir, col_dir, slice_dir], axis=1).ravel()))
+
+        self.dicom_handle = ref
+        self._geometry_only = True
+        self._array_dicom = None
+        self._ds_file = entry.files[0]
+        self._ds_cache = None
+        self._dicom_slice_z_positions = (
+            np.asarray(slice_zs, dtype=np.float64)
+            if len(slice_zs) == n_slices else None
+        )
+        self.image_size_cols, self.image_size_rows, self.image_size_z = cols, rows, n_slices
+        self._dicom_handle_uid = uid
+
+    # -- Dose loading -------------------------------------------------------
+
+    def get_dose(self, dose_type: str = "PLAN", resample_to: sitk.Image | None = None) -> None:
+        """Load radiation dose grids for the current index.
+
+        Args:
+            dose_type: Filter by DoseSummationType (e.g. ``"PLAN"``, ``"BEAM"``).
+            resample_to: Optional reference grid to resample the dose onto.
+                Defaults to the loaded image (``dicom_handle``). The export
+                path passes its (resampled) output grid so the dose gets a
+                single interpolation instead of two chained ones.
+        """
+        if self.index not in self.series_instances_dictionary:
+            logger.error("Index not in dictionary. Use set_index().")
+            return
+        entry = self.series_instances_dictionary[self.index]
+        if self._dicom_handle_uid != entry.SeriesInstanceUID or self._geometry_only:
             logger.info("Loading images first for index %d", self.index)
             self.get_images()
-        if (
-            self._rd_study_instance_uid is not None
-            and self._rd_study_instance_uid == entry.StudyInstanceUID
-        ):
-            return  # Already loaded
+        if resample_to is None and self._rd_loaded_key == (entry.SeriesInstanceUID, dose_type):
+            return  # Already loaded for this series' grid and summation type
 
+        # Custom-grid loads are not cached: a later default call must rebuild
+        # the dose against the image grid.
+        self._rd_loaded_key = (
+            (entry.SeriesInstanceUID, dose_type) if resample_to is None else None
+        )
         self._rd_study_instance_uid = entry.StudyInstanceUID
+        # Clear both outputs up front so a series without (matching) dose can
+        # never inherit the previous series' dose grid.
         self.dose = None
+        self.dose_handle = None
         resampler = ImageResampler()
         reader = sitk.ImageFileReader()
         output: sitk.Image | None = None
+        reference = resample_to if resample_to is not None else self.dicom_handle
         filter_rds = len(entry.RDs) > 1
+        skipped_types: list[str] = []
 
         for _rd_uid, rd in entry.RDs.items():
             if filter_rds and rd.DoseSummationType != dose_type:
+                skipped_types.append(rd.DoseSummationType)
                 if self.verbose:
                     logger.info("Skipping dose type %s (loading %s)", rd.DoseSummationType, dose_type)
                 continue
+            if not filter_rds and rd.DoseSummationType and rd.DoseSummationType != dose_type:
+                logger.warning(
+                    "Loading the only dose series (DoseSummationType %r) although "
+                    "dose_type=%r was requested.",
+                    rd.DoseSummationType, dose_type,
+                )
             for dose_file in rd.Dose_Files:
                 reader.SetFileName(dose_file)
                 reader.ReadImageInformation()
                 dose_handle = reader.Execute()
                 resampled = resampler.resample_image(
                     input_image_handle=dose_handle,
-                    ref_resampling_handle=self.dicom_handle,
+                    ref_resampling_handle=reference,
                     interpolator="Linear",
                     empty_value=0,
                 )
@@ -965,8 +1147,13 @@ class DicomReaderWriter:
                 output = resampled if output is None else output + resampled
 
         if output is not None:
-            self.dose = sitk.GetArrayFromImage(output)
-            self.dose_handle = output
+            self.dose_handle = output   # ``dose`` materialises lazily
+        elif skipped_types:
+            logger.warning(
+                "No dose loaded for index %d: dose_type=%r matched none of the "
+                "available DoseSummationTypes %s.",
+                self.index, dose_type, sorted(set(skipped_types)),
+            )
 
     # -- Mask loading -------------------------------------------------------
 
@@ -997,7 +1184,7 @@ class DicomReaderWriter:
             return
 
         entry = self.series_instances_dictionary[self.index]
-        if self._dicom_handle_uid != entry.SeriesInstanceUID:
+        if self._dicom_handle_uid != entry.SeriesInstanceUID or self._geometry_only:
             logger.info("Loading images for index %d (mask requested)", self.index)
             self.get_images()
 
@@ -1054,29 +1241,73 @@ class DicomReaderWriter:
         if self.flip_axes[2]:
             self.mask = self.mask[::-1, ...]
 
-        # Compute volumes
+        # Compute volumes. ``roi_volumes`` (name-keyed, on the reader) is the
+        # preferred access; the ``additional_tags["Volumes"]`` array is kept
+        # for backward compatibility.
         voxel_cc = np.prod(self.dicom_handle.GetSpacing()) / 1000.0
         volumes = np.sum(self.mask[..., 1:], axis=(0, 1, 2)) * voxel_cc
+        self.roi_volumes = {
+            name: float(volumes[i]) for i, name in enumerate(self.Contour_Names)
+        }
         entry.additional_tags["Volumes"] = volumes
 
         if self.arg_max:
-            self.mask = np.argmax(self.mask, axis=-1)
+            # Collapse the one-hot channels to an int8 label map without
+            # np.argmax's int64 intermediate (8x the channel data). Filling in
+            # reverse channel order makes the lowest channel win overlaps,
+            # matching argmax's first-max semantics on binary channels.
+            label = np.zeros(self.mask.shape[:-1], dtype=np.int8)
+            for ch in range(self.mask.shape[-1] - 1, 0, -1):
+                label[self.mask[..., ch] > 0] = ch
+            self.mask = label
 
-        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype(np.int8))
+        self.annotation_handle = sitk.GetImageFromArray(self.mask.astype(np.int8, copy=False))
         self.annotation_handle.SetSpacing(self.dicom_handle.GetSpacing())
         self.annotation_handle.SetOrigin(self.dicom_handle.GetOrigin())
         self.annotation_handle.SetDirection(self.dicom_handle.GetDirection())
 
-    def _resolve_roi_name(self, roi_name: str) -> str | None:
-        """Map an ROI name to its canonical contour name, or None."""
+    def _resolve_roi_name(self, roi_name: str, wanted: set[str] | None = None) -> str | None:
+        """Map a raw ROI name to the canonical *wanted* name, or ``None``.
+
+        *wanted* defaults to :attr:`Contour_Names`. A name matches when it is
+        itself wanted, or when an association maps it onto a wanted name.
+        """
         lower = roi_name.lower()
-        if lower in self.Contour_Names:
+        targets = set(self.Contour_Names) if wanted is None else wanted
+        if lower in targets:
             return lower
         if self.associations:
             for assoc in self.associations:
-                if lower in assoc.other_names:
+                if lower in assoc.other_names and assoc.roi_name in targets:
                     return assoc.roi_name
         return None
+
+    def _indexes_with_rois(self, wanted_rois: list[str]) -> list[int]:
+        """Indexes whose RT structures carry the *wanted_rois*.
+
+        Same membership rule as the walk-time contour scan
+        (:attr:`require_all_contours` demands every name, otherwise any one
+        suffices), but evaluated against an explicit ROI list so
+        ``write_to_folder(rois=...)`` filters correctly even when the request
+        differs from the walk-time :attr:`Contour_Names` (or none were set).
+        """
+        wanted = {r.lower() for r in wanted_rois}
+        out: list[int] = []
+        for index, entry in self.series_instances_dictionary.items():
+            if entry.path is None:
+                continue
+            present = {
+                canonical
+                for rt in entry.RTs.values()
+                for raw_name in rt.ROIs_In_Structure
+                if (canonical := self._resolve_roi_name(raw_name, wanted))
+            }
+            if not present:
+                continue
+            if self.require_all_contours and not wanted <= present:
+                continue
+            out.append(index)
+        return out
 
     # -- Contour geometry ---------------------------------------------------
 
@@ -1093,10 +1324,17 @@ class DicomReaderWriter:
         available -- which preserves the legacy behaviour on synthetic
         test images that bypass ``get_images()``.
         """
-        pts = np.asarray(contour_data).reshape(-1, 3)
-        indices = np.array(
-            [self.dicom_handle.TransformPhysicalPointToIndex(pts[i]) for i in range(len(pts))]
-        )
+        pts = np.asarray(contour_data, dtype=np.float64).reshape(-1, 3)
+        # Vectorised TransformPhysicalPointToIndex: index = M^-1 (p - origin)
+        # with M = direction @ diag(spacing), rounded half-up exactly like
+        # ITK. One matmul for all points replaces the per-point SWIG call --
+        # the GIL-bound hotspot that capped per-ROI threading at ~4 threads.
+        origin = np.asarray(self.dicom_handle.GetOrigin())
+        spacing = np.asarray(self.dicom_handle.GetSpacing())
+        direction = np.asarray(self.dicom_handle.GetDirection()).reshape(3, 3)
+        to_index = np.linalg.inv(direction * spacing[None, :])
+        continuous = (pts - origin) @ to_index.T
+        indices = np.floor(continuous + 0.5).astype(np.int64)
         if self._dicom_slice_z_positions is not None and len(self._dicom_slice_z_positions) > 0:
             # Replace SimpleITK's uniform-spacing Z with the actual
             # nearest-IPP slice index for every contour point. Identical
@@ -1104,10 +1342,16 @@ class DicomReaderWriter:
             # uniform positions and the nearest-IPP lookup against those
             # same N positions resolve to the same index); meaningfully
             # different only when the per-slice IPPs are non-uniform.
+            # Chunked so the |points| x |slices| distance matrix stays small;
+            # argmin keeps the original first-nearest tie-break.
             slice_zs = self._dicom_slice_z_positions
-            for i in range(len(pts)):
-                z_mm = pts[i][2]
-                indices[i, 2] = int(np.argmin(np.abs(slice_zs - z_mm)))
+            z_mm = pts[:, 2]
+            chunk = 16384
+            for start in range(0, len(z_mm), chunk):
+                block = slice(start, start + chunk)
+                indices[block, 2] = np.argmin(
+                    np.abs(slice_zs[None, :] - z_mm[block, None]), axis=1
+                )
         return indices
 
     def return_mask(
@@ -1168,7 +1412,7 @@ class DicomReaderWriter:
         """Convert a flat array of physical contour points to a 3-D mask."""
         if mask is None:
             mask = np.zeros(
-                (self.dicom_handle.GetSize()[-1], self.image_size_rows, self.image_size_cols),
+                (self.image_size_z, self.image_size_rows, self.image_size_cols),
                 dtype=np.int8,
             )
         matrix_points = self.reshape_contour_data(contour_points)
@@ -1176,8 +1420,9 @@ class DicomReaderWriter:
 
     def _contours_to_mask(self, index: int, true_name: str) -> np.ndarray:
         """Convert all contour slices for one ROI into a binary 3-D mask."""
-        size = self.dicom_handle.GetSize()
-        mask = np.zeros((size[-1], self.image_size_rows, self.image_size_cols), dtype=np.int8)
+        mask = np.zeros(
+            (self.image_size_z, self.image_size_rows, self.image_size_cols), dtype=np.int8,
+        )
 
         if Tag((0x3006, 0x0039)) not in self.RS_struct:
             logger.warning("Structure set has no contour data. Returning blank mask.")
@@ -1192,7 +1437,8 @@ class DicomReaderWriter:
             pts = self.reshape_contour_data(contour.ContourData[:])
             mask = self.return_mask(mask, pts, contour.ContourGeometricType)
 
-        return mask % 2
+        # Odd overlap count = inside (XOR ring rule); in place, no extra copy.
+        return np.bitwise_and(mask, 1, out=mask)
 
     # Backward compat
     contours_to_mask = _contours_to_mask
@@ -1317,13 +1563,7 @@ class DicomReaderWriter:
             df.to_csv(index_file, index=False)
 
         # Build work items
-        key_dict = {
-            "series_instances_dictionary": self.series_instances_dictionary,
-            "associations": self.associations, "arg_max": self.arg_max,
-            "require_all_contours": self.require_all_contours,
-            "Contour_Names": self.Contour_Names, "description": self.description,
-            "get_dose_output": self.get_dose_output,
-        }
+        key_dict = self._child_reader_kwargs()
         items = []
         for index in self.indexes_with_contours:
             uid = self.series_instances_dictionary[index].SeriesInstanceUID
@@ -1350,8 +1590,6 @@ class DicomReaderWriter:
         if not items:
             return
 
-        pbar = tqdm(total=len(items), desc="Writing NIfTI files...")
-
         def _worker(item):
             iteration, idx, wp, kd = item
             base = DicomReaderWriter(**kd)
@@ -1360,35 +1598,57 @@ class DicomReaderWriter:
                 base.get_images_and_mask()
                 base.set_iteration(iteration)
                 base.write_images_annotations(wp)
+                return iteration, base.roi_volumes
             except Exception:
                 entry = base.series_instances_dictionary[idx]
                 logger.warning("Failed on %s", entry.path, exc_info=True)
                 with open(os.path.join(entry.path, "failed.txt"), "w"):
                     pass
+                return None
 
-        if thread_count <= 1:
-            for item in items:
-                _worker(item)
-                pbar.update()
-        else:
-            with ThreadPoolExecutor(max_workers=thread_count) as pool:
-                futures = {pool.submit(_worker, item): item for item in items}
-                for future in as_completed(futures):
-                    future.result()
-                    pbar.update()
-        pbar.close()
+        results = _map_parallel(items, _worker, "Writing NIfTI files...", thread_count)
 
-        # Update volume data.
-        for item in items:
-            idx = item[1]
-            iteration = item[0]
-            tags = self.series_instances_dictionary[idx].additional_tags
-            if "Volumes" not in tags:
-                continue
-            for ri, roi in enumerate(self.Contour_Names):
-                col = f"Volume_{roi} [cc]"
-                df.loc[df.Iteration == iteration, col] = tags["Volumes"][ri]
+        # Update volume data from the workers' returned volumes.
+        for iteration, volumes in results:
+            for roi in self.Contour_Names:
+                if roi in volumes:
+                    df.loc[df.Iteration == iteration, f"Volume_{roi} [cc]"] = volumes[roi]
         df.to_csv(index_file, index=False)
+
+    def _child_reader_kwargs(
+        self,
+        contour_names: list[str] | None = None,
+        mask_thread_count: int = 1,
+        verbose: bool = False,
+    ) -> dict:
+        """Constructor kwargs for the per-series child readers spawned by the
+        bulk writers (:meth:`write_parallel`, :meth:`write_to_folder`,
+        :meth:`create_manifest`).
+
+        Children deliberately **share** the parent's mutable
+        ``series_instances_dictionary`` and configuration; each worker still
+        needs its own reader because per-series state (``dicom_handle``,
+        ``mask``, the RS-struct cache, the SITK reader objects) cannot be
+        shared across threads.
+
+        Args:
+            contour_names: Contour names for the child. ``None`` inherits the
+                parent's; pass ``[]`` for a child that must never allocate
+                the multi-channel mask (the manifest workers).
+            mask_thread_count: Per-ROI rasterisation threads for the child.
+            verbose: Child logging (off by default -- workers are noisy).
+        """
+        return {
+            "series_instances_dictionary": self.series_instances_dictionary,
+            "associations": self.associations,
+            "arg_max": self.arg_max,
+            "require_all_contours": self.require_all_contours,
+            "Contour_Names": self.Contour_Names if contour_names is None else contour_names,
+            "description": self.description,
+            "get_dose_output": self.get_dose_output,
+            "mask_thread_count": mask_thread_count,
+            "verbose": verbose,
+        }
 
     # -- Folder export (C#-compatible nested layout) -----------------------
 
@@ -1404,6 +1664,7 @@ class DicomReaderWriter:
         key_file_name: str = "anonymization_key.json",
         dose_type: str = "PLAN",
         metadata_file_name: str = "metadata.json",
+        metadata_style: str = "grouped",
     ) -> None:
         """Export series to a nested ``<patient>/<study>/<series>/`` folder tree.
 
@@ -1413,9 +1674,34 @@ class DicomReaderWriter:
         * ``masks/<roi>.nii.gz`` — one binary mask per requested ROI;
         * ``doses/<desc>.nii.gz`` — the summed dose grid, only when the series
           carries dose *and* this reader was built with ``get_dose_output=True``;
-        * ``metadata.json`` — a ``{name: value}`` dict of any extra DICOM tags
-          requested via the ``*_string_keys`` constructor arguments (written
-          only when some were found).
+        * ``metadata.json`` — see ``metadata_style`` below.
+
+        Two metadata styles are supported:
+
+        * ``"grouped"`` (default) — a versioned document written for **every**
+          exported series, grouping the DICOM features the walk already parsed
+          by category::
+
+              {"schema_version": 2, "anonymized": ..., "case": {...},
+               "image":      {modality, series_description, spacing, ...,
+                              "tags": {<image_sitk_string_keys>}},
+               "structures": [{sop uid, "rois": [{name, number, type, code,
+                              volume_cc/exported_file when exported}],
+                              "tags": {...}}, ...],
+               "doses":      [{dose_units/dose_type/dose_summation_type,
+                              referenced UIDs, included_in_sum,
+                              "tags": {...}}, ...],
+               "dose_file":  "doses/<desc>.nii.gz",
+               "plans":      [{plan_label, plan_name, "tags": {...}}, ...]}
+
+          Categories with no corresponding DICOM files are **omitted**, so an
+          image-only folder simply has no ``structures``/``doses``/``plans``
+          keys and consumers can rely on ``meta.get("doses", [])``. Requested
+          ``*_string_keys`` values are written verbatim — do not request
+          PHI-bearing tags in an anonymized export.
+        * ``"flat"`` — the historical format: a ``{name: value}`` dict of any
+          extra DICOM tags requested via the ``*_string_keys`` constructor
+          arguments, written only when some were found.
 
         When ROIs are selected (via :attr:`Contour_Names` or ``rois=``) only the
         series carrying those contours are exported, with their masks. When no
@@ -1424,10 +1710,15 @@ class DicomReaderWriter:
 
         The ``<patient>/<study>/<series>`` folders are named by hash when
         ``anonymize`` and by the (sanitised) original identifiers otherwise. A
-        single ``manifest.csv`` is written at *out_path*; with ``anonymize`` an
-        ``anonymization_key.json`` reverse-lookup file is written there too.
-        ``output_spacing`` resamples on the way out (linear for image/dose,
-        nearest-neighbour for masks).
+        single ``manifest.csv`` at *out_path* is created or **incrementally
+        updated** (rows for re-exported series are replaced, other series
+        kept, new series appended); with ``anonymize`` an
+        ``anonymization_key.json`` reverse-lookup file is created or merged
+        there too, and an existing key's salt is reused so hashes stay stable
+        across runs. ``output_spacing`` resamples on the way out (linear for
+        image/dose, nearest-neighbour for masks); the manifest's
+        ``spacing_x/y/z`` record the exported (post-resample) spacing, unlike
+        :meth:`create_manifest`, which records native spacing.
 
         Args:
             out_path: Output directory.
@@ -1440,17 +1731,36 @@ class DicomReaderWriter:
             manifest_name: Filename of the manifest CSV.
             key_file_name: Filename of the anonymization key JSON.
             dose_type: ``DoseSummationType`` filter used when loading dose.
-            metadata_file_name: Filename of the per-series extra-tags JSON.
+            metadata_file_name: Filename of the per-series metadata JSON.
+            metadata_style: ``"grouped"`` (default; schema v2, always
+                written, per-category) or ``"flat"`` (historical
+                ``{name: value}`` dict of requested tags only).
         """
+        if metadata_style not in ("flat", "grouped"):
+            raise ValueError(
+                f"metadata_style must be 'flat' or 'grouped', got {metadata_style!r}"
+            )
         anonymize = self.anonymize if anonymize is None else anonymize
         salt = self.salt if salt is None else salt
         os.makedirs(out_path, exist_ok=True)
+        # Reuse an existing anonymization key (and its salt) sitting in the
+        # output folder, mirroring create_manifest, so hash-named folders and
+        # manifest rows stay stable across incremental exports.
+        key_path = os.path.join(out_path, key_file_name)
+        if os.path.exists(key_path):
+            key = AnonymizationKey.load(key_path)
+            salt = key.salt
+        else:
+            key = AnonymizationKey(salt=salt)
         wanted_rois = [r.lower() for r in (rois if rois is not None else self.Contour_Names)]
 
         # With ROIs selected, export the series that carry them (with masks).
         # Without ROIs, export every image series as image (+ dose) only.
         if wanted_rois:
-            items = list(self.indexes_with_contours)
+            # Membership is evaluated against the requested ROIs directly --
+            # ``indexes_with_contours`` reflects the walk-time Contour_Names,
+            # which ``rois=`` may override (or which may never have been set).
+            items = self._indexes_with_rois(wanted_rois)
         else:
             items = [
                 idx for idx, entry in self.series_instances_dictionary.items()
@@ -1466,73 +1776,71 @@ class DicomReaderWriter:
             logger.warning("Nothing to export (no matching series found).")
             return
 
-        key_dict = {
-            "series_instances_dictionary": self.series_instances_dictionary,
-            "associations": self.associations, "arg_max": self.arg_max,
-            "require_all_contours": self.require_all_contours,
-            # Rasterise exactly the ROIs being exported (empty -> image/dose only).
-            "Contour_Names": wanted_rois, "description": self.description,
-            "get_dose_output": self.get_dose_output,
-            # Spare cores go to per-ROI rasterisation when few series are written.
-            "mask_thread_count": _mask_threads_for(thread_count, len(items)),
-        }
-
-        pbar = tqdm(total=len(items), desc="Writing to folder...")
+        # Rasterise exactly the ROIs being exported (empty -> image/dose only);
+        # spare cores go to per-ROI rasterisation when few series are written.
+        key_dict = self._child_reader_kwargs(
+            contour_names=wanted_rois,
+            mask_thread_count=_mask_threads_for(thread_count, len(items)),
+        )
 
         def _worker(index: int) -> dict | None:
             base = DicomReaderWriter(**key_dict)
-            base.verbose = False
             try:
                 base.set_index(index)
+                base.get_images()
                 if wanted_rois:
-                    base.get_images_and_mask()
-                else:
-                    # Image (+ dose) only -- skip get_mask (and its no-ROI warning).
-                    base.get_images()
-                    if base.get_dose_output:
-                        base.get_dose()
+                    base.get_mask()
+                # The (optionally resampled) image defines the grid image,
+                # masks, and dose share. Computing it here lets get_dose
+                # resample each dose file straight onto the export grid --
+                # one interpolation instead of two chained ones.
+                export_grid = base.dicom_handle
+                if output_spacing is not None:
+                    export_grid = resample_to_spacing(base.dicom_handle, output_spacing, "Linear")
+                if base.get_dose_output:
+                    # Forward the caller's summation-type filter (get_dose
+                    # would otherwise silently default to "PLAN").
+                    base.get_dose(dose_type, resample_to=export_grid)
                 return self._export_one_series(
                     base, index, out_path, wanted_rois,
-                    output_spacing, anonymize, salt, dose_type, metadata_file_name,
+                    output_spacing, anonymize, salt, dose_type,
+                    metadata_file_name, metadata_style, image_grid=export_grid,
                 )
             except Exception:
                 entry = base.series_instances_dictionary.get(index)
                 logger.warning("Failed on %s", getattr(entry, "path", index), exc_info=True)
                 return None
 
-        rows: list[dict] = []
-        if thread_count <= 1:
-            for index in items:
-                result = _worker(index)
-                if result is not None:
-                    rows.append(result)
-                pbar.update()
-        else:
-            with ThreadPoolExecutor(max_workers=thread_count) as pool:
-                futures = {pool.submit(_worker, index): index for index in items}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result is not None:
-                        rows.append(result)
-                    pbar.update()
-        pbar.close()
+        rows = _map_parallel(items, _worker, "Writing to folder...", thread_count)
 
         if not rows:
             logger.warning("No series exported; manifest not written.")
             return
 
-        self._write_manifest(rows, wanted_rois, out_path, manifest_name, anonymize)
+        self._write_manifest(rows, wanted_rois, out_path, manifest_name, anonymize, salt)
 
         if anonymize:
-            key = AnonymizationKey(salt=salt)
             for row in rows:
-                key.patients.setdefault(row["patient_hash"], row["_mrn"])
-                key.studies.setdefault(row["study_hash"], row["_study_uid"])
-                key.series.setdefault(row["series_hash"], row["_series_uid"])
-            key.save(os.path.join(out_path, key_file_name))
+                key.register(row["_mrn"], row["_study_uid"], row["_series_uid"])
+            key.save(key_path)
 
     # Backward-compatible alias for the former method name.
     write_per_roi = write_to_folder
+
+    @staticmethod
+    def _requested_tags(source_tags: dict, requested) -> dict:
+        """The user-requested keys present in *source_tags*, JSON-coerced.
+
+        Only requested names are pulled, so internal keys such as
+        ``"Volumes"`` never leak into the output.
+        """
+        if not requested:
+            return {}
+        return {
+            name: _jsonable_tag(source_tags[name])
+            for name in requested
+            if name in source_tags
+        }
 
     def _extra_tags_for_series(self, entry: ImageBase) -> dict:
         """Collect the user-requested extra DICOM tags for one series.
@@ -1540,27 +1848,152 @@ class DicomReaderWriter:
         Returns a flat ``{name: value}`` dict from the image, RT-struct, dose,
         and plan records, keyed by the names the caller passed in
         ``image_sitk_string_keys`` / ``struct_pydicom_string_keys`` /
-        ``dose_sitk_string_keys`` / ``plan_pydicom_string_keys``. Internal keys
-        such as ``"Volumes"`` are excluded because only the requested names are
-        pulled.
+        ``dose_sitk_string_keys`` / ``plan_pydicom_string_keys``.
         """
         tags: dict = {}
-
-        def _pull(source_tags: dict, requested) -> None:
-            if not requested:
-                return
-            for name in requested:
-                if name in source_tags:
-                    tags[name] = _jsonable_tag(source_tags[name])
-
-        _pull(entry.additional_tags, self.image_sitk_string_keys)
+        tags.update(self._requested_tags(entry.additional_tags, self.image_sitk_string_keys))
         for rt in entry.RTs.values():
-            _pull(rt.additional_tags, self.struct_pydicom_string_keys)
+            tags.update(self._requested_tags(rt.additional_tags, self.struct_pydicom_string_keys))
         for rd in entry.RDs.values():
-            _pull(rd.additional_tags, self.dose_sitk_string_keys)
+            tags.update(self._requested_tags(rd.additional_tags, self.dose_sitk_string_keys))
         for rp in entry.RPs.values():
-            _pull(rp.additional_tags, self.plan_pydicom_string_keys)
+            tags.update(self._requested_tags(rp.additional_tags, self.plan_pydicom_string_keys))
         return tags
+
+    def _grouped_metadata_for_series(
+        self,
+        entry: ImageBase,
+        *,
+        case_levels: tuple[str, str, str],
+        anonymize: bool,
+        effective_spacing: tuple[float, float, float],
+        resampled: bool,
+        wanted_rois: list[str],
+        roi_volumes: dict[str, float],
+        dose_file: str | None,
+        dose_type: str,
+    ) -> dict:
+        """Build the grouped (schema v2) ``metadata.json`` payload for one series.
+
+        Categories with no corresponding DICOM files are omitted entirely, so
+        an image-only folder yields just the ``image`` block and consumers can
+        rely on ``meta.get("structures"/"doses"/"plans", [])``. Values from
+        the ``*_string_keys`` requests land in each category's ``tags``
+        sub-dict, so identical user-chosen names across categories (or across
+        multiple RT/dose files) no longer overwrite each other.
+        """
+        meta: dict = {
+            "schema_version": 2,
+            "anonymized": bool(anonymize),
+            "case": {
+                "patient": case_levels[0],
+                "study": case_levels[1],
+                "series": case_levels[2],
+            },
+        }
+
+        image: dict = {}
+        if entry.Modality:
+            image["modality"] = entry.Modality
+        if entry.Description:
+            image["series_description"] = entry.Description
+        if entry.FrameOfReference:
+            image["frame_of_reference_uid"] = entry.FrameOfReference
+        if entry.slice_thickness is not None:
+            image["slice_thickness_mm"] = entry.slice_thickness
+        if entry.pixel_spacing_x is not None:
+            image["pixel_spacing_mm"] = [entry.pixel_spacing_x, entry.pixel_spacing_y]
+        image["export"] = {
+            "effective_spacing_mm": [float(s) for s in effective_spacing],
+            "resampled": resampled,
+        }
+        tags = self._requested_tags(entry.additional_tags, self.image_sitk_string_keys)
+        if tags:
+            image["tags"] = tags
+        meta["image"] = image
+
+        wanted = {r.lower() for r in wanted_rois}
+        structures = []
+        for rt in entry.RTs.values():
+            record: dict = {}
+            if rt.SOPInstanceUID:
+                record["sop_instance_uid"] = rt.SOPInstanceUID
+            rois = []
+            for roi in rt.ROIs_In_Structure.values():
+                roi_rec: dict = {"name": roi.ROIName, "number": int(roi.ROINumber)}
+                if roi.ROIType:
+                    roi_rec["type"] = roi.ROIType
+                if roi.StructureCode:
+                    roi_rec["code"] = roi.StructureCode
+                # Export details only for ROIs that produced a mask file.
+                canonical = self._resolve_roi_name(roi.ROIName, wanted)
+                if canonical in roi_volumes:
+                    if canonical != roi.ROIName:
+                        roi_rec["canonical_name"] = canonical
+                    roi_rec["volume_cc"] = roi_volumes[canonical]
+                    roi_rec["exported_file"] = f"masks/{_sanitize_filename(canonical)}.nii.gz"
+                rois.append(roi_rec)
+            record["rois"] = rois
+            tags = self._requested_tags(rt.additional_tags, self.struct_pydicom_string_keys)
+            if tags:
+                record["tags"] = tags
+            structures.append(record)
+        if structures:
+            meta["structures"] = structures
+
+        doses = []
+        filter_rds = len(entry.RDs) > 1
+        for rd in entry.RDs.values():
+            rec: dict = {}
+            if rd.SeriesInstanceUID:
+                rec["series_instance_uid"] = rd.SeriesInstanceUID
+            if rd.SOPInstanceUID:
+                rec["sop_instance_uid"] = rd.SOPInstanceUID
+            if rd.DoseUnits:
+                rec["dose_units"] = rd.DoseUnits
+            if rd.DoseType:
+                rec["dose_type"] = rd.DoseType
+            if rd.DoseSummationType:
+                rec["dose_summation_type"] = rd.DoseSummationType
+            if rd.Description:
+                rec["description"] = rd.Description
+            if rd.ReferencedPlanSOPInstanceUID:
+                rec["referenced_plan_sop_instance_uid"] = rd.ReferencedPlanSOPInstanceUID
+            if rd.ReferencedStructureSetSOPInstanceUID:
+                rec["referenced_structure_set_sop_instance_uid"] = (
+                    rd.ReferencedStructureSetSOPInstanceUID
+                )
+            # ``dose_file`` is the sum of the matching dose series; record
+            # which series contributed (mirrors get_dose's filter).
+            rec["included_in_sum"] = dose_file is not None and (
+                not filter_rds or rd.DoseSummationType == dose_type
+            )
+            tags = self._requested_tags(rd.additional_tags, self.dose_sitk_string_keys)
+            if tags:
+                rec["tags"] = tags
+            doses.append(rec)
+        if doses:
+            meta["doses"] = doses
+        if dose_file is not None:
+            meta["dose_file"] = dose_file
+
+        plans = []
+        for rp in entry.RPs.values():
+            rec = {}
+            if rp.SOPInstanceUID:
+                rec["sop_instance_uid"] = rp.SOPInstanceUID
+            if rp.PlanLabel:
+                rec["plan_label"] = rp.PlanLabel
+            if rp.PlanName:
+                rec["plan_name"] = rp.PlanName
+            tags = self._requested_tags(rp.additional_tags, self.plan_pydicom_string_keys)
+            if tags:
+                rec["tags"] = tags
+            plans.append(rec)
+        if plans:
+            meta["plans"] = plans
+
+        return meta
 
     def _export_one_series(
         self,
@@ -1573,8 +2006,15 @@ class DicomReaderWriter:
         salt: str,
         dose_type: str,
         metadata_file_name: str = "metadata.json",
+        metadata_style: str = "grouped",
+        image_grid: sitk.Image | None = None,
     ) -> dict:
-        """Write one series' image/masks/dose tree and return its manifest data."""
+        """Write one series' image/masks/dose tree and return its manifest data.
+
+        ``image_grid`` is the (optionally resampled) export image, computed
+        once in the worker so image, masks, and dose share one grid without
+        re-resampling here.
+        """
         entry = base.series_instances_dictionary[index]
         mrn = entry.PatientID or ""
         study_uid = entry.StudyInstanceUID or ""
@@ -1611,8 +2051,8 @@ class DicomReaderWriter:
                     present_rois.add(canonical)
 
         # --- image (linear) ---
-        image_handle = base.dicom_handle
-        if output_spacing is not None:
+        image_handle = image_grid if image_grid is not None else base.dicom_handle
+        if image_grid is None and output_spacing is not None:
             image_handle = resample_to_spacing(image_handle, output_spacing, "Linear")
         # The resampled image defines the grid the dose is resampled onto, so
         # image, masks, and dose all share one size & geometry.
@@ -1639,27 +2079,55 @@ class DicomReaderWriter:
             roi_volumes[roi] = round(n_vox * voxel_cc, 3)
 
         # --- dose (linear), only when present ---
+        dose_file: str | None = None
         if base.dose_handle is not None:
             doses_dir = os.path.join(case_dir, "doses")
             os.makedirs(doses_dir, exist_ok=True)
             dose_img = base.dose_handle
-            if output_spacing is not None:
-                # Resample onto the resampled *image* grid (not the dose's own
-                # grid) so dose, image, and masks share size & geometry.
+            # get_dose already resampled the sum onto the export grid when the
+            # worker passed it in; only realign if the grids genuinely differ
+            # (e.g. a caller using this method without the shared grid).
+            if (
+                dose_img.GetSize() != resampled_image_grid.GetSize()
+                or dose_img.GetSpacing() != resampled_image_grid.GetSpacing()
+                or dose_img.GetOrigin() != resampled_image_grid.GetOrigin()
+            ):
                 dose_img = resample_to_reference(dose_img, resampled_image_grid, "Linear")
+            # Name the file after a dose series that actually contributed to
+            # the sum (same summation-type filter as get_dose).
+            filter_rds = len(entry.RDs) > 1
             desc = None
             for rd in entry.RDs.values():
+                if filter_rds and rd.DoseSummationType != dose_type:
+                    continue
                 if rd.Description:
                     desc = rd.Description
                     break
             desc = _sanitize_filename(desc or dose_type or "dose") or "dose"
+            dose_file = f"doses/{desc}.nii.gz"
             sitk.WriteImage(dose_img, os.path.join(doses_dir, f"{desc}.nii.gz"))
 
-        # --- extra DICOM tags (only when any were requested + found) ---
-        extra_tags = self._extra_tags_for_series(entry)
-        if extra_tags:
+        # --- metadata.json ---
+        if metadata_style == "grouped":
+            meta = self._grouped_metadata_for_series(
+                entry,
+                case_levels=(patient_level, study_level, series_level),
+                anonymize=anonymize,
+                effective_spacing=out_spacing,
+                resampled=output_spacing is not None,
+                wanted_rois=wanted_rois,
+                roi_volumes=roi_volumes,
+                dose_file=dose_file,
+                dose_type=dose_type,
+            )
             with open(os.path.join(case_dir, metadata_file_name), "w", encoding="utf-8") as handle:
-                json.dump(extra_tags, handle, indent=2)
+                json.dump(meta, handle, indent=2)
+        else:
+            # Flat style: only when extra tags were requested + found.
+            extra_tags = self._extra_tags_for_series(entry)
+            if extra_tags:
+                with open(os.path.join(case_dir, metadata_file_name), "w", encoding="utf-8") as handle:
+                    json.dump(extra_tags, handle, indent=2)
 
         return {
             "case_id": case_id,
@@ -1710,8 +2178,46 @@ class DicomReaderWriter:
             record[f"{roi} cc"] = row["volumes"].get(roi, None)
         return record
 
+    # Identifier columns are pinned to ``str`` on reload: an all-digit MRN
+    # column (anonymize=False) would otherwise parse as int64 and silently
+    # lose leading zeros when the manifest is rewritten.
+    _MANIFEST_ID_DTYPES = {"patient_hash": str, "study_hash": str, "series_hash": str}
+
+    # Bookkeeping columns owned by one manifest writer but not the other
+    # (``case_id`` comes from write_to_folder only). On upsert, these are
+    # carried from the replaced row onto its replacement instead of blanked.
+    _STICKY_MANIFEST_COLUMNS = ("case_id",)
+
+    @classmethod
+    def _read_existing_manifest(cls, path: PathLike):
+        """Load an existing manifest CSV for incremental update, or ``None``.
+
+        Drops any raw-id columns written by older versions -- they are folded
+        into the hash columns now.
+        """
+        if not os.path.exists(path):
+            return None
+        df = pd.read_csv(path, dtype=cls._MANIFEST_ID_DTYPES)
+        legacy = [c for c in ("PatientID", "StudyInstanceUID", "SeriesInstanceUID")
+                  if c in df.columns]
+        return df.drop(columns=legacy) if legacy else df
+
     @staticmethod
-    def _upsert_manifest(existing_df, new_df, new_keys, canon):
+    def _order_manifest_columns(df):
+        """Stable column order: identifiers, spacing, features, ROI volumes.
+
+        Absent ROI volume cells (new columns on old rows, or vice versa) stay
+        NaN so they render as empty cells in the CSV. Non-ROI feature columns
+        are sorted so the order does not depend on which run introduced them.
+        """
+        roi_cols = sorted(c for c in df.columns if str(c).endswith(" cc"))
+        lead = [c for c in ("case_id", "patient_hash", "study_hash", "series_hash",
+                            "spacing_x", "spacing_y", "spacing_z") if c in df.columns]
+        rest = sorted(c for c in df.columns if c not in lead and c not in roi_cols)
+        return df[lead + rest + roi_cols]
+
+    @classmethod
+    def _upsert_manifest(cls, existing_df, new_df, new_keys, canon):
         """Merge *new_df* into *existing_df*, replacing rows for matched series.
 
         Matching is on the **canonical series hash** so it is independent of
@@ -1721,7 +2227,9 @@ class DicomReaderWriter:
         hashes for the new rows; *canon* maps an existing ``series_hash`` cell
         to its canonical hash. Existing rows whose series is in *new_keys* are
         replaced by the fresh row; untouched series are kept; new series are
-        appended.
+        appended. Sticky bookkeeping columns the new rows do not produce
+        (see :attr:`_STICKY_MANIFEST_COLUMNS`) are carried over from the
+        replaced rows.
         """
         if existing_df is None or existing_df.empty:
             return new_df
@@ -1730,6 +2238,14 @@ class DicomReaderWriter:
         if "series_hash" not in existing_df.columns:
             return pd.concat([existing_df, new_df], ignore_index=True)
         existing_keys = existing_df["series_hash"].astype(str).map(canon)
+        carry = [c for c in cls._STICKY_MANIFEST_COLUMNS
+                 if c in existing_df.columns and c not in new_df.columns]
+        if carry:
+            new_df = new_df.copy()
+            replacement_keys = new_df["series_hash"].astype(str).map(canon)
+            for col in carry:
+                mapping = dict(zip(existing_keys, existing_df[col]))
+                new_df[col] = replacement_keys.map(mapping)
         kept = existing_df[~existing_keys.isin(set(new_keys))]
         return pd.concat([kept, new_df], ignore_index=True)
 
@@ -1740,11 +2256,28 @@ class DicomReaderWriter:
         out_path: PathLike,
         manifest_name: str,
         anonymize: bool,
+        salt: str,
     ) -> None:
-        """Write the single per-series manifest CSV (one row per series)."""
+        """Write, or incrementally update, the per-series manifest CSV.
+
+        Mirrors :meth:`create_manifest`'s upsert semantics: rows for
+        re-exported series are replaced in place, untouched series are kept,
+        and new series are appended -- so exporting a second batch into the
+        same folder no longer drops the first batch's manifest rows.
+        """
+        manifest_path = os.path.join(out_path, manifest_name)
         records = [self._manifest_record(row, wanted_rois, anonymize) for row in rows]
-        df = pd.DataFrame(records)
-        df.to_csv(os.path.join(out_path, manifest_name), index=False)
+        new_df = pd.DataFrame(records)
+        existing_df = self._read_existing_manifest(manifest_path)
+        new_keys = {row["series_hash"] for row in rows}
+
+        def _canon(value: str) -> str:
+            value = str(value)
+            return value if _SERIES_HASH_RE.match(value) else hash_series(value, salt)
+
+        combined = self._upsert_manifest(existing_df, new_df, new_keys, _canon)
+        combined = self._order_manifest_columns(combined)
+        combined.to_csv(manifest_path, index=False)
 
     def _collect_series_row(
         self,
@@ -1771,24 +2304,13 @@ class DicomReaderWriter:
         voxel_cc = float(np.prod(spacing)) / 1000.0
 
         wanted = {r.lower() for r in wanted_rois}
-        associations = base.associations
-
-        def _to_wanted(raw_name: str) -> str | None:
-            name = raw_name.lower()
-            if name in wanted:
-                return name
-            if associations:
-                for assoc in associations:
-                    if name in assoc.other_names and assoc.roi_name in wanted:
-                        return assoc.roi_name
-            return None
 
         volumes: dict[str, float] = {}
         for rt in entry.RTs.values():
             base._characterize_rt(rt)   # warm cache before any parallel reads
             by_canonical: dict[str, list[str]] = {}
             for raw_name in rt.ROIs_In_Structure:
-                canonical = _to_wanted(raw_name)
+                canonical = base._resolve_roi_name(raw_name, wanted)
                 if canonical and canonical not in volumes:
                     by_canonical.setdefault(canonical, []).append(raw_name)
             if not by_canonical:
@@ -1877,7 +2399,15 @@ class DicomReaderWriter:
         else:
             wanted_rois = [r.lower() for r in self.all_rois]
         if not wanted_rois:
-            logger.warning("No ROIs found to record. Walk a folder containing RT structures first.")
+            if self.rt_dictionary:
+                logger.warning(
+                    "No ROIs to record: RT structures were found, but none "
+                    "reference an image series discovered by the walk."
+                )
+            else:
+                logger.warning(
+                    "No ROIs found to record. Walk a folder containing RT structures first."
+                )
             return
 
         # Every series that carries at least one RT structure (independent of
@@ -1903,63 +2433,33 @@ class DicomReaderWriter:
         else:
             key = AnonymizationKey(salt=salt)
 
-        # Load an existing manifest to update in place. Drop any raw-id columns
-        # written by older versions -- they are folded into the hash columns now.
-        existing_df = None
-        if os.path.exists(output_path):
-            existing_df = pd.read_csv(output_path)
-            legacy = [c for c in ("PatientID", "StudyInstanceUID", "SeriesInstanceUID")
-                      if c in existing_df.columns]
-            if legacy:
-                existing_df = existing_df.drop(columns=legacy)
+        # Load an existing manifest to update in place.
+        existing_df = self._read_existing_manifest(output_path)
 
         # Process every candidate series (no skipping): present series are
-        # updated, new ones appended. The worker carries NO Contour_Names, so it
-        # never allocates the full multi-channel mask -- _collect_series_row
-        # rasterises one ROI at a time. verbose=False keeps the per-worker
-        # "contour names changed" logging quiet.
-        key_dict = {
-            "series_instances_dictionary": self.series_instances_dictionary,
-            "associations": self.associations, "arg_max": self.arg_max,
-            "require_all_contours": self.require_all_contours,
-            "description": self.description,
-            "get_dose_output": self.get_dose_output,
-            "mask_thread_count": _mask_threads_for(thread_count, len(candidates)),
-            "verbose": False,
-        }
-
-        pbar = tqdm(total=len(candidates), desc="Building manifest...")
+        # updated, new ones appended. The worker carries NO Contour_Names
+        # (``contour_names=[]``), so it never allocates the full multi-channel
+        # mask -- _collect_series_row rasterises one ROI at a time.
+        key_dict = self._child_reader_kwargs(
+            contour_names=[],
+            mask_thread_count=_mask_threads_for(thread_count, len(candidates)),
+        )
 
         def _worker(index: int) -> dict | None:
             base = DicomReaderWriter(**key_dict)
             try:
                 base.set_index(index)
-                base.get_images()   # image only; ROIs are rasterised one at a time
-                # Volumes only need the image *geometry*; drop the pixel-array
-                # copy (a full float32 volume) to keep per-worker memory down.
-                base.ArrayDicom = None
+                # Volumes only need the image *geometry* -- skip the pixel
+                # decode entirely (the dominant cost of a manifest-only run);
+                # ROIs are rasterised one at a time.
+                base.load_image_geometry_only()
                 return self._collect_series_row(base, index, wanted_rois, salt)
             except Exception:
                 entry = base.series_instances_dictionary.get(index)
                 logger.warning("Failed on %s", getattr(entry, "path", index), exc_info=True)
                 return None
 
-        rows: list[dict] = []
-        if thread_count <= 1:
-            for index in candidates:
-                result = _worker(index)
-                if result is not None:
-                    rows.append(result)
-                pbar.update()
-        else:
-            with ThreadPoolExecutor(max_workers=thread_count) as pool:
-                futures = {pool.submit(_worker, index): index for index in candidates}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result is not None:
-                        rows.append(result)
-                    pbar.update()
-        pbar.close()
+        rows = _map_parallel(candidates, _worker, "Building manifest...", thread_count)
 
         # Record every series in the key file (reusing existing mappings).
         for row in rows:
@@ -1984,14 +2484,7 @@ class DicomReaderWriter:
             logger.warning("No manifest rows to write.")
             return
 
-        # Absent ROI volume cells (new columns on old rows, or vice versa) stay
-        # NaN so they render as empty cells in the CSV.
-        roi_cols = sorted(c for c in combined.columns if str(c).endswith(" cc"))
-        # Stable column order: identifiers, spacing, then ROI volumes.
-        lead = [c for c in ("patient_hash", "study_hash", "series_hash",
-                            "spacing_x", "spacing_y", "spacing_z") if c in combined.columns]
-        rest = [c for c in combined.columns if c not in lead and c not in roi_cols]
-        combined = combined[lead + rest + roi_cols]
+        combined = self._order_manifest_columns(combined)
 
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
@@ -2350,11 +2843,27 @@ class DicomReaderWriter:
     def rewrite_RT(self, lstRSFile: PathLike | None = None) -> None:
         """Rename ROIs in an existing RT structure file using associations.
 
+        Every ROI (and ROI observation label) whose lower-cased name appears
+        in an association's ``other_names`` is renamed to that association's
+        canonical ``roi_name``, and the file is saved back in place.
+
         Args:
-            lstRSFile: Path to the RT structure file to rewrite.
+            lstRSFile: Path to the RT structure file to rewrite. Defaults to
+                the RT structure already loaded on the reader.
         """
         if lstRSFile is not None:
             self.RS_struct = dcmread(lstRSFile)
+        out_path = lstRSFile or getattr(self.RS_struct, "filename", None)
+        if out_path is None:
+            raise ValueError("No RT structure file to rewrite; pass lstRSFile.")
+
+        # Alternative name -> canonical name (lower-cased; ROI names are
+        # matched case-insensitively, consistent with _resolve_roi_name).
+        rename = {
+            other: assoc.roi_name
+            for assoc in (self.associations or [])
+            for other in assoc.other_names
+        }
 
         roi_struct = (
             self.RS_struct.StructureSetROISequence
@@ -2368,15 +2877,18 @@ class DicomReaderWriter:
         )
 
         self.rois_in_loaded_index = []
-        for i, structure in enumerate(roi_struct):
-            if structure.ROIName in self.associations:
-                self.RS_struct.StructureSetROISequence[i].ROIName = self.associations[structure.ROIName]
-            self.rois_in_loaded_index.append(self.RS_struct.StructureSetROISequence[i].ROIName)
+        for structure in roi_struct:
+            new_name = rename.get(structure.ROIName.lower())
+            if new_name is not None:
+                structure.ROIName = new_name
+            self.rois_in_loaded_index.append(structure.ROIName)
 
-        for i, obs in enumerate(obs_seq):
-            if obs.ROIObservationLabel in self.associations:
-                self.RS_struct.RTROIObservationsSequence[i].ROIObservationLabel = (
-                    self.associations[obs.ROIObservationLabel]
-                )
+        for obs in obs_seq:
+            label = getattr(obs, "ROIObservationLabel", None)
+            if label is None:
+                continue
+            new_name = rename.get(label.lower())
+            if new_name is not None:
+                obs.ROIObservationLabel = new_name
 
-        self.RS_struct.save_as(lstRSFile)
+        self.RS_struct.save_as(out_path)

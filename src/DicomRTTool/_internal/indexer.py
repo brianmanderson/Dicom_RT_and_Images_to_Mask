@@ -37,6 +37,23 @@ from . import NULL_CTX
 logger = logging.getLogger(__name__)
 
 
+def is_dicom_file(path: str) -> bool:
+    """True when *path* looks like a DICOM file.
+
+    Accepts the conventional ``.dcm`` suffix without touching the file;
+    otherwise sniffs the 128-byte preamble for the ``DICM`` magic so
+    extension-less PACS exports (files named by SOP UID) are still found.
+    """
+    if str(path).lower().endswith(".dcm"):
+        return True
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(128)
+            return handle.read(4) == b"DICM"
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Folder loading helper
 # ---------------------------------------------------------------------------
@@ -83,7 +100,10 @@ class DicomFolderLoader:
         img_reader.LoadPrivateTagsOn()
 
         series_ids = reader.GetGDCMSeriesIDs(dicom_path)
-        file_list = [f for f in os.listdir(dicom_path) if f.lower().endswith(".dcm")]
+        file_list = [
+            f for f in os.listdir(dicom_path)
+            if is_dicom_file(os.path.join(dicom_path, f))
+        ]
         all_series_names: list[str] = []
 
         for series_id in series_ids:
@@ -96,11 +116,14 @@ class DicomFolderLoader:
 
             if "rtdose" in modality:
                 for name in dicom_names:
+                    # Header only -- add_rd reads nothing but metadata, so
+                    # decoding the full multi-frame dose grid would be waste.
                     img_reader.SetFileName(name)
-                    img_reader.Execute()
+                    img_reader.ReadImageInformation()
                     add_rd(img_reader, rd_dict, self.dose_keys, self._lock)
             else:
-                img_reader.Execute()
+                # Header info was already read above; add_image only consumes
+                # metadata, so no pixel decode is needed here either.
                 add_image(
                     images_dict, dicom_names, img_reader, dicom_path,
                     self.image_keys, self._lock,

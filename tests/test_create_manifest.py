@@ -248,3 +248,46 @@ class TestCreateManifestUpsert:
         assert "legacy_roi cc" in df.columns
         new_rows = df[df["series_hash"] != "seed.series"]
         assert new_rows["legacy_roi cc"].isna().all()
+
+
+class TestManifestInterop:
+    """Round-trips between the two manifest writers and dtype safety."""
+
+    def test_all_digit_mrn_keeps_leading_zeros(self, synthetic_dataset, tmp_path: Path):
+        """Regression: an all-digit ``patient_hash`` column parsed as int64 on
+        reload, so ``"00123"`` was rewritten as ``123`` by the next
+        incremental run."""
+        out = tmp_path / "manifest.csv"
+        seed = pd.DataFrame([{
+            "patient_hash": "00123", "study_hash": "seed.study",
+            "series_hash": "seed.series",
+            "spacing_x": 1.0, "spacing_y": 1.0, "spacing_z": 1.0,
+        }])
+        seed.to_csv(out, index=False)
+
+        r = _build_reader(synthetic_dataset)
+        r.create_manifest(str(out), anonymize=False)
+
+        df = pd.read_csv(out, dtype=str)
+        assert "00123" in df["patient_hash"].tolist()
+
+    def test_updating_a_write_to_folder_manifest_keeps_case_id(
+        self, synthetic_dataset, tmp_path: Path,
+    ):
+        """``case_id`` is produced by write_to_folder only; a create_manifest
+        update of the same file must carry it onto the replaced row, not
+        blank it."""
+        out = tmp_path / "out"
+        r = _build_reader(synthetic_dataset)
+        r.write_to_folder(str(out), anonymize=True, salt="sticky")
+        manifest = out / "manifest.csv"
+        before = pd.read_csv(manifest, dtype=str)
+        series_hash = before["series_hash"].iloc[0]
+        case_id = before["case_id"].iloc[0]
+
+        r.create_manifest(str(manifest), anonymize=True, salt="sticky")
+
+        after = pd.read_csv(manifest, dtype=str)
+        assert len(after) == len(before)
+        row = after[after["series_hash"] == series_hash]
+        assert row["case_id"].iloc[0] == case_id

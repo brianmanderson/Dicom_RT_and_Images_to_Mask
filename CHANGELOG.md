@@ -5,6 +5,84 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Grouped `metadata.json` (schema v2) — now the default** —
+  `write_to_folder` writes a versioned, per-category document for *every*
+  exported series: an `image` block (modality, series description, frame of
+  reference, pixel spacing / slice thickness, effective export spacing),
+  `structures` (every ROI with number / type / structure code, plus
+  `volume_cc` and `exported_file` for exported ones), `doses` (dose units /
+  type / summation type, referenced plan & struct UIDs, `included_in_sum`),
+  `dose_file`, and `plans` (label / name). User `*_string_keys` land in each
+  category's own `tags` sub-dict, so identical names across categories (or
+  across multiple RT/dose files on one series) no longer overwrite each other.
+  Categories with no corresponding DICOM files are omitted, so image-only
+  folders degrade cleanly. **Breaking:** consumers of the old flat
+  requested-tags-only file should pass `metadata_style="flat"`, which
+  preserves the historical behavior exactly (v1 files are recognisable by the
+  absence of `schema_version`).
+- **Extension-less DICOM discovery** — the folder walk and the per-folder
+  loader now sniff the `DICM` preamble, so PACS exports whose files are named
+  by SOP UID (no `.dcm` suffix) are indexed, including their RTSTRUCT/RTPLAN
+  files, which were previously dropped silently.
+- **`DicomReaderWriter.load_image_geometry_only()`** — loads grid geometry
+  (origin/spacing/direction/size + per-slice Z lookup) without decoding pixel
+  data; `create_manifest` workers now use it, roughly halving manifest build
+  time (the win grows with series size).
+- **`DicomReaderWriter.roi_volumes`** — name-keyed per-ROI volumes (cc) from
+  the last `get_mask()`; preferred over the positional
+  `additional_tags["Volumes"]` array (kept for backward compatibility).
+- Synthetic-test builders for RT Plans (`build_synthetic_plan`), plan-linked
+  and unreferenced doses, and BEAM summation types; new tests cover plan
+  grouping, dose-via-plan, the frame-of-reference fallback, BEAM filtering,
+  extension-less discovery, orphan RT structures, and worker resilience.
+
+### Changed
+
+- **`write_to_folder` now merges instead of overwriting**: `manifest.csv` is
+  incrementally upserted (rows for re-exported series replaced, others kept)
+  and `anonymization_key.json` is loaded and extended, with an existing key's
+  salt reused — exporting a second batch into the same folder no longer
+  orphans the first batch's manifest rows and hash mappings.
+- `write_to_folder(rois=...)` filters series against the *requested* ROIs
+  (honouring `require_all_contours`) even when `Contour_Names` was never set;
+  previously every series was exported regardless of the request.
+- `write_to_folder(dose_type=...)` is now forwarded to the dose loader
+  (previously it only influenced the fallback dose filename), and the dose is
+  resampled directly onto the export grid — one interpolation instead of two
+  when `output_spacing` is set. The exported dose filename is now taken from
+  a dose series that actually contributed to the sum.
+- `get_dose` warns when the `dose_type` filter matches no dose series (naming
+  the available summation types) and when a single dose series bypasses the
+  filter with a different summation type; the dose cache is keyed on
+  (series, dose_type) so switching filters reloads correctly.
+- Orphan RT structures / plans / doses (referenced series missing from the
+  walk) are reported with warnings instead of vanishing silently, and
+  `create_manifest` distinguishes "no RT structures found" from "none
+  reference an image series".
+- Manifest reloads pin identifier columns to strings, so all-digit MRNs keep
+  their leading zeros across incremental runs; `case_id` is carried through
+  `create_manifest` updates of a `write_to_folder` manifest.
+- Indexing no longer decodes pixel data (dose volumes were fully decoded per
+  file during every walk); per-slice positions are read from the series
+  reader's cached headers; `ArrayDicom` / `dose` / `ds` are lazy; the
+  contour→index transform is vectorised (removing the GIL-bound per-point
+  hotspot); the label-map path avoids `np.argmax`'s int64 intermediate.
+
+### Fixed
+
+- `get_dose` left a stale `dose_handle` when the current series had no
+  (matching) dose, so single-reader loops could write the previous patient's
+  dose grid for a dose-less patient. Both `dose` and `dose_handle` are now
+  cleared up front.
+- `rewrite_RT` still assumed the pre-v4 dict-based associations API and could
+  only no-op or raise; it now renames via `ROIAssociationClass` associations.
+- `dicom_handle_uid` / `RS_struct_uid` returned a stray `property` object
+  instead of `None` before the first load.
+
 ## [5.0.1] — 2026-07-01
 
 Ports the DICOM→NIfTI feature set from the companion C# `DicomRtNifti.Cli`

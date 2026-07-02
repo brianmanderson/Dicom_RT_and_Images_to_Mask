@@ -102,3 +102,19 @@ def test_set_iteration_and_set_description_exist():
     assert r.iteration == "7"
     r.set_description("renamed")
     assert r.description == "renamed"
+
+
+# ---------------------------------------------------------------------------
+# UID sentinel state after construction
+# ---------------------------------------------------------------------------
+
+def test_uid_sentinels_are_none_after_construction():
+    """The compat properties expose the documented ``None`` sentinel.
+
+    Regression: ``__init__`` used to assign ``property(...)`` objects through
+    the class-level setters, so ``dicom_handle_uid`` / ``RS_struct_uid``
+    returned a property object (never ``None``) before the first load.
+    """
+    r = DicomReaderWriter(verbose=False)
+    assert r.dicom_handle_uid is None
+    assert r.RS_struct_uid is None

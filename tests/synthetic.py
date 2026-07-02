@@ -60,6 +60,7 @@ Modality = Literal["CT", "MR"]
 # ---------------------------------------------------------------------------
 
 RT_STRUCTURE_SET_STORAGE = "1.2.840.10008.5.1.4.1.1.481.3"
+RT_PLAN_STORAGE = "1.2.840.10008.5.1.4.1.1.481.5"
 
 # Number of vertices used to approximate any circular cross-section.
 # 64 keeps each contour cheap to write while staying smooth enough that the
@@ -664,6 +665,7 @@ def build_synthetic_dose(
     *,
     patient_id: str = "DICOMRTTOOL_TEST",
     rt_struct_sop_uid: str | None = None,
+    rt_plan_sop_uid: str | None = None,
     summation_type: str = "PLAN",
 ) -> Path:
     """Write a synthetic RT-Dose grid sharing geometry with the CT.
@@ -751,6 +753,13 @@ def build_synthetic_dose(
         ref_struct.ReferencedSOPInstanceUID = rt_struct_sop_uid
         ds.ReferencedStructureSetSequence = DicomSequence([ref_struct])
 
+    # Optional reference to an RT Plan (exercises dose-via-plan grouping).
+    if rt_plan_sop_uid is not None:
+        ref_plan = Dataset()
+        ref_plan.ReferencedSOPClassUID = RT_PLAN_STORAGE
+        ref_plan.ReferencedSOPInstanceUID = rt_plan_sop_uid
+        ds.ReferencedRTPlanSequence = DicomSequence([ref_plan])
+
     # Image pixel.
     ds.SamplesPerPixel = 1
     ds.PhotometricInterpretation = "MONOCHROME2"
@@ -769,6 +778,73 @@ def build_synthetic_dose(
         implicit_vr=False,
     )
     return out_path
+
+
+def build_synthetic_plan(
+    out_path: Path,
+    uids: CTSeriesUIDs,
+    *,
+    patient_id: str = "DICOMRTTOOL_TEST",
+    rt_struct_sop_uid: str | None = None,
+    plan_label: str = "SYNTH_PLAN",
+    plan_name: str = "Synthetic Plan",
+) -> tuple[Path, str]:
+    """Write a minimal RT Plan, optionally referencing the structure set.
+
+    Returns ``(path, sop_instance_uid)`` -- the SOP UID is what an RT Dose's
+    ``ReferencedRTPlanSequence`` must point at for the dose-via-plan
+    grouping path.
+    """
+    rp_sop_uid = generate_uid()
+    rp_series_uid = generate_uid()
+
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = RT_PLAN_STORAGE
+    file_meta.MediaStorageSOPInstanceUID = rp_sop_uid
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = generate_uid()
+    file_meta.ImplementationVersionName = "DicomRTTool_test"
+
+    ds = FileDataset(str(out_path), Dataset(), file_meta=file_meta, preamble=b"\x00" * 128)
+    ds.PatientID = patient_id
+    ds.PatientName = "Phantom^Synthetic"
+    ds.PatientBirthDate = "19000101"
+    ds.PatientSex = "O"
+    ds.StudyInstanceUID = uids.study
+    ds.StudyDate = "20260101"
+    ds.StudyTime = "000000"
+    ds.AccessionNumber = "DICOMRTTOOL_T1"
+    ds.StudyID = "1"
+    ds.ReferringPhysicianName = ""
+
+    ds.SOPClassUID = RT_PLAN_STORAGE
+    ds.SOPInstanceUID = rp_sop_uid
+    ds.Modality = "RTPLAN"
+    ds.SeriesInstanceUID = rp_series_uid
+    ds.SeriesNumber = 1
+    ds.Manufacturer = "DicomRTTool_test"
+    ds.InstanceNumber = 1
+    ds.FrameOfReferenceUID = uids.frame_of_reference
+
+    ds.RTPlanLabel = plan_label
+    ds.RTPlanName = plan_name
+    ds.RTPlanDate = "20260101"
+    ds.RTPlanTime = "000000"
+    ds.RTPlanGeometry = "PATIENT"
+
+    if rt_struct_sop_uid is not None:
+        ref = Dataset()
+        ref.ReferencedSOPClassUID = RT_STRUCTURE_SET_STORAGE
+        ref.ReferencedSOPInstanceUID = rt_struct_sop_uid
+        ds.ReferencedStructureSetSequence = DicomSequence([ref])
+
+    ds.save_as(
+        str(out_path),
+        enforce_file_format=True,
+        little_endian=True,
+        implicit_vr=False,
+    )
+    return out_path, rp_sop_uid
 
 
 # ---------------------------------------------------------------------------

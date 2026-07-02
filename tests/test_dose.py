@@ -1,6 +1,8 @@
 """Tests for ``DicomReaderWriter.get_dose``."""
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from DicomRTTool.ReaderWriter import DicomReaderWriter
@@ -58,3 +60,49 @@ def test_get_dose_handle_is_non_zero(reader_with_dose: DicomReaderWriter):
     arr = reader_with_dose.dose
     assert arr is not None
     assert arr.max() > 0.0
+
+
+def test_get_dose_single_rd_bypass_warns_on_type_mismatch(
+    reader_with_dose: DicomReaderWriter, caplog,
+):
+    """With exactly one dose series, the DoseSummationType filter is
+    bypassed -- the load must say so instead of silently exporting a BEAM
+    dose as if it were the PLAN dose (or vice versa)."""
+    with caplog.at_level(logging.WARNING, logger="DicomRTTool.ReaderWriter"):
+        reader_with_dose.get_dose(dose_type="BEAM")  # synthetic dose is PLAN
+    assert reader_with_dose.dose_handle is not None  # still loaded (bypass)
+    assert any("dose_type" in rec.getMessage() for rec in caplog.records)
+
+
+def test_get_dose_clears_stale_handle_for_dose_less_series(
+    synthetic_dataset, synthetic_dataset_with_dose,
+):
+    """A dose-less series must not inherit the previous series' dose.
+
+    Regression: ``get_dose`` reset ``self.dose`` but never ``dose_handle``,
+    so the one-reader loop over indexes wrote patient A's dose grid out as
+    patient B's whenever B carried no RT-Dose.
+    """
+    r = DicomReaderWriter(description="dose-stale", verbose=False)
+    r.walk_through_folders(
+        str(synthetic_dataset_with_dose.walk_root), thread_count=1,
+    )
+    r.walk_through_folders(str(synthetic_dataset.walk_root), thread_count=1)
+    with_dose = next(
+        idx for idx, e in r.series_instances_dictionary.items() if e.RDs
+    )
+    no_dose = next(
+        idx for idx, e in r.series_instances_dictionary.items()
+        if e.files and not e.RDs
+    )
+
+    r.set_index(with_dose)
+    r.get_images()
+    r.get_dose()
+    assert r.dose_handle is not None
+
+    r.set_index(no_dose)
+    r.get_images()
+    r.get_dose()
+    assert r.dose_handle is None
+    assert r.dose is None

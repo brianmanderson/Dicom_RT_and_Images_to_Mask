@@ -126,16 +126,17 @@ out/
       cord.nii.gz
     doses/                      # only when get_dose_output=True and dose exists
       plan.nii.gz
-    metadata.json               # extra DICOM tags, when any were requested
+    metadata.json               # per-series DICOM features (grouped, schema v2)
   manifest.csv                  # identifiers, spacing, per-ROI volume (cc)
   anonymization_key.json        # only when anonymize=True (reverse lookup)
 ```
 
 This nested `patient/study/series` layout mirrors the companion C# DICOM→NIfTI
 tool. The `manifest.csv` has the same shape as the one from
-[Step 2](#step-2--survey-write-a-metadata-manifest). The `metadata.json` is
-written only when you requested extra DICOM tags (see
-[Reading extra DICOM tags](#reading-extra-dicom-tags)).
+[Step 2](#step-2--survey-write-a-metadata-manifest). The `metadata.json` groups
+the image / structure / dose / plan features per series (see
+[Grouped metadata](#grouped-metadata-schema-v2); pass
+`metadata_style="flat"` for the historical requested-tags-only dict).
 
 The method name implies the breadth: **skip ROI selection** entirely (no
 `Contour_Names`, no `rois=`) and `write_to_folder` exports *every image series*
@@ -279,10 +280,30 @@ entry = reader.series_instances_dictionary[0]
 print(entry.additional_tags)        # {"MyPatientName": ..., "Manufacturer": ...}
 ```
 
-When you export with `write_to_folder`, these requested tags are also written to a
-`metadata.json` (a `{name: value}` dict) inside each series folder. Note that
-the values are written verbatim — if you anonymize the folder names, make sure
-the tags you pull don't themselves carry identifying information.
+When you export with `write_to_folder`, these requested tags are also written
+into each series' `metadata.json` — inside the owning category's `tags`
+sub-dict of the grouped document described below (or as a bare
+`{name: value}` dict with `metadata_style="flat"`). Note that the values are
+written verbatim — if you anonymize the folder names, make sure the tags you
+pull don't themselves carry identifying information.
+
+### Grouped metadata (schema v2)
+
+By default `write_to_folder` writes a versioned `metadata.json` for **every**
+exported series (`metadata_style="grouped"`). DICOM features the walk already
+parsed are grouped by category — `image` (modality, series description, frame
+of reference, pixel spacing / slice thickness, effective export spacing),
+`structures` (each ROI's name, number, interpreted type, structure code, plus
+`volume_cc` and `exported_file` for exported ROIs), `doses` (dose units /
+type / summation type, referenced plan & struct UIDs, `included_in_sum`),
+`dose_file`, and `plans` (label / name). Your `*_string_keys` requests land in
+each category's own `tags` sub-dict. Categories with no corresponding DICOM
+files are simply omitted, so image-only or dose-less folders parse cleanly
+with `meta.get("doses", [])`. The PHI note above applies unchanged: requested
+tag values are written verbatim.
+
+Pass `metadata_style="flat"` for the historical behavior — a flat
+`{name: value}` dict of the requested tags, written only when some were found.
 
 ## Resetting state between uses
 
