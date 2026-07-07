@@ -41,9 +41,9 @@ def _uids_from_ct(image_dir: Path) -> CTSeriesUIDs:
 
 def _corpus(tmp_path: Path):
     """CT + RTSTRUCT plus the pieces needed to attach plans/doses."""
-    image_dir, rt_path, geometry, primitives = build_synthetic_dataset(tmp_path)
+    image_dir, rt_path, _geometry, primitives = build_synthetic_dataset(tmp_path)
     rt_sop = pydicom.dcmread(str(rt_path), stop_before_pixels=True).SOPInstanceUID
-    return image_dir, rt_path, primitives, rt_sop, _uids_from_ct(image_dir)
+    return primitives, rt_sop, _uids_from_ct(image_dir)
 
 
 def _reader(primitives, **kwargs) -> DicomReaderWriter:
@@ -54,7 +54,7 @@ def _reader(primitives, **kwargs) -> DicomReaderWriter:
 
 class TestPlanLinkage:
     def test_plan_grouped_with_struct_and_in_grouped_metadata(self, tmp_path: Path):
-        image_dir, rt_path, primitives, rt_sop, uids = _corpus(tmp_path)
+        primitives, rt_sop, uids = _corpus(tmp_path)
         build_synthetic_plan(tmp_path / "RP.dcm", uids, rt_struct_sop_uid=rt_sop)
 
         r = _reader(primitives)
@@ -71,7 +71,7 @@ class TestPlanLinkage:
     def test_dose_grouped_via_referenced_plan(self, tmp_path: Path):
         """Compile step: a dose with ONLY a plan reference (no struct ref)
         must reach the image series through plan -> struct -> image."""
-        image_dir, rt_path, primitives, rt_sop, uids = _corpus(tmp_path)
+        primitives, rt_sop, uids = _corpus(tmp_path)
         _, plan_sop = build_synthetic_plan(
             tmp_path / "RP.dcm", uids, rt_struct_sop_uid=rt_sop,
         )
@@ -93,7 +93,7 @@ class TestPlanLinkage:
 
 class TestFrameOfReferenceFallback:
     def test_unreferenced_dose_groups_by_frame_of_reference(self, tmp_path: Path):
-        image_dir, rt_path, primitives, rt_sop, uids = _corpus(tmp_path)
+        primitives, _rt_sop, uids = _corpus(tmp_path)
         build_synthetic_dose(
             tmp_path / "RD.dcm", PRESET_DEFAULT, uids,
             rt_struct_sop_uid=None, rt_plan_sop_uid=None,
@@ -107,7 +107,7 @@ class TestFrameOfReferenceFallback:
     def test_unreferenced_dose_orphaned_when_fallback_disabled(
         self, tmp_path: Path, caplog,
     ):
-        image_dir, rt_path, primitives, rt_sop, uids = _corpus(tmp_path)
+        primitives, _rt_sop, uids = _corpus(tmp_path)
         build_synthetic_dose(
             tmp_path / "RD.dcm", PRESET_DEFAULT, uids,
             rt_struct_sop_uid=None, rt_plan_sop_uid=None,
@@ -129,7 +129,7 @@ class TestBeamDoseFiltering:
     ):
         """Two BEAM doses + dose_type='PLAN' must warn and load nothing;
         dose_type='BEAM' must sum both."""
-        image_dir, rt_path, primitives, rt_sop, uids = _corpus(tmp_path)
+        primitives, rt_sop, uids = _corpus(tmp_path)
         for name in ("RD_beam1.dcm", "RD_beam2.dcm"):
             build_synthetic_dose(
                 tmp_path / name, PRESET_DEFAULT, uids,

@@ -29,6 +29,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -2181,7 +2182,9 @@ class DicomReaderWriter:
     # Identifier columns are pinned to ``str`` on reload: an all-digit MRN
     # column (anonymize=False) would otherwise parse as int64 and silently
     # lose leading zeros when the manifest is rewritten.
-    _MANIFEST_ID_DTYPES = {"patient_hash": str, "study_hash": str, "series_hash": str}
+    _MANIFEST_ID_DTYPES: ClassVar[dict[str, type]] = {
+        "patient_hash": str, "study_hash": str, "series_hash": str,
+    }
 
     # Bookkeeping columns owned by one manifest writer but not the other
     # (``case_id`` comes from write_to_folder only). On upsert, these are
@@ -2244,7 +2247,7 @@ class DicomReaderWriter:
             new_df = new_df.copy()
             replacement_keys = new_df["series_hash"].astype(str).map(canon)
             for col in carry:
-                mapping = dict(zip(existing_keys, existing_df[col]))
+                mapping = dict(zip(existing_keys, existing_df[col], strict=True))
                 new_df[col] = replacement_keys.map(mapping)
         kept = existing_df[~existing_keys.isin(set(new_keys))]
         return pd.concat([kept, new_df], ignore_index=True)
