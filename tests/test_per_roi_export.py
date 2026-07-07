@@ -98,21 +98,96 @@ class TestWritePerRoiLayout:
 
 
 class TestWritePerRoiMetadata:
-    def test_metadata_json_written_for_extra_tags(self, synthetic_dataset, tmp_path: Path):
+    def test_flat_metadata_json_written_for_extra_tags(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset, image_keys={"MyPatientID": "0010|0020", "MyModality": "0008|0060"})
         out = tmp_path / "out"
-        r.write_to_folder(str(out))
+        r.write_to_folder(str(out), metadata_style="flat")
 
         meta_path = _case_dir(out) / "metadata.json"
         assert meta_path.exists()
         meta = json.loads(meta_path.read_text())
         assert meta == {"MyPatientID": "DICOMRTTOOL_TEST", "MyModality": "CT"}
 
-    def test_no_metadata_json_without_extra_tags(self, synthetic_dataset, tmp_path: Path):
+    def test_flat_no_metadata_json_without_extra_tags(self, synthetic_dataset, tmp_path: Path):
         r = _build_reader(synthetic_dataset)   # no *_string_keys requested
         out = tmp_path / "out"
-        r.write_to_folder(str(out))
+        r.write_to_folder(str(out), metadata_style="flat")
         assert not list(out.rglob("metadata.json"))
+
+
+class TestGroupedMetadata:
+    """``metadata_style="grouped"`` — schema v2, per-category, always written."""
+
+    def test_grouped_is_the_default_style(self, synthetic_dataset, tmp_path: Path):
+        r = _build_reader(synthetic_dataset)
+        out = tmp_path / "out"
+        r.write_to_folder(str(out))   # no metadata_style argument
+
+        meta = json.loads((_case_dir(out) / "metadata.json").read_text())
+        assert meta["schema_version"] == 2
+
+    def test_grouped_metadata_full_series(
+        self, synthetic_dataset_with_dose, tmp_path: Path,
+    ):
+        r = _build_reader(
+            synthetic_dataset_with_dose, with_dose=True,
+            image_keys={"MyModality": "0008|0060"},
+        )
+        out = tmp_path / "out"
+        r.write_to_folder(str(out), metadata_style="grouped")
+
+        meta = json.loads((_case_dir(out) / "metadata.json").read_text())
+        assert meta["schema_version"] == 2
+        assert meta["anonymized"] is False
+        assert set(meta["case"]) == {"patient", "study", "series"}
+
+        image = meta["image"]
+        assert image["modality"] == "CT"
+        assert image["export"]["resampled"] is False
+        assert len(image["export"]["effective_spacing_mm"]) == 3
+        # User string-keys land in the category's tags sub-dict.
+        assert image["tags"] == {"MyModality": "CT"}
+
+        # Every ROI in the struct is listed; exported ones carry volume+file.
+        rois = meta["structures"][0]["rois"]
+        exported = {x["name"]: x for x in rois if "volume_cc" in x}
+        expected = {p.name.lower() for p in synthetic_dataset_with_dose.primitives}
+        assert set(exported) == expected
+        for rec in exported.values():
+            assert rec["exported_file"].startswith("masks/")
+            assert rec["volume_cc"] > 0
+            assert isinstance(rec["number"], int)
+
+        dose = meta["doses"][0]
+        assert dose["dose_units"] == "GY"
+        assert dose["dose_summation_type"] == "PLAN"
+        assert dose["included_in_sum"] is True
+        assert meta["dose_file"].startswith("doses/")
+        assert (_case_dir(out) / meta["dose_file"]).exists()
+
+        # No RTPLAN in the fixture -> the category is simply absent.
+        assert "plans" not in meta
+
+    def test_grouped_metadata_omits_absent_categories(
+        self, synthetic_dataset, tmp_path: Path,
+    ):
+        """No dose in the corpus -> no ``doses``/``dose_file`` keys; the file
+        itself is still written (unlike the flat style)."""
+        r = _build_reader(synthetic_dataset)   # no *_string_keys requested
+        out = tmp_path / "out"
+        r.write_to_folder(str(out), metadata_style="grouped")
+
+        meta = json.loads((_case_dir(out) / "metadata.json").read_text())
+        assert "doses" not in meta
+        assert "dose_file" not in meta
+        assert "plans" not in meta
+        assert "tags" not in meta["image"]   # none requested
+        assert meta["structures"], "RT struct present -> structures listed"
+
+    def test_invalid_metadata_style_raises(self, synthetic_dataset, tmp_path: Path):
+        r = _build_reader(synthetic_dataset)
+        with pytest.raises(ValueError, match="metadata_style"):
+            r.write_to_folder(str(tmp_path / "out"), metadata_style="nested")
 
 
 class TestWritePerRoiAnonymize:
@@ -276,3 +351,50 @@ class TestBackwardCompatAlias:
         r.write_per_roi(str(out))   # deprecated alias still works
         assert (out / "manifest.csv").exists()
         assert (_case_dir(out) / "image.nii.gz").exists()
+
+
+class TestIncrementalExport:
+    """The manifest and key file merge across runs (like create_manifest)."""
+
+    def test_second_batch_preserves_first_batch_rows_and_key(
+        self, synthetic_multi_series_dataset, tmp_path: Path,
+    ):
+        """Regression: a second export into the same out_path used to
+        overwrite manifest.csv and anonymization_key.json with only the
+        current run's rows, orphaning the first batch's NIfTI folders."""
+        out = tmp_path / "out"
+        for pair in synthetic_multi_series_dataset.pairs:
+            r = DicomReaderWriter(
+                description="per-roi",
+                Contour_Names=[p.name for p in pair.primitives],
+                arg_max=True,
+                verbose=False,
+            )
+            # Walk only this pair's subfolder — a disjoint export batch.
+            r.walk_through_folders(str(pair.rt_path.parent), thread_count=1)
+            r.write_to_folder(str(out), anonymize=True, salt="batch-salt")
+
+        df = pd.read_csv(out / "manifest.csv")
+        assert len(df) == 2, "second batch must not drop the first batch's row"
+
+        key = json.loads((out / "anonymization_key.json").read_text())
+        assert len(key["Patients"]) == 2
+        assert set(df["patient_hash"]) == set(key["Patients"])
+
+    def test_existing_key_salt_reused_across_runs(
+        self, synthetic_dataset, tmp_path: Path,
+    ):
+        """A different salt on a re-export must not fork the folder tree; the
+        existing key's salt wins (mirrors create_manifest)."""
+        out = tmp_path / "out"
+        r = _build_reader(synthetic_dataset)
+        r.write_to_folder(str(out), anonymize=True, salt="first-salt")
+        first_dirs = {p.name for p in out.iterdir() if p.is_dir()}
+
+        r.write_to_folder(str(out), anonymize=True, salt="second-salt")
+
+        key = json.loads((out / "anonymization_key.json").read_text())
+        assert key["Salt"] == "first-salt"
+        assert {p.name for p in out.iterdir() if p.is_dir()} == first_dirs
+        df = pd.read_csv(out / "manifest.csv")
+        assert len(df) == 1

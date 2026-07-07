@@ -32,6 +32,38 @@ PathLike = str | bytes | os.PathLike
 dcmread = pydicom.dcmread
 
 
+def read_sitk_extra_keys(
+    reader: sitk.ImageFileReader,
+    keys: SitkDicomKeys | None,
+) -> dict[str, Any]:
+    """Extract the requested SITK metadata *keys* that are present."""
+    out: dict[str, Any] = {}
+    if keys is None:
+        return out
+    meta_keys = reader.GetMetaDataKeys()
+    for name, key in keys.items():
+        if key in meta_keys:
+            try:
+                out[name] = reader.GetMetaData(key)
+            except RuntimeError:
+                logger.debug("Could not read SITK key %s", key)
+    return out
+
+
+def read_pydicom_extra_keys(ds: Dataset, keys: PyDicomKeys | None) -> dict[str, Any]:
+    """Extract the requested pydicom tags in *keys* that are present."""
+    out: dict[str, Any] = {}
+    if keys is None:
+        return out
+    for name, key in keys.items():
+        if key in ds:
+            try:
+                out[name] = ds[key].value
+            except (KeyError, AttributeError):
+                logger.debug("Could not read pydicom key %s", key)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # ROI metadata
 # ---------------------------------------------------------------------------
@@ -84,9 +116,11 @@ class RDBase(DICOMBase):
         sitk_dicom_reader: sitk.ImageFileReader,
         sitk_string_keys: SitkDicomKeys | None = None,
     ) -> None:
-        """Populate fields from a SimpleITK reader that has already executed."""
+        """Populate fields from a SimpleITK reader that has read header info."""
         file_name = sitk_dicom_reader.GetFileName()
-        ds = dcmread(file_name)
+        # Header only: the pydicom read exists for the Referenced*Sequence
+        # UIDs (not exposed via GDCM metadata); the dose pixels are not needed.
+        ds = dcmread(file_name, stop_before_pixels=True)
 
         self.SeriesInstanceUID = ds.SeriesInstanceUID
         self.DoseType = ds.DoseType
@@ -111,30 +145,14 @@ class RDBase(DICOMBase):
         self.path = file_name
         self.Dose_Files.append(self.path)
         self.SOPInstanceUID = sitk_dicom_reader.GetMetaData("0008|0018")
-        self._read_sitk_extra_keys(sitk_dicom_reader, sitk_string_keys)
+        self.additional_tags.update(read_sitk_extra_keys(sitk_dicom_reader, sitk_string_keys))
 
     def add_beam(self, sitk_dicom_reader: sitk.ImageFileReader) -> None:
         """Add an additional beam dose file if it belongs to this series."""
         file_name = sitk_dicom_reader.GetFileName()
-        ds = dcmread(file_name)
+        ds = dcmread(file_name, stop_before_pixels=True)
         if self.SeriesInstanceUID == ds.SeriesInstanceUID and ds.DoseSummationType == "BEAM":
             self.Dose_Files.append(file_name)
-
-    # -- helpers --------------------------------------------------------
-
-    def _read_sitk_extra_keys(
-        self,
-        reader: sitk.ImageFileReader,
-        keys: SitkDicomKeys | None,
-    ) -> None:
-        if keys is None:
-            return
-        for name, key in keys.items():
-            if key in reader.GetMetaDataKeys():
-                try:
-                    self.additional_tags[name] = reader.GetMetaData(key)
-                except RuntimeError:
-                    logger.debug("Could not read SITK key %s", key)
 
 
 # ---------------------------------------------------------------------------
@@ -177,21 +195,7 @@ class PlanBase(DICOMBase):
         if Tag((0x0008, 0x103E)) in ds:
             self.SeriesDescription = ds.SeriesDescription
 
-        self._read_pydicom_extra_keys(ds, pydicom_string_keys)
-
-    def _read_pydicom_extra_keys(
-        self,
-        ds: Dataset,
-        keys: PyDicomKeys | None,
-    ) -> None:
-        if keys is None:
-            return
-        for name, key in keys.items():
-            if key in ds:
-                try:
-                    self.additional_tags[name] = ds[key].value
-                except (KeyError, AttributeError):
-                    logger.debug("Could not read pydicom key %s", key)
+        self.additional_tags.update(read_pydicom_extra_keys(ds, pydicom_string_keys))
 
 
 # ---------------------------------------------------------------------------
@@ -276,13 +280,7 @@ class RTBase(DICOMBase):
         self.SOPInstanceUID = ds.SOPInstanceUID
         self.CodeAssociations = code_associations
 
-        if pydicom_string_keys is not None:
-            for name, key in pydicom_string_keys.items():
-                if key in ds:
-                    try:
-                        self.additional_tags[name] = ds[key].value
-                    except (KeyError, AttributeError):
-                        logger.debug("Could not read pydicom key %s", key)
+        self.additional_tags.update(read_pydicom_extra_keys(ds, pydicom_string_keys))
 
 
 # ---------------------------------------------------------------------------
@@ -336,10 +334,4 @@ class ImageBase(DICOMBase):
         self.StudyInstanceUID = sitk_dicom_reader.GetMetaData("0020|000d")
         self.path = path
 
-        if sitk_string_keys is not None:
-            for name, key in sitk_string_keys.items():
-                if key in meta_keys:
-                    try:
-                        self.additional_tags[name] = sitk_dicom_reader.GetMetaData(key)
-                    except RuntimeError:
-                        logger.debug("Could not read SITK key %s", key)
+        self.additional_tags.update(read_sitk_extra_keys(sitk_dicom_reader, sitk_string_keys))
