@@ -6,7 +6,7 @@
 > **Published!** See the [Technical Note](https://www.sciencedirect.com/science/article/abs/pii/S1879850021000485) and please cite it if you find this work useful.
 > DOI: <https://doi.org/10.1016/j.prro.2021.02.003>
 
-Convert DICOM images and RT structures into NIfTI files, NumPy arrays, and SimpleITK image handles â€” and convert prediction masks back into RT structures.
+Convert DICOM images and RT structures into NIfTI files, NumPy arrays, and SimpleITK image handles — and convert prediction masks back into RT structures.
 
 ## Installation
 
@@ -24,19 +24,19 @@ pip install "DicomRTTool[viewer]"
 
 ## Getting started: a typical workflow
 
-A first pass through a new DICOM corpus usually moves from **discover â†’
-survey â†’ select â†’ export**:
+A first pass through a new DICOM corpus usually moves from **discover →
+survey → select → export**:
 
-1. **Discover** â€” walk the folder tree and list the ROIs that are present.
-2. **Survey** â€” write a metadata manifest of everything found (spacing + ROI volumes).
-3. **Select** â€” choose the ROIs you want and map their name aliases.
-4. **Export** â€” write NIfTI files, resampled to your target voxel spacing.
+1. **Discover** — walk the folder tree and list the ROIs that are present.
+2. **Survey** — write a metadata manifest of everything found (spacing + ROI volumes).
+3. **Select** — choose the ROIs you want and map their name aliases.
+4. **Export** — write NIfTI files, resampled to your target voxel spacing.
 
 Everything else in this README (loading a single series into NumPy, writing
-predictions back to RT structures, anonymization, performance tuning, â€¦) builds
+predictions back to RT structures, anonymization, performance tuning, …) builds
 on these four steps and is covered afterwards.
 
-### Step 1 â€” Discover: walk the folders
+### Step 1 — Discover: walk the folders
 
 `walk_through_folders` recursively scans a directory tree, groups files by
 `SeriesInstanceUID`, and links each RT structure and dose to its image series.
@@ -52,7 +52,7 @@ reader.walk_through_folders("/path/to/dicom")
 all_rois = reader.return_rois(print_rois=True)
 ```
 
-### Step 2 â€” Survey: write a metadata manifest
+### Step 2 — Survey: write a metadata manifest
 
 Before committing to an export, get a one-row-per-series overview with
 `create_manifest`. With no ROIs selected yet it records **every ROI it found**,
@@ -72,7 +72,7 @@ columns; otherwise they hold the original `PatientID` / `StudyInstanceUID` /
 **update the file in place** (see [Incremental manifests](#incremental-manifests)),
 so you can keep growing one manifest as you walk more data.
 
-### Step 3 â€” Select: choose ROIs and map aliases
+### Step 3 — Select: choose ROIs and map aliases
 
 Real-world ROI names are inconsistent (`Lung_L`, `Lung-Left`, `left lung`).
 `ROIAssociationClass` maps any number of aliases onto one canonical name, and
@@ -98,10 +98,10 @@ ROI names are matched case-insensitively. Build the reader with
 `require_all_contours=False` to also include series that carry only *some* of
 the selected ROIs.
 
-### Step 4 â€” Export: NIfTI with voxel resampling
+### Step 4 — Export: NIfTI with voxel resampling
 
-`write_to_folder` writes every selected series to a tidy per-case tree â€” one file
-per ROI â€” plus a `manifest.csv`. Pass `output_spacing` (mm) to resample on the
+`write_to_folder` writes every selected series to a tidy per-case tree — one file
+per ROI — plus a `manifest.csv`. Pass `output_spacing` (mm) to resample on the
 way out: **linear** interpolation for the image and dose, **nearest-neighbour**
 for masks (labels are never blended). The dose is resampled onto the resampled
 image grid, so the image, masks, and dose all come out the same size and
@@ -131,7 +131,7 @@ out/
   anonymization_key.json        # only when anonymize=True (reverse lookup)
 ```
 
-This nested `patient/study/series` layout mirrors the companion C# DICOMâ†’NIfTI
+This nested `patient/study/series` layout mirrors the companion C# DICOM→NIfTI
 tool. The `manifest.csv` has the same shape as the one from
 [Step 2](#step-2--survey-write-a-metadata-manifest). The `metadata.json` groups
 the image / structure / dose / plan features per series (see
@@ -140,7 +140,7 @@ the image / structure / dose / plan features per series (see
 
 The method name implies the breadth: **skip ROI selection** entirely (no
 `Contour_Names`, no `rois=`) and `write_to_folder` exports *every image series*
-as **image + dose only** â€” handy when you just want the images. You can also set
+as **image + dose only** — handy when you just want the images. You can also set
 `anonymize` (and `salt`) **once at construction** to make it the default for
 every export, and still override it per call:
 
@@ -174,7 +174,7 @@ mask_handle  = reader.annotation_handle  # SimpleITK Image
 ## Anonymized export
 
 `anonymize=True` (on `write_to_folder` or `create_manifest`) replaces identifiers
-with deterministic SHA-256 hashes (patient MRN â†’ patient hash, study hash,
+with deterministic SHA-256 hashes (patient MRN → patient hash, study hash,
 series hash). For `write_to_folder` the case folder is named by the series hash
 and an `anonymization_key.json` reverse-lookup file is written alongside the
 manifest. The hashing matches the companion C# tool byte-for-byte, so both
@@ -203,9 +203,9 @@ reader.create_manifest("/path/to/manifest.csv", rois=["tumor", "cord"])
 
 If the target CSV (and its `anonymization_key.json`) already exist,
 `create_manifest` **reads them and updates in place** instead of overwriting.
-Rows for series in the current walk are recomputed and **upserted** â€” matched on
+Rows for series in the current walk are recomputed and **upserted** — matched on
 the `series_hash` column, so an existing series is updated and a new one is
-appended â€” while series not in the current walk are left untouched. New ROI
+appended — while series not in the current walk are left untouched. New ROI
 columns are added (left blank for the rows that predate them), and the
 existing key file's hash mappings (and salt) are reused so identifiers stay
 stable. This makes it safe to call repeatedly as you walk more data:
@@ -215,7 +215,7 @@ stable. This makes it safe to call repeatedly as you walk more data:
 reader.walk_through_folders("/data/batch1")
 reader.create_manifest("/path/to/manifest.csv")
 
-# Later: walk more patients and keep populating the same file â€”
+# Later: walk more patients and keep populating the same file —
 # existing rows are preserved, only new series are added.
 reader.reset()
 reader.walk_through_folders("/data/batch2")
@@ -249,7 +249,7 @@ combined-file output (`Overall_Data_*` / `Overall_mask_*` / `Overall_dose_*`).
 import numpy as np
 
 # 4-channel one-hot prediction matching the loaded image shape:
-# (slices, rows, cols, num_classes + 1) â€” channel 0 is background.
+# (slices, rows, cols, num_classes + 1) — channel 0 is background.
 predictions = np.zeros((*reader.ArrayDicom.shape, 3), dtype=np.float32)
 # ... populate `predictions` from your model ...
 
@@ -281,17 +281,17 @@ print(entry.additional_tags)        # {"MyPatientName": ..., "Manufacturer": ...
 ```
 
 When you export with `write_to_folder`, these requested tags are also written
-into each series' `metadata.json` â€” inside the owning category's `tags`
+into each series' `metadata.json` — inside the owning category's `tags`
 sub-dict of the grouped document described below (or as a bare
 `{name: value}` dict with `metadata_style="flat"`). Note that the values are
-written verbatim â€” if you anonymize the folder names, make sure the tags you
+written verbatim — if you anonymize the folder names, make sure the tags you
 pull don't themselves carry identifying information.
 
 ### Grouped metadata (schema v2)
 
 By default `write_to_folder` writes a versioned `metadata.json` for **every**
 exported series (`metadata_style="grouped"`). DICOM features the walk already
-parsed are grouped by category â€” `image` (modality, series description, frame
+parsed are grouped by category — `image` (modality, series description, frame
 of reference, pixel spacing / slice thickness, effective export spacing),
 `structures` (each ROI's name, number, interpreted type, structure code, plus
 `volume_cc` and `exported_file` for exported ROIs), `doses` (dose units /
@@ -302,7 +302,7 @@ files are simply omitted, so image-only or dose-less folders parse cleanly
 with `meta.get("doses", [])`. The PHI note above applies unchanged: requested
 tag values are written verbatim.
 
-Pass `metadata_style="flat"` for the historical behavior â€” a flat
+Pass `metadata_style="flat"` for the historical behavior — a flat
 `{name: value}` dict of the requested tags, written only when some were found.
 
 ## Resetting state between uses
@@ -321,7 +321,7 @@ reader.reset_mask()   # re-allocate an empty mask after changing Contour_Names
 
 Both `create_manifest` and `write_to_folder` parallelise across series, and
 auto-tune per-ROI rasterisation threads so a single series with many ROIs still
-uses your spare cores. You can also set it explicitly â€” useful when calling
+uses your spare cores. You can also set it explicitly — useful when calling
 `get_images_and_mask()` directly on one big multi-ROI series:
 
 ```python
@@ -338,44 +338,44 @@ runs DicomRTTool and the companion C# `DicomRtNifti.Cli` tool side by side on
 TCIA LCTSC patients and compares mask generation (Dice / volume), image
 generation (voxel MAE / geometry), and the resampling feature. See
 [`evaluation/README.md`](evaluation/README.md). It is never part of the
-hermetic test suite â€” the parity pytest auto-skips unless you point it at the
+hermetic test suite — the parity pytest auto-skips unless you point it at the
 external dataset and the built C# binary.
 
 ## What's new since v4.0
 
-- **`write_to_folder`** â€” bulk DICOMâ†’NIfTI export to a per-ROI layout
-  (`<case>/image.nii.gz`, `<case>/masks/<roi>.nii.gz`, `<case>/doses/â€¦`) with
+- **`write_to_folder`** — bulk DICOM→NIfTI export to a per-ROI layout
+  (`<case>/image.nii.gz`, `<case>/masks/<roi>.nii.gz`, `<case>/doses/…`) with
   a single `manifest.csv` and no persistent index.
-- **`create_manifest`** â€” write (or incrementally extend) a metadata-only CSV
+- **`create_manifest`** — write (or incrementally extend) a metadata-only CSV
   of per-series image spacing and per-ROI volumes, mirroring the C# manifest.
-- **Output resampling** â€” `output_spacing` on `write_to_folder` and
+- **Output resampling** — `output_spacing` on `write_to_folder` and
   `write_images_annotations`, plus the public `resample_to_spacing` /
   `resample_to_reference` helpers (linear for image/dose, nearest-neighbour for
   masks; dose lands on the resampled image grid).
-- **Anonymization** â€” deterministic SHA-256 hashing (`hash_patient` /
+- **Anonymization** — deterministic SHA-256 hashing (`hash_patient` /
   `hash_study` / `hash_series` / `AnonymizationKey`) for anonymized exports,
   matching the companion C# tool.
-- **Faster, parallel rasterisation** â€” `mask_thread_count` plus the removal of
-  a per-ROI full-array rescan (~2.4Ã— on multi-ROI series).
+- **Faster, parallel rasterisation** — `mask_thread_count` plus the removal of
+  a per-ROI full-array rescan (~2.4× on multi-ROI series).
 - **Cross-tool evaluation harness** under `evaluation/`.
 
 ## What's new in v4.0
 
 - **Python 3.10+** required (3.8 / 3.9 are end-of-life).
-- **Public state-reset API**: `reset()`, `reset_rts()`, `reset_mask()` â€”
+- **Public state-reset API**: `reset()`, `reset_rts()`, `reset_mask()` —
   replaces the v3 `__reset__` / `__reset_mask__` / `__reset_RTs__`
   accessors.
-- **Deprecated v3 names removed**: `down_folder` â†’ `walk_through_folders`,
-  `where_are_RTs` â†’ `where_is_ROI`, `with_annotations` â†’
+- **Deprecated v3 names removed**: `down_folder` → `walk_through_folders`,
+  `where_are_RTs` → `where_is_ROI`, `with_annotations` →
   `prediction_array_to_RT`, plus the `__set_iteration__` and
   `__set_description__` setters renamed to `set_iteration` /
   `set_description`. See [`CHANGELOG.md`](CHANGELOG.md) for the full list
   and migration notes.
-- **Excel â†’ CSV** for both bulk-export helpers, dropping the `openpyxl`
+- **Excel → CSV** for both bulk-export helpers, dropping the `openpyxl`
   dependency: `characterize_data_to_excel` is now
-  `characterize_data_to_csv`, and `write_parallel(excel_file=â€¦)` is now
-  `write_parallel(index_file=â€¦)` accepting a `.csv` path.
-- **`struct_pydicom_string_keys` plumbing** finally works â€” historically the
+  `characterize_data_to_csv`, and `write_parallel(excel_file=…)` is now
+  `write_parallel(index_file=…)` accepting a `.csv` path.
+- **`struct_pydicom_string_keys` plumbing** finally works — historically the
   parameter was accepted but the values never reached the parsed RT
   records.
 - **Architecture:** the original `ReaderWriter.py` god-class has been
@@ -383,10 +383,10 @@ external dataset and the built C# binary.
   `DicomReaderWriter` API is unchanged.
 - **Hermetic test suite:** every DICOM file the tests need is generated
   in a tmp directory at session start from analytical primitives. No
-  external corpus, no network, no caches â€” the full suite runs in ~6
+  external corpus, no network, no caches — the full suite runs in ~6
   seconds and validates against analytically-known volume truth.
 - **Tooling:** ruff replaces flake8; PyPI Trusted Publishing replaces the
-  PYPI_TOKEN secret; CI matrix expanded to ubuntu + windows Ã— four Python
+  PYPI_TOKEN secret; CI matrix expanded to ubuntu + windows × four Python
   versions; pre-commit config added.
 
 ## License
@@ -396,4 +396,3 @@ external dataset and the built C# binary.
 ## Citation
 
 If you find this code useful, please reference [the publication](https://doi.org/10.1016/j.prro.2021.02.003) and the [GitHub page](https://github.com/brianmanderson).
-
