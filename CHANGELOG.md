@@ -5,7 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [6.0.2] — 2026-07-25
+
+### Added
+
+- `CITATION.cff` — machine-readable citation metadata, with the *Practical
+  Radiation Oncology* technical note (doi:10.1016/j.prro.2021.02.003) as the
+  preferred citation. GitHub surfaces a "Cite this repository" button from it.
+
+### Fixed
+
+- README encoding restored (mojibake introduced by an automated version bump).
+
+## [6.0.1] — 2026-07-07
 
 ### Added
 

@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the technical note listed under preferred-citation."
+title: DicomRTTool
+abstract: >-
+  Services for reading DICOM images, RT structure sets, and dose files, and for
+  converting between DICOM RT objects and NumPy arrays, NIfTI files, and
+  SimpleITK image handles — including converting prediction masks back into RT
+  structures.
+type: software
+authors:
+  - family-names: Anderson
+    given-names: Brian M.
+    email: b5anderson@health.ucsd.edu
+    affiliation: "University of California San Diego, Radiation Medicine and Applied Sciences"
+    orcid: "https://orcid.org/0000-0002-2748-1444"
+version: 6.0.2
+date-released: "2026-07-25"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask"
+url: "https://pypi.org/project/DicomRTTool/"
+keywords:
+  - DICOM
+  - radiation oncology
+  - medical physics
+  - RTSTRUCT
+  - segmentation
+  - medical imaging
+preferred-citation:
+  type: article
+  title: "Simple Python Module for Conversions Between DICOM Images and Radiation Therapy Structures, Masks, and Prediction Arrays"
+  authors:
+    - family-names: Anderson
+      given-names: Brian M.
+    - family-names: Wahid
+      given-names: Kareem A.
+    - family-names: Brock
+      given-names: Kristy K.
+  journal: "Practical Radiation Oncology"
+  volume: 11
+  issue: 3
+  start: 226
+  end: 229
+  year: 2021
+  month: 5
+  issn: "1879-8500"
+  doi: "10.1016/j.prro.2021.02.003"
