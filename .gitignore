@@ -2,6 +2,9 @@
 /.idea/
 /Examples/Example_Data
 /Example_Data/*
+# Local DICOM working data — never commit. Patient-identifying tags are
+# populated in these files; see the repo's PHI guidance before touching them.
+/AnonDICOM/
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
