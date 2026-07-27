@@ -11,12 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Every runtime dependency now declares a lower bound.** `numpy>=1.22`,
   `opencv-python-headless>=4.5`, `pandas>=1.4`, `scikit-image>=0.19`,
-  `scipy>=1.8`, `SimpleITK>=2.1.1`, `tqdm>=4.62`, `NiftiResampler>=0.1.0`
-  (`pydicom>=2.4` was already bounded). Each floor is the oldest release
-  shipping wheels for our minimum Python (3.10) that also provides the API
-  actually called. No upper caps: this is a library, and a cap here becomes an
-  unsatisfiable constraint downstream. Nothing about a default `pip install`
-  changes — the resolver still picks current releases.
+  `scipy>=1.8`, `SimpleITK>=2.1.1`, `tqdm>=4.62`, `NiftiResampler>=0.1.0`.
+  Each floor is the oldest release shipping wheels for our minimum Python
+  (3.10) that also provides the API actually called. No upper caps: this is a
+  library, and a cap here becomes an unsatisfiable constraint downstream.
+  Nothing about a default `pip install` changes — the resolver still picks
+  current releases.
+- **`pydicom>=2.4` raised to `pydicom>=3.0`.** This is the one bound that was
+  already present, and the new `minimum-versions` job proved it wrong on its
+  first run: pydicom 2.4.5 installs cleanly but 154 tests then fail, because
+  the fixture builders in `tests/synthetic.py` call
+  `save_as(enforce_file_format=…, little_endian=…, implicit_vr=…)` — all
+  pydicom 3.0 API. pydicom 2.4 also has no Python 3.13 support, which this
+  package claims. The library's own pydicom usage (`dcmread`, `dcmwrite`,
+  `Dataset`, `Sequence`, `Tag`, `generate_uid`) is 2.x-compatible, so 2.4 may
+  well have worked in practice — but it was a version we could not test, and
+  an untestable floor is the thing this job exists to catch. If you need
+  pydicom 2.x, open an issue: the fix is a compatibility shim in the test
+  harness, not a library change.
 - **The conformance suite is pinned to a commit.**
   `requirements-conformance.txt` now references RTMaskConformanceTest at
   `c1ef6087` rather than its default branch, so the accuracy gate cannot change

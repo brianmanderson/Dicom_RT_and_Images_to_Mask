@@ -39,7 +39,11 @@ dependencies = [
     "numpy>=1.22",                   # first release declaring Python 3.10 support
     "opencv-python-headless>=4.5",   # cv2.fillPoly; 4.x contour API
     "pandas>=1.4",                   # first release declaring Python 3.10 support
-    "pydicom>=2.4",
+    # Was >=2.4, which the minimum-versions job proved wrong on its first run:
+    # the suite writes fixtures with save_as(enforce_file_format=, little_endian=,
+    # implicit_vr=), all pydicom 3.0 API, so 2.4 was a version we could not test.
+    # 2.4 also has no Python 3.13 support, which this package claims.
+    "pydicom>=3.0",
     "scikit-image>=0.19",            # find_contours(level=, fully_connected=, positive_orientation=)
     "scipy>=1.8",                    # first release declaring Python 3.10 support
     "SimpleITK>=2.1.1",              # first release with cp310 wheels
