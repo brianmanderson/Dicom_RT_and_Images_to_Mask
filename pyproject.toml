@@ -28,16 +28,23 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
+# Lower bounds only, no upper caps: this is a library, and a cap here becomes
+# an unsatisfiable constraint in somebody else's environment. Each floor is the
+# oldest release that both ships wheels for our minimum Python (3.10) and
+# provides the API surface we call; they are enforced by the
+# `minimum-versions` job in test.yml, which installs exactly these floors and
+# runs the suite, so a floor that is too low fails CI rather than a user's
+# install.
 dependencies = [
-    "numpy",
-    "opencv-python-headless",
-    "pandas",
+    "numpy>=1.22",                   # first release declaring Python 3.10 support
+    "opencv-python-headless>=4.5",   # cv2.fillPoly; 4.x contour API
+    "pandas>=1.4",                   # first release declaring Python 3.10 support
     "pydicom>=2.4",
-    "scikit-image",
-    "scipy",
-    "SimpleITK",
-    "tqdm",
-    "NiftiResampler",
+    "scikit-image>=0.19",            # find_contours(level=, fully_connected=, positive_orientation=)
+    "scipy>=1.8",                    # first release declaring Python 3.10 support
+    "SimpleITK>=2.1.1",              # first release with cp310 wheels
+    "tqdm>=4.62",
+    "NiftiResampler>=0.1.0",         # ImageResampler.resample_image(empty_value=)
 ]
 
 [project.optional-dependencies]

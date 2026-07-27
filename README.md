@@ -374,6 +374,37 @@ generation (voxel MAE / geometry), and the resampling feature. See
 hermetic test suite — the parity pytest auto-skips unless you point it at the
 external dataset and the built C# binary.
 
+## Reproducibility
+
+**Dependency bounds.** Every runtime dependency in
+[`pyproject.toml`](pyproject.toml) carries a lower bound and no upper cap.
+Lower bounds are the oldest release that ships wheels for our minimum Python
+(3.10) and provides the API we call; caps are omitted deliberately, because a
+cap in a library's metadata becomes an unsatisfiable constraint in a
+downstream environment. The bounds are executable, not decorative: the
+`minimum-versions` CI job derives the floors from the installed package
+metadata, force-installs exactly those versions on Python 3.10, and runs the
+suite — so a floor that is too low fails CI instead of an installing user.
+
+**Pinned conformance suite.** The accuracy gate depends on
+[RTMaskConformanceTest](https://github.com/brianmanderson/RTMaskConformanceTest),
+which is pinned to a full commit SHA in
+[`requirements-conformance.txt`](requirements-conformance.txt). It is a gate,
+so it must not be able to change verdict without a reviewed commit here.
+Upstream publishes no tags or PyPI release, so a SHA is the only immutable
+reference available; bump it in its own commit.
+
+**Recorded environments.** [`constraints/ci-linux-py3.12.txt`](constraints/ci-linux-py3.12.txt)
+pins the full transitive closure of the canonical CI environment. It is a
+constraints file, not a lockfile — nothing in it reaches an installing user,
+and the floating test matrix ignores it so upstream regressions are still
+caught. The `pinned` job installs against it, and the conformance job runs
+under it, so the record is proven to still resolve and still pass. Every CI
+job additionally uploads its own resolved `pip freeze` as an artifact
+(including on failure), and the publish workflow uploads build provenance —
+the build environment, interpreter, commit, and SHA-256 of each distribution —
+alongside the dist itself.
+
 ## What's new since v4.0
 
 - **`write_to_folder`** — bulk DICOM→NIfTI export to a per-ROI layout

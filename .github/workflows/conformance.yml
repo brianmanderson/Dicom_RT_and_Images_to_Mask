@@ -38,11 +38,29 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             requirements-conformance.txt
+            constraints/ci-linux-py3.12.txt
 
+      # The suite itself is pinned to a commit SHA in requirements-conformance.txt
+      # and everything from PyPI is pinned by the constraints file, so a verdict
+      # from this job is attributable to a specific, recorded environment.
       - name: Install package + conformance suite
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" -r requirements-conformance.txt
+          pip install -e ".[dev]" -r requirements-conformance.txt -c constraints/ci-linux-py3.12.txt
+
+      - name: Record pinned conformance revision
+        run: pip show rtmask-conformance
 
       - name: Run conformance suite
         run: pytest tests/test_conformance.py -v
+
+      - name: Record resolved environment
+        if: always()
+        run: python -m pip freeze --exclude-editable > environment-conformance.txt
+
+      - name: Upload environment record
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: environment-conformance
+          path: environment-conformance.txt

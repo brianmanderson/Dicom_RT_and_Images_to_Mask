@@ -2,4 +2,14 @@
 # PyPI rejects metadata containing direct URL references (PEP 508
 # `name @ url`). Install with:
 #   pip install -e .[dev] -r requirements-conformance.txt
-rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest
+#
+# Pinned to an immutable commit, not a branch: the conformance job is an
+# accuracy gate, and a gate that tracks someone else's default branch can
+# change verdict with no change to this repository. RTMaskConformanceTest
+# publishes no tags and no PyPI release, so the full 40-character SHA is the
+# only immutable reference available.
+#
+# Pinned commit: c1ef6087 "Restore README encoding (revert mojibake from
+# automated bump)", 2026-07-13. Bump deliberately, in its own commit, so the
+# conformance result moving is always attributable to a reviewed change.
+rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest@c1ef60874c5b2d8e291c927ec8a9f212d903fd07

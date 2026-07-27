@@ -37,6 +37,24 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+      # Provenance for the published artifact: what the dist was built from and
+      # what it hashes to. Without this, a release on PyPI has no record tying
+      # it back to a build environment.
+      - name: Record build provenance
+        run: |
+          mkdir -p provenance
+          python -m pip freeze --exclude-editable > provenance/build-environment.txt
+          python -VV > provenance/python-version.txt
+          git rev-parse HEAD > provenance/commit.txt
+          sha256sum dist/* > provenance/dist-sha256.txt
+          cat provenance/dist-sha256.txt
+
+      - name: Upload build provenance
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-provenance
+          path: provenance/
+
   publish:
     name: Publish to PyPI
     needs: build

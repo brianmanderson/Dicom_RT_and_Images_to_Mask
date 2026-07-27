@@ -5,6 +5,44 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Every runtime dependency now declares a lower bound.** `numpy>=1.22`,
+  `opencv-python-headless>=4.5`, `pandas>=1.4`, `scikit-image>=0.19`,
+  `scipy>=1.8`, `SimpleITK>=2.1.1`, `tqdm>=4.62`, `NiftiResampler>=0.1.0`
+  (`pydicom>=2.4` was already bounded). Each floor is the oldest release
+  shipping wheels for our minimum Python (3.10) that also provides the API
+  actually called. No upper caps: this is a library, and a cap here becomes an
+  unsatisfiable constraint downstream. Nothing about a default `pip install`
+  changes — the resolver still picks current releases.
+- **The conformance suite is pinned to a commit.**
+  `requirements-conformance.txt` now references RTMaskConformanceTest at
+  `c1ef6087` rather than its default branch, so the accuracy gate cannot change
+  verdict without a reviewed commit in this repository.
+
+### Added
+
+- **`constraints/ci-linux-py3.12.txt`** — the full transitive closure of the
+  canonical CI environment (ubuntu-latest / CPython 3.12), pinned. A
+  constraints file rather than a lockfile: it never reaches an installing user,
+  and the floating test matrix deliberately ignores it so upstream regressions
+  are still caught.
+- **`minimum-versions` CI job** — derives the floors from the installed package
+  metadata (so it cannot drift from `pyproject.toml`), force-installs exactly
+  those versions on Python 3.10, and runs the suite. This is what makes the
+  lower bounds executable rather than asserted.
+- **`pinned` CI job** — installs against the committed constraints file and
+  runs the suite, proving the recorded environment still resolves and passes,
+  and logging any drift from the committed pins.
+- **Environment records as CI artifacts.** Every job uploads its resolved
+  `pip freeze`, including on failure — a red run's environment is the one worth
+  inspecting. The conformance job additionally logs the pinned suite revision.
+- **Build provenance on publish.** The publish workflow now uploads the build
+  environment, interpreter version, source commit, and SHA-256 of each
+  distribution alongside the dist.
+
 ## [6.1.0] — 2026-07-26
 
 ### Added

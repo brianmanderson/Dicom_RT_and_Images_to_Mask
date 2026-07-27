@@ -1,0 +1,66 @@
+# Reproducibility record for the canonical CI environment:
+#   ubuntu-latest, CPython 3.12, "pip install -e .[dev] -r requirements-conformance.txt"
+#
+# This is a constraints file, not a lockfile. DicomRTTool is a library, so its
+# published metadata carries lower bounds and no caps (see pyproject.toml);
+# nothing in this file reaches an installing user. Its only job is to make one
+# environment exactly restatable: the "pinned" job in test.yml and the
+# conformance job both install with "-c" against this file, so if a pin here
+# is wrong or unsatisfiable, CI fails instead of drifting quietly.
+#
+# The floating matrix in test.yml deliberately does NOT use this file. That is
+# what still catches upstream regressions; this file is the record of what a
+# green run was actually built against.
+#
+# Entries a given platform does not install (colorama, tzdata on some OSes) are
+# harmless: a constraint bounds a package only if something else pulls it in.
+#
+# rtmask-conformance itself is absent by design. pip rejects direct URL
+# references in a constraints file; it is pinned by commit SHA in
+# requirements-conformance.txt instead. Its dependencies are pinned here.
+#
+# Regenerate (Linux, Python 3.12) after any dependency change:
+#
+#   python3.12 -m venv /tmp/rtenv && . /tmp/rtenv/bin/activate
+#   pip install -e ".[dev]" -r requirements-conformance.txt
+#   pip freeze --exclude-editable > constraints/ci-linux-py3.12.txt
+#
+# Every CI job also uploads its own resolved "pip freeze" as an artifact, so
+# each run has an environment record even for cells this file does not cover.
+
+ast_serialize==0.6.0
+build==1.5.0
+colorama==0.4.6
+coverage==7.15.2
+ImageIO==2.37.4
+iniconfig==2.3.0
+lazy-loader==0.5
+librt==0.13.0
+mypy==2.3.0
+mypy_extensions==1.1.0
+networkx==3.6.1
+NiftiResampler==0.1.1
+numpy==2.5.1
+opencv-python-headless==5.0.0.93
+packaging==26.2
+pandas==3.0.5
+pathspec==1.1.1
+pillow==12.3.0
+pluggy==1.6.0
+pydicom==3.0.2
+Pygments==2.20.0
+pyproject_hooks==1.2.0
+pytest==9.1.1
+pytest-cov==7.1.0
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+ruff==0.16.0
+scikit-image==0.26.0
+scipy==1.18.0
+simpleitk==2.5.5
+six==1.17.0
+tifffile==2026.7.14
+tqdm==4.70.0
+trimesh==4.12.2
+typing_extensions==4.16.0
+tzdata==2026.3
