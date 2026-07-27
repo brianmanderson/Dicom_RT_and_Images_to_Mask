@@ -53,7 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   inspecting. The conformance job additionally logs the pinned suite revision.
 - **Build provenance on publish.** The publish workflow now uploads the build
   environment, interpreter version, source commit, and SHA-256 of each
-  distribution alongside the dist.
+  distribution alongside the dist. Note that `on: release` workflows run from
+  the *tag's* commit, so this takes effect from the next tagged release.
+- **Archived DOI.** v6.1.0 is deposited on Zenodo. `CITATION.cff` now carries
+  both the concept DOI `10.5281/zenodo.21631862` (always the latest release —
+  cite this one) and the v6.1.0 snapshot `10.5281/zenodo.21631863`, and the
+  README gained a DOI badge. Verified valid against CFF schema 1.2.0, with the
+  concept DOI rendering as the primary DOI in APA and BibTeX output.
 
 ## [6.1.0] — 2026-07-26
 

@@ -15,6 +15,13 @@ authors:
     orcid: "https://orcid.org/0000-0002-2748-1444"
 version: 6.1.0
 date-released: "2026-07-26"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21631862"
+    description: "Concept DOI — always resolves to the latest release. Cite this one unless you need to pin a specific version."
+  - type: doi
+    value: "10.5281/zenodo.21631863"
+    description: "Archived snapshot of version 6.1.0."
 license: GPL-3.0-or-later
 repository-code: "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask"
 url: "https://pypi.org/project/DicomRTTool/"

@@ -2,6 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/DicomRTTool.svg)](https://pypi.org/project/DicomRTTool/)
 [![Tests](https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask/actions/workflows/test.yml/badge.svg)](https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask/actions/workflows/test.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21631862.svg)](https://doi.org/10.5281/zenodo.21631862)
 
 > **Published!** See the [Technical Note](https://www.sciencedirect.com/science/article/abs/pii/S1879850021000485) and please cite it if you find this work useful.
 > DOI: <https://doi.org/10.1016/j.prro.2021.02.003>
@@ -459,4 +460,15 @@ alongside the dist itself.
 
 ## Citation
 
-If you find this code useful, please reference [the publication](https://doi.org/10.1016/j.prro.2021.02.003) and the [GitHub page](https://github.com/brianmanderson).
+If you find this code useful, please cite both:
+
+- **The technical note** — Anderson, Wahid, and Brock, *Practical Radiation
+  Oncology* 11(3):226–229, 2021.
+  [doi:10.1016/j.prro.2021.02.003](https://doi.org/10.1016/j.prro.2021.02.003)
+- **The software** —
+  [doi:10.5281/zenodo.21631862](https://doi.org/10.5281/zenodo.21631862). This is
+  the concept DOI and always resolves to the latest release; Zenodo also mints a
+  version-specific DOI per release if you need to pin the exact version you ran.
+
+[`CITATION.cff`](CITATION.cff) carries both, so GitHub's "Cite this repository"
+button and most reference managers pick them up without any manual entry.
