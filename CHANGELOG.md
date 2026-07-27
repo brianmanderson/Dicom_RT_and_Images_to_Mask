@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `tests/synthetic.py`'s `build_synthetic_dose` gained `dose_units` and
   `peak_dose`, and now normalises the grid so its maximum lands **exactly** on
   `peak_dose`, letting tests assert an exact Dmax.
+- `tests/test_dose_export_fidelity.py` — every expected value re-derived from
+  the DICOM tags **with pydicom alone**, never through SimpleITK or this
+  library, so the two cannot agree by sharing a bug. The synthetic dose sits on
+  a deliberately finer grid than the CT, making "the exported dose matches the
+  image grid" a real assertion rather than a tautology.
+- `tests/test_real_corpus_dose.py` — the same checks against one real patient,
+  opt-in via `DICOMRTTOOL_DOSE_CORPUS` (mirroring `test_csharp_parity.py`) so
+  the hermetic suite and CI are unaffected.
 
 ### Changed
 
