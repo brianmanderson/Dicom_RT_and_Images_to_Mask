@@ -1,7 +1,17 @@
 /__pycache__/
 /.idea/
-/Examples/Example_Data
 /Example_Data/*
+# Data downloaded and written by the notebooks in Examples/.
+/Examples/pancreatic_ct_cbct/
+# Re-identification key: maps study/series hashes back to MRNs. It must stay in
+# a secured, access-controlled location and never enter version control.
+**/anonymization_key.json
+# Cohort manifests carry identifiers unless exported with anonymize=True.
+# Use `git add -f` for a de-identified manifest you intend to share.
+**/manifest*.csv
+# Downloaded DICOM. Deliberately NOT a bare ``*.dcm``: the package ships
+# ``src/DicomRTTool/template_RS.dcm`` and the tests may add DICOM fixtures.
+/Examples/**/*.dcm
 # Local DICOM working data — never commit. Patient-identifying tags are
 # populated in these files; see the repo's PHI guidance before touching them.
 /AnonDICOM/

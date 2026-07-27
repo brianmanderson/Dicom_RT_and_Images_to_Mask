@@ -123,6 +123,7 @@ class RDBase(DICOMBase):
         ds = dcmread(file_name, stop_before_pixels=True)
 
         self.SeriesInstanceUID = ds.SeriesInstanceUID
+        self.PatientID = getattr(ds, "PatientID", None)
         self.DoseType = ds.DoseType
         self.DoseUnits = ds.DoseUnits
         self.DoseSummationType = ds.DoseSummationType

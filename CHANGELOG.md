@@ -5,6 +5,62 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Dose rows in the manifest.** `create_manifest` and `write_to_folder` now
+  emit one row per RT Dose series alongside the image-series rows, keyed by the
+  **dose's own** `patient_hash` / `study_hash` / `series_hash` and carrying the
+  dose grid's native spacing. The value column is the plan name with a `cGy`
+  suffix (mirroring the existing `<roi> cc` convention) and holds that plan's
+  **Dmax**. A new `modality` column tells the two row kinds apart; each row
+  fills only its own kind of column, so the other is blank.
+- **`DicomReaderWriter.dose_max_cgy(rd)`** — maximum dose of an RT Dose series
+  in cGy, read off the **native** grid (resampling to a coarser
+  `output_spacing` interpolates the peak away, so a Dmax taken from the
+  exported dose would understate it). Multi-file BEAM series are summed.
+  `GY` and `CGY` both convert; units with no absolute equivalent (e.g.
+  `RELATIVE`) return `None` and log a warning.
+- **`DicomReaderWriter.dose_plan_name(rd)`** — the label a dose is filed under.
+  Prefers the referenced RT Plan's `RTPlanName`, then its `RTPlanLabel`, then
+  the dose's own series description. The fallback matters: public collections
+  frequently ship RTDOSE without the RTPLAN (TCIA's `Pancreatic-CT-CBCT-SEG`,
+  for one), which would otherwise leave the dose unnamed.
+- `plan_name` and `dose_max_cgy` on every entry of the grouped `metadata.json`
+  `doses` block, so an exported case folder describes its dose without needing
+  the manifest.
+- `RDBase.PatientID` is now populated (it was the only record type leaving it
+  unset), which is what lets a dose row hash its own patient identifier —
+  including for a dose that never grouped onto an image series.
+- `tests/synthetic.py`'s `build_synthetic_dose` gained `dose_units` and
+  `peak_dose`, and now normalises the grid so its maximum lands **exactly** on
+  `peak_dose`, letting tests assert an exact Dmax.
+
+### Changed
+
+- `create_manifest` no longer bails out when a corpus has no usable ROIs but
+  does carry dose — it writes the dose rows. The "no ROIs found" warnings are
+  unchanged for a corpus with neither.
+
+### Removed
+
+- **`Examples/DICOMRTTool_Tutorial.ipynb`** (and its PDF) and
+  **`Examples/Old_Legacy_Notebook.ipynb`**. The tutorial predated
+  `write_to_folder`, `create_manifest`, resampling, anonymization, and the
+  metadata sidecar — it exercised none of them — and its PyRadiomics section
+  could no longer run at all (no wheel for Python 3.12+). The legacy notebook
+  had been calling the pre-v4 API removed in 4.0.0. Both remain in git history.
+- **`scripts/Distribute_Train_Test_Validation.py`**, which still read the
+  writer's index sheet with `pd.read_excel(engine="openpyxl")` — openpyxl was
+  dropped as a dependency in 4.0.0 and the index has been CSV since, so the
+  script could not run. The now-empty `scripts/` directory is gone with it.
+- **`.gitmodules`**, an empty tracked file left behind when the
+  `Plot_And_Scroll_Images` submodule was dropped (that dependency is now the
+  optional `PlotScrollNumpyArrays` package under the `viewer` extra). An empty
+  `.gitmodules` is harmless to git but advertises submodules the repo does not
+  have.
+
 ## [6.0.2] — 2026-07-25
 
 ### Added

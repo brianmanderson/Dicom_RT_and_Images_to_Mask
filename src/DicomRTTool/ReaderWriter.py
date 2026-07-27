@@ -89,6 +89,13 @@ _NON_IMAGE_MODALITIES = {
     "REG", "PR", "KO", "SR", "FID", "RWV",
 }
 
+# DoseUnits (3004|0002) values that convert to cGy, and their multiplier.
+# Anything else -- notably RELATIVE -- has no absolute cGy equivalent.
+_DOSE_UNITS_TO_CGY = {"GY": 100.0, "CGY": 1.0}
+
+# Label used for a dose series whose plan name cannot be determined.
+_UNNAMED_PLAN = "dose"
+
 # Filename sanitisation for the per-ROI export layout (Windows-safe).
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED_FILENAMES = {
@@ -1156,6 +1163,88 @@ class DicomReaderWriter:
                 self.index, dose_type, sorted(set(skipped_types)),
             )
 
+    # -- Dose characterisation ---------------------------------------------
+
+    def dose_plan_name(self, rd: RDBase) -> str:
+        """Human-readable name for a dose series -- its manifest column label.
+
+        Prefers the referenced RT Plan's ``RTPlanName``, then its
+        ``RTPlanLabel``. Public collections often ship dose **without** the
+        plan, so when the referenced plan was not part of the walk this falls
+        back to the dose series description, and finally to a generic label.
+
+        Args:
+            rd: The dose record to name.
+        """
+        plan_sop = rd.ReferencedPlanSOPInstanceUID
+        if plan_sop:
+            # ``rp_dictionary`` is keyed by the plan's *SeriesInstanceUID*,
+            # while the dose references its *SOPInstanceUID* -- scan for it.
+            for plan in self.rp_dictionary.values():
+                if plan.SOPInstanceUID == plan_sop:
+                    name = plan.PlanName or plan.PlanLabel
+                    if name:
+                        return str(name).strip()
+                    break
+        if rd.Description:
+            return str(rd.Description).strip()
+        return _UNNAMED_PLAN
+
+    @staticmethod
+    def dose_max_cgy(rd: RDBase) -> float | None:
+        """Maximum dose of an RT Dose series, in cGy, on its **native** grid.
+
+        Read straight from the dose file(s): resampling onto another grid
+        interpolates the peak away, so a Dmax taken from an exported, resampled
+        dose would understate the real one. Multi-file (BEAM) series are summed,
+        resampling onto the first file's grid only if they genuinely differ.
+
+        Args:
+            rd: The dose record to measure.
+
+        Returns:
+            Dmax in cGy rounded to 2 decimals, or ``None`` when the units are
+            not convertible to an absolute dose (e.g. ``RELATIVE``) or no dose
+            file could be read.
+        """
+        to_cgy = _DOSE_UNITS_TO_CGY.get((rd.DoseUnits or "").upper())
+        if to_cgy is None:
+            logger.warning(
+                "Dose series %s has DoseUnits %r, which has no absolute cGy "
+                "equivalent; its Dmax is omitted.",
+                rd.SeriesInstanceUID, rd.DoseUnits,
+            )
+            return None
+
+        reader = sitk.ImageFileReader()
+        total: sitk.Image | None = None
+        for dose_file in rd.Dose_Files:
+            reader.SetFileName(dose_file)
+            reader.ReadImageInformation()
+            handle = reader.Execute()
+            scaling = float(reader.GetMetaData("3004|000e"))
+            if len(rd.Dose_Files) == 1:
+                # Fast path: scale the scalar maximum instead of materialising
+                # a float copy of the whole grid (doses run to 100M+ voxels).
+                peak = float(sitk.GetArrayViewFromImage(handle).max())
+                return round(peak * scaling * to_cgy, 2)
+            scaled = sitk.Cast(handle, sitk.sitkFloat32) * scaling
+            if total is None:
+                total = scaled
+            else:
+                if (
+                    scaled.GetSize() != total.GetSize()
+                    or scaled.GetSpacing() != total.GetSpacing()
+                    or scaled.GetOrigin() != total.GetOrigin()
+                ):
+                    scaled = resample_to_reference(scaled, total, "Linear")
+                total = total + scaled
+
+        if total is None:
+            logger.warning("No dose files could be read for series %s.", rd.SeriesInstanceUID)
+            return None
+        return round(float(sitk.GetArrayViewFromImage(total).max()) * to_cgy, 2)
+
     # -- Mask loading -------------------------------------------------------
 
     def _characterize_rt(self, rt: RTBase) -> None:
@@ -1814,6 +1903,17 @@ class DicomReaderWriter:
 
         rows = _map_parallel(items, _worker, "Writing to folder...", thread_count)
 
+        # A dose row per dose that was actually exported. Gated on
+        # ``get_dose_output`` so the manifest describes what is on disk --
+        # ``create_manifest`` is the survey that reports every dose regardless.
+        if self.get_dose_output:
+            exported_rd_uids = {
+                rd_uid
+                for idx in items
+                for rd_uid in self.series_instances_dictionary[idx].RDs
+            }
+            rows = rows + self._collect_dose_rows(salt, exported_rd_uids)
+
         if not rows:
             logger.warning("No series exported; manifest not written.")
             return
@@ -1958,6 +2058,12 @@ class DicomReaderWriter:
                 rec["dose_summation_type"] = rd.DoseSummationType
             if rd.Description:
                 rec["description"] = rd.Description
+            # The plan name and Dmax that identify this dose in the manifest,
+            # repeated here so a case folder is self-describing without it.
+            rec["plan_name"] = self.dose_plan_name(rd)
+            dose_max = self.dose_max_cgy(rd)
+            if dose_max is not None:
+                rec["dose_max_cgy"] = dose_max
             if rd.ReferencedPlanSOPInstanceUID:
                 rec["referenced_plan_sop_instance_uid"] = rd.ReferencedPlanSOPInstanceUID
             if rd.ReferencedStructureSetSOPInstanceUID:
@@ -2138,6 +2244,7 @@ class DicomReaderWriter:
             "_mrn": mrn,
             "_study_uid": study_uid,
             "_series_uid": series_uid,
+            "modality": entry.Modality,
             "spacing_x": out_spacing[0],
             "spacing_y": out_spacing[1],
             "spacing_z": out_spacing[2],
@@ -2157,8 +2264,18 @@ class DicomReaderWriter:
         deterministic hashes when *anonymize* is true and the original
         ``PatientID`` / ``StudyInstanceUID`` / ``SeriesInstanceUID`` otherwise --
         the raw identifiers are never written as separate columns. Plus an
-        optional ``case_id``, the output spacing, and one ``<roi> cc`` column per
-        wanted ROI (left **blank** when the ROI is absent for that series).
+        optional ``case_id``, the ``modality``, and the spacing.
+
+        The remaining columns depend on what the row describes, and the two
+        kinds are told apart by ``modality``:
+
+        * **image series** get one ``<roi> cc`` column per wanted ROI, holding
+          the mask volume (**blank** when that ROI is absent from the series);
+        * **dose series** (``RTDOSE``) get one ``<plan> cGy`` column per plan,
+          holding that plan's maximum dose.
+
+        Because a row only carries its own kind of column, pandas fills the
+        other kind with NaN -- i.e. an empty cell in the CSV.
         """
         record: dict = {}
         if include_case_id and "case_id" in row:
@@ -2171,12 +2288,17 @@ class DicomReaderWriter:
             record["patient_hash"] = row["_mrn"]
             record["study_hash"] = row["_study_uid"]
             record["series_hash"] = row["_series_uid"]
+        record["modality"] = row.get("modality")
         record["spacing_x"] = row["spacing_x"]
         record["spacing_y"] = row["spacing_y"]
         record["spacing_z"] = row["spacing_z"]
-        for roi in wanted_rois:
-            # ``None`` -> NaN in the DataFrame -> an empty cell in the CSV.
-            record[f"{roi} cc"] = row["volumes"].get(roi, None)
+        if "doses" in row:
+            for plan_name, dose_max in row["doses"].items():
+                record[f"{plan_name} cGy"] = dose_max
+        else:
+            for roi in wanted_rois:
+                # ``None`` -> NaN in the DataFrame -> an empty cell in the CSV.
+                record[f"{roi} cc"] = row["volumes"].get(roi, None)
         return record
 
     # Identifier columns are pinned to ``str`` on reload: an all-digit MRN
@@ -2207,17 +2329,22 @@ class DicomReaderWriter:
 
     @staticmethod
     def _order_manifest_columns(df):
-        """Stable column order: identifiers, spacing, features, ROI volumes.
+        """Stable column order: identifiers, spacing, features, then values.
 
-        Absent ROI volume cells (new columns on old rows, or vice versa) stay
-        NaN so they render as empty cells in the CSV. Non-ROI feature columns
-        are sorted so the order does not depend on which run introduced them.
+        The two value blocks come last: ``<roi> cc`` mask volumes, then
+        ``<plan> cGy`` maximum doses. Absent cells (new columns on old rows, or
+        vice versa) stay NaN so they render as empty cells in the CSV. Non-value
+        feature columns are sorted so the order does not depend on which run
+        introduced them.
         """
         roi_cols = sorted(c for c in df.columns if str(c).endswith(" cc"))
+        dose_cols = sorted(c for c in df.columns if str(c).endswith(" cGy"))
+        value_cols = set(roi_cols) | set(dose_cols)
         lead = [c for c in ("case_id", "patient_hash", "study_hash", "series_hash",
-                            "spacing_x", "spacing_y", "spacing_z") if c in df.columns]
-        rest = sorted(c for c in df.columns if c not in lead and c not in roi_cols)
-        return df[lead + rest + roi_cols]
+                            "modality", "spacing_x", "spacing_y", "spacing_z")
+                if c in df.columns]
+        rest = sorted(c for c in df.columns if c not in lead and c not in value_cols)
+        return df[lead + rest + roi_cols + dose_cols]
 
     @classmethod
     def _upsert_manifest(cls, existing_df, new_df, new_keys, canon):
@@ -2343,11 +2470,58 @@ class DicomReaderWriter:
             "_mrn": mrn,
             "_study_uid": study_uid,
             "_series_uid": series_uid,
+            "modality": entry.Modality,
             "spacing_x": spacing[0],
             "spacing_y": spacing[1],
             "spacing_z": spacing[2],
             "volumes": volumes,
         }
+
+    def _collect_dose_rows(self, salt: str, rd_uids: set[str] | None = None) -> list[dict]:
+        """Build one manifest row per RT Dose series.
+
+        A dose row is keyed by the **dose series' own** patient / study / series
+        identifiers -- not the image series it was linked to -- and carries its
+        native grid spacing plus a single ``{plan name: Dmax cGy}`` entry, which
+        :meth:`_manifest_record` turns into a ``<plan> cGy`` column. Iterating
+        :attr:`rd_dictionary` means each dose appears exactly once even when the
+        walk linked it to several image series.
+
+        Args:
+            salt: Salt for the deterministic identifier hashes.
+            rd_uids: Restrict to these dose SeriesInstanceUIDs. ``None`` (the
+                default) includes every dose found by the walk.
+        """
+        rows: list[dict] = []
+        reader = sitk.ImageFileReader()
+        for rd_uid, rd in self.rd_dictionary.items():
+            if (rd_uids is not None and rd_uid not in rd_uids) or not rd.Dose_Files:
+                continue
+            try:
+                dose_max = self.dose_max_cgy(rd)
+                reader.SetFileName(rd.Dose_Files[0])
+                reader.ReadImageInformation()
+                spacing = tuple(float(s) for s in reader.GetSpacing())
+            except (RuntimeError, OSError, KeyError, ValueError):
+                logger.warning("Failed to characterise dose %s", rd.Dose_Files, exc_info=True)
+                continue
+            mrn = rd.PatientID or ""
+            study_uid = rd.StudyInstanceUID or ""
+            series_uid = rd.SeriesInstanceUID or ""
+            rows.append({
+                "patient_hash": hash_patient(mrn, salt),
+                "study_hash": hash_study(study_uid, salt),
+                "series_hash": hash_series(series_uid, salt),
+                "_mrn": mrn,
+                "_study_uid": study_uid,
+                "_series_uid": series_uid,
+                "modality": "RTDOSE",
+                "spacing_x": spacing[0],
+                "spacing_y": spacing[1],
+                "spacing_z": spacing[2],
+                "doses": {self.dose_plan_name(rd): dose_max},
+            })
+        return rows
 
     def create_manifest(
         self,
@@ -2401,7 +2575,10 @@ class DicomReaderWriter:
             wanted_rois = list(self.Contour_Names)
         else:
             wanted_rois = [r.lower() for r in self.all_rois]
-        if not wanted_rois:
+        # Doses contribute their own rows, so a corpus carrying dose but no
+        # usable ROIs still produces a manifest.
+        has_doses = any(rd.Dose_Files for rd in self.rd_dictionary.values())
+        if not wanted_rois and not has_doses:
             if self.rt_dictionary:
                 logger.warning(
                     "No ROIs to record: RT structures were found, but none "
@@ -2419,7 +2596,7 @@ class DicomReaderWriter:
             idx for idx, entry in self.series_instances_dictionary.items()
             if entry.SeriesInstanceUID is not None and entry.RTs
         ]
-        if not candidates:
+        if not candidates and not has_doses:
             logger.warning("No series with RT structures found; manifest not written.")
             return
 
@@ -2462,7 +2639,12 @@ class DicomReaderWriter:
                 logger.warning("Failed on %s", getattr(entry, "path", index), exc_info=True)
                 return None
 
-        rows = _map_parallel(candidates, _worker, "Building manifest...", thread_count)
+        rows = (
+            _map_parallel(candidates, _worker, "Building manifest...", thread_count)
+            if candidates else []
+        )
+        # Dose series get their own rows, keyed by their own identifiers.
+        rows = rows + self._collect_dose_rows(salt)
 
         # Record every series in the key file (reusing existing mappings).
         for row in rows:

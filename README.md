@@ -153,8 +153,11 @@ reader.write_to_folder("/path/to/clear", anonymize=False)  # override off
 
 ---
 
-That's the core loop. The sections below are reference material for everything
-else.
+That's the core loop, and [`Examples/01_DICOM_to_NIfTI_Dataset.ipynb`](Examples/01_DICOM_to_NIfTI_Dataset.ipynb)
+runs it end to end on a public TCIA cohort — CT, structures, **and** dose —
+through to a verified, anonymized NIfTI dataset. See [`Examples/`](Examples/).
+
+The sections below are reference material for everything else.
 
 ## Load a single series into NumPy / SimpleITK
 
@@ -198,6 +201,35 @@ either set `Contour_Names` on the reader (as in
 ```python
 reader.create_manifest("/path/to/manifest.csv", rois=["tumor", "cord"])
 ```
+
+### Image rows and dose rows
+
+The manifest holds two kinds of row, told apart by the `modality` column:
+
+| Row | `modality` | Value columns |
+|-----|-----------|---------------|
+| Image series | `CT`, `MR`, … | one `<roi> cc` per ROI — the mask volume |
+| Dose series | `RTDOSE` | one `<plan> cGy` per plan — that plan's **Dmax** |
+
+A dose row is keyed by the **dose series' own** `patient_hash` / `study_hash` /
+`series_hash`, so it shares the patient and study of the images it belongs to
+but carries its own series identifier. Its `spacing_x/y/z` is the dose grid's
+own spacing, which is usually finer than the image's. Each row only ever fills
+its own kind of column, so the other kind is blank.
+
+The plan name is taken from the referenced RT Plan's `RTPlanName`, falling back
+to its `RTPlanLabel`. Many public collections ship dose *without* the plan, in
+which case the dose's own series description is used instead.
+
+`Dmax` is read off the **native** dose grid, before any `output_spacing`
+resampling — interpolating a dose onto a coarser grid blunts its peak, and the
+manifest should report the real maximum. `DoseUnits` of `GY` and `CGY` are both
+converted to cGy; anything without an absolute equivalent (e.g. `RELATIVE`)
+leaves the cell blank and logs a warning.
+
+`create_manifest` reports **every** dose the walk found. `write_to_folder`'s
+manifest describes what it actually wrote, so it includes dose rows only when
+the reader was built with `get_dose_output=True`.
 
 ### Incremental manifests
 
@@ -295,7 +327,8 @@ parsed are grouped by category — `image` (modality, series description, frame
 of reference, pixel spacing / slice thickness, effective export spacing),
 `structures` (each ROI's name, number, interpreted type, structure code, plus
 `volume_cc` and `exported_file` for exported ROIs), `doses` (dose units /
-type / summation type, referenced plan & struct UIDs, `included_in_sum`),
+type / summation type, referenced plan & struct UIDs, `included_in_sum`, plus
+the `plan_name` and `dose_max_cgy` that identify the dose in the manifest),
 `dose_file`, and `plans` (label / name). Your `*_string_keys` requests land in
 each category's own `tags` sub-dict. Categories with no corresponding DICOM
 files are simply omitted, so image-only or dose-less folders parse cleanly

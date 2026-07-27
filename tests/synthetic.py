@@ -667,17 +667,25 @@ def build_synthetic_dose(
     rt_struct_sop_uid: str | None = None,
     rt_plan_sop_uid: str | None = None,
     summation_type: str = "PLAN",
+    dose_units: str = "GY",
+    peak_dose: float = 5000.0,
 ) -> Path:
     """Write a synthetic RT-Dose grid sharing geometry with the CT.
 
-    The dose values are an analytical Gaussian falloff centred on the
-    volume — exact values do not matter; tests only need a non-empty
-    grid sized to the image to drive ``DicomReaderWriter.get_dose``.
+    The dose values are an analytical Gaussian falloff centred on the volume,
+    rescaled so the grid maximum is **exactly** *peak_dose* in *dose_units* —
+    which is what lets tests assert an exact Dmax. Most tests only need a
+    non-empty grid sized to the image to drive ``DicomReaderWriter.get_dose``
+    and can ignore both knobs.
+
+    Args:
+        dose_units: DICOM ``DoseUnits`` (3004,0002) — ``"GY"`` or ``"CGY"``.
+        peak_dose: The grid's maximum value, expressed in *dose_units*.
     """
     cols, rows, slices = geometry.size
     sx, sy, sz = geometry.spacing
 
-    # Centred Gaussian dose distribution (cGy). Peak around 5000 cGy.
+    # Centred Gaussian dose distribution, in ``dose_units``.
     x = (np.arange(cols, dtype=np.float32) + 0.5) * sx + geometry.origin[0]
     y = (np.arange(rows, dtype=np.float32) + 0.5) * sy + geometry.origin[1]
     z = (np.arange(slices, dtype=np.float32) + 0.5) * sz + geometry.origin[2]
@@ -686,9 +694,12 @@ def build_synthetic_dose(
     cz = (geometry.origin[2] + geometry.origin[2] + slices * sz) / 2.0
     xx, yy, zz = np.meshgrid(x, y, z, indexing="xy")
     sigma = max(cols * sx, rows * sy, slices * sz) / 5.0
-    dose_cgy = 5000.0 * np.exp(
+    dose_cgy = np.exp(
         -((xx - cx) ** 2 + (yy - cy) ** 2 + (zz - cz) ** 2) / (2 * sigma**2)
     )
+    # The grid never samples the exact Gaussian centre, so normalise to put the
+    # peak exactly on ``peak_dose`` rather than slightly under it.
+    dose_cgy = dose_cgy / float(dose_cgy.max()) * peak_dose
     # (rows, cols, slices) -> (slices, rows, cols)
     dose_cgy = np.transpose(dose_cgy, (2, 0, 1))
 
@@ -741,7 +752,7 @@ def build_synthetic_dose(
     ds.NumberOfFrames = slices
 
     # RT Dose module.
-    ds.DoseUnits = "GY"
+    ds.DoseUnits = dose_units
     ds.DoseType = "PHYSICAL"
     ds.DoseSummationType = summation_type
     ds.DoseGridScaling = grid_scaling
