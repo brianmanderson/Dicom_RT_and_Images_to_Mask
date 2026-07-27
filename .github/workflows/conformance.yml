@@ -25,13 +25,13 @@ jobs:
     # test.yml already exercises Python/OS portability. Pick the most
     # commonly-deployed combo to keep CI minutes reasonable.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # setuptools-scm reads the version from git tags during install.
           fetch-depth: 0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
