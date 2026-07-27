@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [6.1.0] — 2026-07-26
 
 ### Added
 
@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the hermetic suite and CI are unaffected.
 
 ### Changed
+
+- **A manifest of a corpus that carries dose now has more rows than before.**
+  No API changed and no column was removed, but code that treats every manifest
+  row as an image series will now also see `RTDOSE` rows. Filter on the new
+  column to restore the previous shape:
+
+  ```python
+  images = manifest[manifest["modality"] != "RTDOSE"]
+  ```
 
 - `create_manifest` no longer bails out when a corpus has no usable ROIs but
   does carry dose — it writes the dose rows. The "no ROIs found" warnings are
