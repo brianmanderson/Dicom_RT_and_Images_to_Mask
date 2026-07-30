@@ -9,6 +9,50 @@
 
 Convert DICOM images and RT structures into NIfTI files, NumPy arrays, and SimpleITK image handles — and convert prediction masks back into RT structures.
 
+## Intended use
+
+DicomRTTool is a **reference implementation for research and for building
+clinical workflows — not a validated clinical device.** It has no regulatory
+clearance of any kind, and nothing in this repository removes an adopting
+site's responsibility to commission it locally.
+
+**What it is for:** converting DICOM image series and RT structure sets into
+arrays, NIfTI, and SimpleITK handles for research and model development;
+surveying and indexing DICOM corpora; resampling; anonymized export; and
+writing segmentation output back into an RT structure set.
+
+**What it is not for:** use as the sole check on any structure set that will
+be treated from. Two paths in this library produce or modify DICOM that can be
+imported into a treatment planning system:
+
+- `prediction_array_to_RT()` writes a model's segmentation into a new RT
+  structure set. Contours produced this way are a **starting point requiring
+  review and editing by a qualified person** before any clinical use. A
+  rasterization or coordinate error is not always visually obvious.
+- `rewrite_RT()` renames ROIs in an existing structure set and **saves the
+  file in place**. A wrong association silently relabels a structure, and the
+  in-place write leaves no original to compare against. Keep an independent
+  copy of any structure set before rewriting it.
+
+If output from this library will inform a clinical decision, commission it
+first: see [`docs/COMMISSIONING.md`](docs/COMMISSIONING.md) and run the
+validation package described there.
+
+## Versioned use
+
+**Clinical or clinically-adjacent use is supported only from tagged
+releases — never from `main`.** `main` receives development work that has not
+been through a release check, and its behaviour can change without notice.
+
+Pin an exact version, and record the version you commissioned:
+
+```bash
+pip install DicomRTTool==6.1.0
+```
+
+Re-commission after any version change that touches conversion, geometry, or
+the RT write paths; the [CHANGELOG](CHANGELOG.md) flags those.
+
 ## Installation
 
 ```bash
