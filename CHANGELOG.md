@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [6.2.0] — 2026-07-30
+
+### Added
+
+- **Site commissioning package** — the Tier C deliverables for the Medical
+  Physics Community Code Exchange review, and useful to any adopting site
+  regardless:
+  - `docs/COMMISSIONING.md` — a site-commissioning checklist covering
+    versioned install, automated validation, geometry on the site's own
+    scanners, structure naming, both RT write-back paths, and failure
+    behaviour, with sign-off and re-commissioning triggers.
+  - `validation/run_validation.py` — site-runnable validation: generates a
+    synthetic CT + RTSTRUCT fixture via the pinned conformance suite,
+    converts it through the ordinary public API, compares every mask against
+    analytic sub-voxel-quadrature ground truth, and writes a dated,
+    environment-stamped report (gitignored — file it with your commissioning
+    record). Discloses any threshold relaxed relative to the published
+    conformance defaults.
+  - README **"Intended use"** and **"Versioned use"** sections: reference
+    implementation, not a cleared clinical device; clinical use only from
+    tagged releases, never `main`.
+
 ### Changed
 
 - **Every runtime dependency now declares a lower bound.** `numpy>=1.22`,

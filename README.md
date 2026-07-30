@@ -47,7 +47,7 @@ been through a release check, and its behaviour can change without notice.
 Pin an exact version, and record the version you commissioned:
 
 ```bash
-pip install DicomRTTool==6.1.0
+pip install DicomRTTool==6.2.0
 ```
 
 Re-commission after any version change that touches conversion, geometry, or

@@ -13,8 +13,8 @@ authors:
     email: b5anderson@health.ucsd.edu
     affiliation: "University of California San Diego, Radiation Medicine and Applied Sciences"
     orcid: "https://orcid.org/0000-0002-2748-1444"
-version: 6.1.0
-date-released: "2026-07-26"
+version: 6.2.0
+date-released: "2026-07-30"
 identifiers:
   - type: doi
     value: "10.5281/zenodo.21631862"
