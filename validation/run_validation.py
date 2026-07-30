@@ -96,6 +96,7 @@ def build_predictions(fixture_dir: Path, out_dir: Path, roi_names) -> None:
     validates the path a user actually takes.
     """
     import SimpleITK as sitk
+
     from DicomRTTool.ReaderWriter import DicomReaderWriter
 
     reader = DicomReaderWriter(
@@ -247,7 +248,7 @@ def main() -> int:
     args = ap.parse_args()
 
     (CONFORMANCE_ROIS, generate_fixture, load_config,
-     GenerateOptions, Status, evaluate_one) = load_dependencies()
+     GenerateOptions, _Status, evaluate_one) = load_dependencies()
 
     config_path = args.config
     if config_path is None:
