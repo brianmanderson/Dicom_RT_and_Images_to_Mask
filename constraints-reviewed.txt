@@ -1,0 +1,42 @@
+# Reproducibility record — NOT an install constraint for users.
+#
+# These are the exact resolved versions the full test suite passed against on
+# the reviewed commit (Windows, CPython 3.12: 176 passed, 4 skipped). It exists
+# because `pyproject.toml` declares lower bounds, which is correct for a
+# library but says nothing about what was actually verified — a reader years
+# from now can tell what "the tests passed" meant only if the resolved set is
+# written down.
+#
+# Do NOT `pip install -r` this to use DicomRTTool. Install the package and let
+# your resolver pick versions within the declared bounds. This file is evidence,
+# not policy.
+#
+# CI regenerates the equivalent for every matrix combination and uploads it as
+# a build artifact on each run; this committed copy pins the record for the
+# release under review, so it travels with the archived snapshot.
+
+ImageIO==2.37.4
+NiftiResampler==0.1.1
+lazy-loader==0.5
+networkx==3.6.1
+numpy==2.5.1
+opencv-python-headless==5.0.0.93
+packaging==26.3
+pandas==3.0.5
+pillow==12.3.0
+pydicom==3.0.2
+python-dateutil==2.9.0.post0
+scikit-image==0.26.0
+scipy==1.18.0
+simpleitk==2.5.6
+six==1.17.0
+tifffile==2026.7.31
+tqdm==4.70.0
+tzdata==2026.3
+
+# Test-time only (the suite ran under these):
+colorama==0.4.6
+iniconfig==2.3.0
+pluggy==1.6.0
+pygments==2.20.0
+pytest==9.1.1

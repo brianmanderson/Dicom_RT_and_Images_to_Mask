@@ -1,0 +1,66 @@
+# Installs the exact lower bounds declared in pyproject.toml and runs the full
+# suite against them.
+#
+# Without this, a ">=" floor is an assertion nobody checks. The suite normally
+# runs against whatever pip resolves — which is the newest of everything — so a
+# floor can quietly stop working the moment the code starts using a newer API,
+# and nothing fails until a user on an older stack reports it.
+#
+# One job, not a matrix: this tests the dependency floor, and test.yml already
+# covers Python/OS portability.
+#
+# When this fails, the fix is usually to RAISE the floor in pyproject.toml to
+# whatever the code now needs — not to pin the dependency here.
+name: Minimum versions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  minimum-versions:
+    name: Declared lower bounds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # setuptools-scm reads the version from git tags during install.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Derive the floor set from pyproject.toml
+        run: |
+          python - <<'PY' > floors.txt
+          import re, tomllib, pathlib
+          deps = tomllib.loads(
+              pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]["dependencies"]
+          for spec in deps:
+              m = re.match(r"^\s*([A-Za-z0-9._-]+)\s*>=\s*([^\s,;]+)", spec)
+              if not m:
+                  raise SystemExit(
+                      f"dependency without a '>=' lower bound: {spec!r}\n"
+                      "Every runtime dependency needs a floor this job can test."
+                  )
+              print(f"{m.group(1)}=={m.group(2)}")
+          PY
+          echo "--- floor set under test ---"
+          cat floors.txt
+
+      - name: Install floors, then the package without touching them
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r floors.txt
+          pip install --no-deps -e .
+          pip install pytest
+          echo "--- resolved ---"
+          pip freeze
+
+      - name: Run the suite against the declared floors
+        run: pytest -q

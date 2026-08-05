@@ -2,4 +2,10 @@
 # PyPI rejects metadata containing direct URL references (PEP 508
 # `name @ url`). Install with:
 #   pip install -e .[dev] -r requirements-conformance.txt
-rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest
+#
+# Pinned to a commit, not a branch. Unpinned, the accuracy gate installs
+# whatever RTMaskConformanceTest's default branch holds that day, so a
+# green "conformance" check would not identify what it was checked against
+# and a regression in the suite would look like a regression here. Bump
+# this deliberately when the suite changes.
+rtmask-conformance @ git+https://github.com/brianmanderson/RTMaskConformanceTest@c1ef60874c5b2d8e291c927ec8a9f212d903fd07

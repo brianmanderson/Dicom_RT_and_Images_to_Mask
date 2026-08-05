@@ -28,16 +28,25 @@ classifiers = [
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
+# Lower bounds only, deliberately: this is a library, and an upper cap here
+# propagates into every consumer's dependency resolution. Each floor is the
+# oldest version the full suite has actually been run against — the "Minimum
+# versions" CI job installs exactly these and runs the suite, so the claim
+# stays true rather than decaying into folklore. constraints-reviewed.txt
+# records the resolved set at the other end of the range.
 dependencies = [
-    "numpy",
-    "opencv-python-headless",
-    "pandas",
-    "pydicom>=2.4",
-    "scikit-image",
-    "scipy",
-    "SimpleITK",
-    "tqdm",
-    "NiftiResampler",
+    "numpy>=1.26.0",
+    "opencv-python-headless>=4.9.0.80",
+    "pandas>=2.1.1",
+    # 3.0, not 2.4: the suite calls Dataset.save_as(enforce_file_format=...),
+    # which does not exist before pydicom 3.0. The old >=2.4 floor could not be
+    # exercised by the tests at all, so it asserted support nobody had verified.
+    "pydicom>=3.0",
+    "scikit-image>=0.22.0",
+    "scipy>=1.11.3",
+    "SimpleITK>=2.3.1",
+    "tqdm>=4.65.0",
+    "NiftiResampler>=0.1.0",
 ]
 
 [project.optional-dependencies]

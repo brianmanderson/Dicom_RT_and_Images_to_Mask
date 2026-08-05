@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [6.0.3] — 2026-07-26
+
+### Changed
+
+- **Every runtime dependency now declares a lower bound.** They were previously
+  bare names, which left the supported range undefined — `pip install
+  DicomRTTool` could resolve an ancient NumPy and fail in ways that looked like
+  bugs here. Bounds are lower-only on purpose: this is a library, and an upper
+  cap propagates into every consumer's resolution.
+- **`pydicom>=3.0`, raised from `>=2.4`.** The suite calls
+  `Dataset.save_as(enforce_file_format=...)`, which does not exist before
+  pydicom 3.0 — so the 2.4 floor could not be exercised by the tests at all and
+  asserted support nobody had verified. If you need pydicom 2.x, stay on 6.0.2.
+- **The conformance dependency is pinned to a commit.** `rtmask-conformance`
+  was installed from a bare branch URL, so the accuracy gate ran against
+  whatever `RTMaskConformanceTest` happened to hold that day.
+
+### Added
+
+- **`Minimum versions` CI job** — installs the declared lower bounds exactly and
+  runs the full suite against them, so the floors are a tested claim rather than
+  an assertion that quietly rots.
+- **`constraints-reviewed.txt`** — the resolved versions the suite passed
+  against for this release. Evidence, not an install constraint; `Tests` also
+  uploads the equivalent per matrix combination on every run.
+
 ## [6.0.2] — 2026-07-25
 
 ### Added

@@ -13,8 +13,8 @@ authors:
     email: b5anderson@health.ucsd.edu
     affiliation: "University of California San Diego, Radiation Medicine and Applied Sciences"
     orcid: "https://orcid.org/0000-0002-2748-1444"
-version: 6.0.2
-date-released: "2026-07-25"
+version: 6.0.3
+date-released: "2026-07-26"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/brianmanderson/Dicom_RT_and_Images_to_Mask"
 url: "https://pypi.org/project/DicomRTTool/"

@@ -41,6 +41,19 @@ jobs:
       - name: Run tests with coverage
         run: pytest --cov=DicomRTTool --cov-report=xml --cov-report=term-missing
 
+      # Runs only after the suite passes, so the file records the versions the
+      # tests actually passed against rather than merely what was installed.
+      # pyproject declares lower bounds (correct for a library); this is what
+      # says which resolved set was verified on this commit.
+      - name: Record resolved dependency versions
+        run: pip freeze > constraints-${{ matrix.os }}-py${{ matrix.python-version }}.txt
+
+      - name: Upload resolved dependency versions
+        uses: actions/upload-artifact@v4
+        with:
+          name: constraints-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: constraints-${{ matrix.os }}-py${{ matrix.python-version }}.txt
+
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@v5
