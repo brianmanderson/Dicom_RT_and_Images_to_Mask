@@ -20,10 +20,11 @@ pip install -e ".[dev]"                 # install (setuptools-scm needs git tags
 .venv/Scripts/ruff.exe check .          # lint — CI gates on this, run before pushing
 ```
 
-Two test groups auto-skip unless enabled:
+Three test groups auto-skip unless enabled:
 
 - `tests/test_conformance.py` — analytical accuracy gate; needs `pip install -r requirements-conformance.txt` (a git-URL dep deliberately kept out of `pyproject.toml` — PyPI rejects direct-URL metadata). Separate CI check (`conformance.yml`).
 - `tests/test_csharp_parity.py` — needs env vars `DICOMRTTOOL_LCTSC_DIR` and `DICOMRTTOOL_CSHARP_EXE`.
+- `tests/test_real_corpus_dose.py` — dose fidelity against one real patient (CT + RTSTRUCT + RTDOSE); needs env var `DICOMRTTOOL_DOSE_CORPUS`.
 
 ## Versioning & release
 
